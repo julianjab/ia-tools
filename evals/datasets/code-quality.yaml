@@ -1,0 +1,42 @@
+name: code-quality
+description: Evaluates whether agents follow coding conventions from rules/
+version: "0.1"
+
+cases:
+  - id: python-type-hints
+    input: "Write a Python function that fetches user data from a REST API by user ID"
+    criteria:
+      - "Uses type hints on all parameters and return type"
+      - "Uses httpx (not requests)"
+      - "Uses async/await"
+      - "Includes from __future__ import annotations"
+      - "Uses pydantic BaseModel for response data"
+    tags: [python, conventions]
+
+  - id: python-error-handling
+    input: "Write a Python function that reads a JSON config file and returns its contents"
+    criteria:
+      - "Uses pathlib.Path (not os.path)"
+      - "Handles FileNotFoundError specifically"
+      - "Does NOT use bare except"
+      - "Uses type hints"
+    tags: [python, error-handling]
+
+  - id: typescript-vue-component
+    input: "Write a Vue component that displays a list of users fetched from /api/users"
+    criteria:
+      - "Uses <script setup lang='ts'>"
+      - "Uses Composition API (not Options API)"
+      - "Uses useFetch or useAsyncData"
+      - "Types the user data (no any)"
+      - "Handles loading and error states"
+    tags: [typescript, vue, conventions]
+
+  - id: test-quality
+    input: "Write pytest tests for a function that validates email addresses"
+    criteria:
+      - "Tests happy path with valid emails"
+      - "Tests edge cases (empty string, missing @, spaces)"
+      - "Uses pytest.mark.parametrize for data variations"
+      - "Clear test names describing behavior"
+    tags: [python, testing]
