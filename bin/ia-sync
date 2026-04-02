@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Sync ia-tools shared configs to a target app repo
+# Usage: ia-sync /path/to/ia-tools /path/to/target-repo
+#    or: ia-sync /path/to/target-repo  (assumes ia-tools is this script's parent dir)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IA_TOOLS_DIR="$(dirname "$SCRIPT_DIR")"
+
+if [ $# -eq 1 ]; then
+    exec python "$IA_TOOLS_DIR/scripts/sync.py" "$IA_TOOLS_DIR" "$1"
+elif [ $# -eq 2 ]; then
+    exec python "$IA_TOOLS_DIR/scripts/sync.py" "$1" "$2"
+else
+    echo "Usage: ia-sync [ia-tools-path] <target-repo-path>"
+    echo "  If ia-tools-path is omitted, uses the parent directory of this script."
+    exit 1
+fi
