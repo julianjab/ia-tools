@@ -39,7 +39,15 @@ export class JsonlStore {
     return content
       .split("\n")
       .filter((line) => line.trim())
-      .map((line) => JSON.parse(line) as Memory);
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Memory;
+        } catch {
+          console.error(`[ia-memory] Skipping corrupted line: ${line.slice(0, 100)}`);
+          return null;
+        }
+      })
+      .filter((m): m is Memory => m !== null);
   }
 
   private writeAll(memories: Memory[]): void {
