@@ -1,0 +1,56 @@
+2026-04-08T16:32:43.646Z [INFO] Starting slack-bridge (mode: reactive)
+2026-04-08T16:32:43.647Z [INFO] Log file: /Users/julianbuitrago/development/ia-tools/mcp-servers/slack-bridge/slack-bridge.log
+2026-04-08T16:32:43.647Z [INFO] MCP transport ready
+2026-04-08T16:32:44.289Z [INFO] Socket Mode connected (mode: REACTIVE)
+2026-04-08T16:32:46.856Z [INFO] REACTIVE <- Esteban Cataño in #team-claw-agents: <@U0AHRSSLF4G> faltó el make fmt antes del commit, no paso el action de ci por e
+2026-04-08T16:32:46.856Z [INFO] Sampling request for message from Esteban Cataño...
+2026-04-08T16:32:46.858Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:32:53.342Z [INFO] REACTIVE <- Johnny Montoya Franco in #team-claw-agents: <@U0AGVLRV6A2> verifica los datos de Andrea Angel
+
+```# Por ID numérico
+  curl -
+2026-04-08T16:32:53.342Z [INFO] Sampling request for message from Johnny Montoya Franco...
+2026-04-08T16:32:53.345Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:33:23.006Z [INFO] REACTIVE <- Julian Buitrago in #D0AMP0P0UKY: Hola
+2026-04-08T16:33:23.006Z [INFO] Sampling request for message from Julian Buitrago...
+2026-04-08T16:33:23.013Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:33:54.237Z [INFO] REACTIVE <- Dixon Medina in #team-cx-us: <@U079A9CU317> para el caso `59171717392`  si el usuario ingresa al proceso de a
+2026-04-08T16:33:54.237Z [INFO] Sampling request for message from Dixon Medina...
+2026-04-08T16:33:54.238Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:34:23.745Z [INFO] REACTIVE <- Dixon Medina in #team-cx-us: <@U079A9CU317> a que te refieres con muchos eventos?
+2026-04-08T16:34:23.746Z [INFO] Sampling request for message from Dixon Medina...
+2026-04-08T16:34:23.759Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:37:31.921Z [INFO] REACTIVE <- Esteban Cataño in #team-cx-us: Ya lo ajusto
+2026-04-08T16:37:31.924Z [INFO] Sampling request for message from Esteban Cataño...
+2026-04-08T16:37:31.925Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:39:06.678Z [INFO] REACTIVE <- Omar Montoya in #team-cx-us: <@U01TLDSER8A> tiene que ver con lo que reporte en este <https://lahaus.slack.co
+2026-04-08T16:39:06.680Z [INFO] Sampling request for message from Omar Montoya...
+2026-04-08T16:39:06.683Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:40:29.883Z [INFO] REACTIVE <- Johnny Montoya Franco in #team-claw-agents: ``` curl -s -X GET
+  "<https://microservices.lahaus.com/ims/external_api/v3/ente
+2026-04-08T16:40:29.885Z [INFO] Sampling request for message from Johnny Montoya Franco...
+2026-04-08T16:40:29.890Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:40:51.474Z [INFO] REACTIVE <- Jaider Smith in #team-cx-us: <https://linear.app/lahaus/issue/LHIMPL-4171/edicion-personalidad-del-agente>
+2026-04-08T16:40:51.476Z [INFO] Sampling request for message from Jaider Smith...
+2026-04-08T16:40:51.477Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:41:08.338Z [INFO] REACTIVE <- Esteban Cataño in #team-cx-us: El tema es que el titulo de la meeting está definido es directamente en <http://
+2026-04-08T16:41:08.340Z [INFO] Sampling request for message from Esteban Cataño...
+2026-04-08T16:41:08.342Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:41:57.750Z [INFO] REACTIVE <- Ricardo Arturo Melendez Estrada in #team-cx-us: <@U02E3ARPYDA> te doy una mano con esto?
+2026-04-08T16:41:57.751Z [INFO] Sampling request for message from Ricardo Arturo Melendez Estrada...
+2026-04-08T16:41:57.754Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:42:15.680Z [INFO] MCP channel ready
+2026-04-08T16:42:16.328Z [INFO] Socket Mode connected — pushing to Claude channel
+2026-04-08T16:42:22.276Z [INFO] Pushed to Claude: [#D0AMP0P0UKY] Julian Buitrago: Hola
+2026-04-08T16:42:35.217Z [INFO] Replied in D0AMP0P0UKY ts=1775666555.175749
+2026-04-08T16:43:11.398Z [INFO] REACTIVE <- Julian Buitrago in #team-claw-agents: <@U0ANK9LSTJL> como va la tavuel?
+2026-04-08T16:43:11.399Z [INFO] Sampling request for message from Julian Buitrago...
+2026-04-08T16:43:11.404Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:43:12.145Z [INFO] Pushed to Claude: [#team-claw-agents] Julian Buitrago: <@U0ANK9LSTJL> como va la tavuel?
+2026-04-08T16:43:16.429Z [INFO] Replied in C0AGHAKPG6T ts=1775666596.394499
+2026-04-08T16:43:32.772Z [INFO] REACTIVE <- Julian Buitrago in #team-claw-agents: <@U02MQARFT7G> Pilla esto
+2026-04-08T16:43:32.773Z [INFO] Sampling request for message from Julian Buitrago...
+2026-04-08T16:43:32.775Z [ERROR] Sampling error: {"code":-32601,"name":"McpError"}
+2026-04-08T16:44:07.201Z [INFO] Pushed to Claude: [#team-cx-us] Esteban Arango: <@U01TLDSER8A> eventos de visita incompleta en donde?
+2026-04-08T16:44:34.981Z [INFO] Pushed to Claude: [#team-claw-agents] Julian Buitrago: Porque no respondiste esto?
+2026-04-08T16:44:42.367Z [INFO] Replied in C0AGHAKPG6T ts=1775666682.378579
