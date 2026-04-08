@@ -1,10 +1,11 @@
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 
 export const getRulesSchema = z.object({
   context: z
     .string()
+    .min(1, "Context must not be empty")
     .describe(
       'The context to get rules for (e.g., "base", "python", "typescript", "testing", "git", "review")'
     ),
@@ -18,6 +19,13 @@ export function handleGetRules(
 ): { content: string; file: string } | { error: string } {
   const filename = input.context.replace(/\.md$/, "") + ".md";
   const filePath = join(rulesDir, filename);
+
+  // Prevent path traversal
+  const resolvedPath = resolve(filePath);
+  const resolvedDir = resolve(rulesDir);
+  if (!resolvedPath.startsWith(resolvedDir + "/")) {
+    return { error: `Invalid context: "${input.context}"` };
+  }
 
   if (!existsSync(filePath)) {
     const available = getAvailableRules(rulesDir);
