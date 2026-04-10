@@ -13,10 +13,16 @@
 export interface SlackEnv {
   botToken: string;
   appToken: string;
-  channels: string[];
   threadOnly: boolean;
   /** "poll" = Claude calls poll_slack; "reactive" = sampling on each message */
   mode: "poll" | "reactive";
+  /** Only receive DMs (im channels), ignore all public/private channels */
+  dmUsers: string[];
+
+  channels: string[];
+  allowedUsers: string[];
+  /** If set, only process messages in this specific thread */
+  threadTs?: string;
 }
 
 export function loadEnv(): SlackEnv {
@@ -40,10 +46,24 @@ export function loadEnv(): SlackEnv {
     .map((c) => c.trim())
     .filter(Boolean);
 
+  const dmUsersRaw = process.env["SLACK_DM_USERS"] ?? "";
+  const dmUsers = dmUsersRaw
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+
   const threadOnly = process.env["SLACK_THREAD_ONLY"] === "true";
 
   const modeRaw = process.env["SLACK_BRIDGE_MODE"] ?? "poll";
   const mode = modeRaw === "reactive" ? "reactive" : "poll";
 
-  return { botToken, appToken, channels, threadOnly, mode };
+  const threadTs = process.env["SLACK_THREAD_TS"] || undefined;
+
+  const allowedUsersRaw = process.env["SLACK_ALLOWED_USERS"] ?? "";
+  const allowedUsers = allowedUsersRaw
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  return { botToken, appToken, channels, threadOnly, mode, dmUsers, threadTs, allowedUsers };
 }

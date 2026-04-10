@@ -27,9 +27,9 @@ function write(level: string, msg: string): void {
 }
 
 export const log = {
-  info: (msg: string) => write("INFO", msg),
-  warn: (msg: string) => write("WARN", msg),
-  error: (msg: string) => write("ERROR", msg),
-  debug: (msg: string) => write("DEBUG", msg),
+  info: (msg: string, ...args: unknown[]) => write("INFO", `${msg} ${JSON.stringify(args)}`),
+  warn: (msg: string, ...args: unknown[]) => write("WARN", `${msg} ${JSON.stringify(args)}`),
+  error: (msg: string, ...args: unknown[]) => write("ERROR", `${msg} ${JSON.stringify(args)}`),
+  debug: (msg: string, ...args: unknown[]) => write("DEBUG", `${msg} ${JSON.stringify(args)}`),
   path: LOG_PATH,
 };

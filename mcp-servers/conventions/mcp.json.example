@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "conventions": {
+      "command": "node",
+      "args": [
+        "mcp-servers/conventions/dist/index.js"
+      ]
+    }
+  }
+}

@@ -26,6 +26,9 @@ evals/results/*
 # ia-tools local storage
 # (memory DB lives at ~/.ia-tools/, not in repo)
 
+# Git worktrees (parallel development)
+_worktrees/
+
 # IDE
 .vscode/
 .idea/
