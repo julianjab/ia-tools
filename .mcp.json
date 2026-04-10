@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "node",
+      "args": [
+        "mcp-servers/memory/dist/index.js"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": ".claude/memory.jsonl"
+      }
+    },
+    "conventions": {
+      "command": "node",
+      "args": [
+        "mcp-servers/conventions/dist/index.js"
+      ]
+    },
+    "slack-bridge": {
+      "command": "node",
+      "args": [
+        "mcp-servers/slack-bridge/dist/index.js"
+      ],
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-",
+        "SLACK_APP_TOKEN": "xapp-1-",
+        "SLACK_BRIDGE_MODE": "poll",
+        "SLACK_BRIDGE_AUTO_REPLY": "true",
+        "SLACK_BRIDGE_MAX_TOKENS": "1024",
+        "SLACK_CHANNELS": "",
+        "SLACK_DM_USERS": "U02M1QFA0AF",
+        "SLACK_THREAD_ONLY": "false"
+      }
+    }
+  }
+}

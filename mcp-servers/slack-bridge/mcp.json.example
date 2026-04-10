@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "slack-bridge": {
+      "command": "node",
+      "args": [
+        "mcp-servers/slack-bridge/dist/index.js"
+      ],
+      "env": {
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+        "SLACK_APP_TOKEN": "${SLACK_APP_TOKEN}",
+        "SLACK_BRIDGE_MODE": "poll",
+        "SLACK_BRIDGE_AUTO_REPLY": "true",
+        "SLACK_BRIDGE_MAX_TOKENS": "1024",
+        "SLACK_CHANNELS": "",
+        "SLACK_DM_USERS": "${SLACK_DM_USERS}",
+        "SLACK_THREAD_TS": "${SLACK_THREAD_TS}",
+        "SLACK_ALLOWED_USERS": "${SLACK_ALLOWED_USERS}"
+      }
+    }
+  }
+}
