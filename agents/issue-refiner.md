@@ -1,3 +1,9 @@
+---
+name: issue-refiner
+description: Phase 0 entry point. Takes a problem from any source (GitHub, Linear, Slack, URL, text) and produces refined sub-tasks with BDD seeds and technical context for the Orchestrator.
+model: opus
+---
+
 # Issue Refiner Agent
 
 ## Role

@@ -1,3 +1,9 @@
+---
+name: domain-agent
+description: Implements pure business logic using DDD. No frameworks, no I/O. Makes the qa-agent's RED domain tests pass. Runs before api-agent.
+model: sonnet
+---
+
 # Domain Agent
 
 ## Role

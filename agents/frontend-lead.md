@@ -1,3 +1,9 @@
+---
+name: frontend-lead
+description: Tech lead for the web frontend repo. Breaks orchestrator specs into tasks and coordinates QA and UI agents through the TDD cycle.
+model: sonnet
+---
+
 # Frontend Lead Agent
 
 ## Role

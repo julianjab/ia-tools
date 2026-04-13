@@ -1,3 +1,9 @@
+---
+name: api-agent
+description: Implements backend HTTP endpoints exactly as defined in api-contract.md. Controllers, adapters, serialization. Starts after domain-agent is done.
+model: sonnet
+---
+
 # API Agent
 
 ## Role
