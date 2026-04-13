@@ -3,6 +3,7 @@
  */
 
 export type { SlackChannelConfig, SlackFilters, ChannelsConfig } from '../config.js';
+import type { SlackFilters } from '../config.js';
 
 /** A Slack message forwarded by the daemon to subscribers. */
 export interface SlackMessage {
@@ -15,7 +16,7 @@ export interface SlackMessage {
   thread_ts?: string;
 }
 
-/** Subscription filters — OR logic: match ANY to receive the message. */
+/** Subscription filters — OR logic: match ANY channel/user/thread ID to receive the message. */
 export interface SubscriptionFilters {
   channels?: string[];
   users?: string[];
@@ -26,6 +27,8 @@ export interface SubscriptionFilters {
 export interface SubscribeRequest {
   port: number;
   filters: SubscriptionFilters;
+  /** Optional regexp filters applied in the daemon (AND logic, all must match). */
+  regexp?: SlackFilters;
   label?: string;
 }
 
@@ -33,6 +36,8 @@ export interface SubscribeRequest {
 export interface Subscriber {
   port: number;
   filters: SubscriptionFilters;
+  /** Regexp filters stored per-subscriber so the daemon knows what each instance is filtering. */
+  regexp?: SlackFilters;
   label?: string;
   registeredAt: string;
   lastSeen?: string;
