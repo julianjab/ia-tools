@@ -25,7 +25,7 @@ import {
 import { WebClient } from "@slack/web-api";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { MessagePayload, SubscriptionFilters, ClaimResponse } from "./shared/types.js";
-import { ensureDaemon } from "./ensure-daemon.js";
+import { ensureDaemon, resolveDaemonUrl } from "./ensure-daemon.js";
 import { loadConfig } from "./config.js";
 
 const botToken = process.env['SLACK_BOT_TOKEN'];
@@ -34,7 +34,7 @@ if (!botToken) {
   process.exit(1);
 }
 
-const DAEMON_URL = process.env['DAEMON_URL'] ?? 'http://localhost:3800';
+const DAEMON_URL = resolveDaemonUrl();
 const web = new WebClient(botToken);
 
 // ─── State ──────────────────────────────────────────────────────────
