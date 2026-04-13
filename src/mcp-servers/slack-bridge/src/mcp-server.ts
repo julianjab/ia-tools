@@ -29,7 +29,7 @@ import { WebClient } from '@slack/web-api';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { MessagePayload, SubscriptionFilters, ClaimResponse } from './shared/types.js';
 import type { SlackFilters } from './config.js';
-import { resolveDaemonUrl } from './ensure-daemon.js';
+import { resolveDaemonUrl, ensureDaemon } from './ensure-daemon.js';
 import { loadConfig, saveConfig } from './config.js';
 
 const botToken = process.env['SLACK_BOT_TOKEN'];
@@ -450,6 +450,14 @@ mcp.oninitialized = async () => {
     );
   }
 };
+
+// ─── Ensure daemon is running (singleton — first session spawns it) ─
+try {
+  await ensureDaemon(DAEMON_URL);
+} catch (err) {
+  console.error(`[slack-bridge] ${(err as Error).message}`);
+  process.exit(1);
+}
 
 // ─── Connect ────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
