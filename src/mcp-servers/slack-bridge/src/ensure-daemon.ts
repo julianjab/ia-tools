@@ -12,20 +12,11 @@
  * run per machine regardless of how many MCP clients (Claude sessions) boot up.
  */
 
-import { spawn } from 'node:child_process';
-import {
-  openSync,
-  writeSync,
-  closeSync,
-  readFileSync,
-  unlinkSync,
-  existsSync,
-  mkdirSync,
-  constants,
-} from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
+import { spawn } from "node:child_process";
+import { openSync, writeSync, closeSync, readFileSync, unlinkSync, existsSync, mkdirSync, constants } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 
 const HEALTH_TIMEOUT_MS = 10_000;
 const HEALTH_POLL_MS = 200;
@@ -118,19 +109,19 @@ function spawnDaemon(logPath: string, port: number): void {
  *   - Otherwise: ${homedir()}/.local/state/ia-tools/slack-bridge/daemon.port
  */
 export function resolveDaemonUrl(): string {
-  const envUrl = process.env['DAEMON_URL'];
+  const envUrl = process.env["DAEMON_URL"];
   if (envUrl && envUrl.trim()) {
     return envUrl.trim();
   }
 
   // Determine port file path
-  const xdgStateHome = process.env['XDG_STATE_HOME'];
+  const xdgStateHome = process.env["XDG_STATE_HOME"];
   const portFilePath = xdgStateHome
-    ? join(xdgStateHome, 'daemon.port')
-    : join(homedir(), '.local', 'state', 'ia-tools', 'slack-bridge', 'daemon.port');
+    ? join(xdgStateHome, "daemon.port")
+    : join(homedir(), ".local", "state", "ia-tools", "slack-bridge", "daemon.port");
 
   try {
-    const raw = readFileSync(portFilePath, 'utf8').trim();
+    const raw = readFileSync(portFilePath, "utf8").trim();
     const port = parseInt(raw, 10);
     if (Number.isInteger(port) && port >= 1 && port <= 65535) {
       return `http://localhost:${port}`;
@@ -139,7 +130,7 @@ export function resolveDaemonUrl(): string {
     /* port file does not exist or is unreadable — fall through to default */
   }
 
-  return 'http://localhost:3800';
+  return "http://localhost:3800";
 }
 
 /**
