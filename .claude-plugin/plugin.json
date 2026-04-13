@@ -1,0 +1,9 @@
+{
+  "name": "ia-tools",
+  "version": "0.1.0",
+  "description": "Centralized AI toolbox: shared agents, skills (worktree, commit, review, pr, deliver, team, ship, sync-docs), and nested Claude plugins (slack-bridge) for development teams.",
+  "author": {
+    "name": "ia-tools"
+  },
+  "mcpServers": "./plugins/slack-bridge/.mcp.json"
+}

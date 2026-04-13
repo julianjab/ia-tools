@@ -1,2 +1,2 @@
 packages:
-  - mcp-servers/*
+  - src/mcp-servers/*

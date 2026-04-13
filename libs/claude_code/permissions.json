@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "mcp__plugin_slack_slack__slack_send_message",
-      "mcp__slack-bridge__reply_slack"
-    ]
-  }
-}

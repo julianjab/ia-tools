@@ -1,0 +1,9 @@
+{
+  "name": "slack-bridge",
+  "version": "0.2.0",
+  "description": "Slack bridge for Claude Code: subscribe to channels, claim and reply to messages, read threads and channels via a daemon + MCP architecture.",
+  "author": {
+    "name": "ia-tools"
+  },
+  "mcpServers": "./.mcp.json"
+}
