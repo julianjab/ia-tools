@@ -453,7 +453,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   throw new Error(`Unknown tool: ${name}`);
 });
 
-// ─── Auto-subscribe once client is fully connected ─────────────────
+// ─── Startup gate + auto-subscribe ────────────────────────────────
 // Env vars take precedence over .claude/.channels.json config file values.
 const fileConfig = loadConfig();
 const autoChannels =
@@ -462,11 +462,26 @@ const autoUsers = process.env['SLACK_USERS']?.split(',').filter(Boolean) ?? file
 const autoThreads =
   process.env['SLACK_THREADS']?.split(',').filter(Boolean) ?? fileConfig.threads ?? [];
 
-if (autoChannels.length || autoUsers.length || autoThreads.length) {
-  // Apply stored filters from file on auto-subscribe
-  activeFilters = fileConfig.filters;
+mcp.oninitialized = async () => {
+  // Verify Claude was started with --dangerously-load-development-channels server:slack-bridge.
+  // Without that flag the client does not advertise experimental['claude/channel'] and all
+  // channel notifications are silently dropped — there is no point running.
+  const caps = mcp.getClientCapabilities();
+  const hasChannelCap = !!caps?.experimental?.['claude/channel'];
 
-  mcp.oninitialized = async () => {
+  if (!hasChannelCap) {
+    console.error(
+      '[slack-bridge] FATAL: Claude is missing the required flag.\n' +
+        'Restart Claude with:\n' +
+        '  claude --dangerously-load-development-channels server:slack-bridge\n' +
+        'Without this flag channel notifications are silently dropped.',
+    );
+    process.exit(1);
+  }
+
+  // Auto-subscribe from stored config / env vars
+  if (autoChannels.length || autoUsers.length || autoThreads.length) {
+    activeFilters = fileConfig.filters;
     try {
       await daemonSubscribe(
         { channels: autoChannels, users: autoUsers, threads: autoThreads },
@@ -478,8 +493,8 @@ if (autoChannels.length || autoUsers.length || autoThreads.length) {
     } catch {
       console.error('[slack-bridge] auto-subscribe failed (daemon not running?)');
     }
-  };
-}
+  }
+};
 
 // ─── Ensure daemon is running (singleton, auto-start once) ─────────
 try {
