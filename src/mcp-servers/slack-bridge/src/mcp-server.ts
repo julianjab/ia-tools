@@ -39,6 +39,7 @@ const web = new WebClient(botToken);
 // ─── State ──────────────────────────────────────────────────────────
 let webhookPort: number | undefined;
 let activeFilters: SlackFilters | undefined;
+let channelCapabilityEnabled = false;
 
 // ─── MCP Server ─────────────────────────────────────────────────────
 const mcp = new Server(
@@ -321,6 +322,21 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   const args = (req.params.arguments ?? {}) as Record<string, unknown>;
 
   if (name === 'subscribe_slack') {
+    if (!channelCapabilityEnabled) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              '✗ Channel notifications are disabled.\n\n' +
+              'Restart Claude with:\n' +
+              '  claude --dangerously-load-development-channels server:slack-bridge',
+          },
+        ],
+        isError: true,
+      };
+    }
+
     try {
       const filters: SubscriptionFilters = {
         channels: (args['channels'] as string[]) ?? [],
@@ -467,16 +483,14 @@ mcp.oninitialized = async () => {
   // Without that flag the client does not advertise experimental['claude/channel'] and all
   // channel notifications are silently dropped — there is no point running.
   const caps = mcp.getClientCapabilities();
-  const hasChannelCap = !!caps?.experimental?.['claude/channel'];
+  channelCapabilityEnabled = !!caps?.experimental?.['claude/channel'];
 
-  if (!hasChannelCap) {
+  if (!channelCapabilityEnabled) {
     console.error(
-      '[slack-bridge] FATAL: Claude is missing the required flag.\n' +
-        'Restart Claude with:\n' +
-        '  claude --dangerously-load-development-channels server:slack-bridge\n' +
-        'Without this flag channel notifications are silently dropped.',
+      '[slack-bridge] WARNING: Claude is missing --dangerously-load-development-channels server:slack-bridge. ' +
+        'Channel notifications are disabled. Restart Claude with that flag to enable Slack.',
     );
-    process.exit(1);
+    return; // stay connected — tools that need channels will return an error
   }
 
   // Auto-subscribe from stored config / env vars
