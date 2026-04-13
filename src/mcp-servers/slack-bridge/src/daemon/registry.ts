@@ -1,9 +1,26 @@
 /**
- * Subscriber registry — tracks MCP instances and their filters.
+ * Subscriber registry — tracks MCP instances, their ID filters, and regexp filters.
  * Health-checks subscribers periodically and removes dead ones.
+ *
+ * Matching logic (two layers):
+ *   1. ID filters (OR)  — channels / users / threads: match ANY to pass
+ *   2. Regexp filters (AND) — channel_name / user_name / text / thread_ts: ALL must match
  */
 
-import type { Subscriber, SubscriptionFilters, SlackMessage } from '../shared/types.js';
+import type {
+  Subscriber,
+  SubscriptionFilters,
+  SlackMessage,
+  SlackFilters,
+} from '../shared/types.js';
+
+function tryMatch(pattern: string, value: string): boolean {
+  try {
+    return new RegExp(pattern).test(value);
+  } catch {
+    return true; // invalid regexp — don't filter
+  }
+}
 
 export class Registry {
   private subscribers = new Map<number, Subscriber>();
@@ -11,10 +28,16 @@ export class Registry {
 
   constructor(private healthCheckMs = 30_000) {}
 
-  add(port: number, filters: SubscriptionFilters, label?: string): Subscriber {
+  add(
+    port: number,
+    filters: SubscriptionFilters,
+    regexp?: SlackFilters,
+    label?: string,
+  ): Subscriber {
     const sub: Subscriber = {
       port,
       filters,
+      regexp,
       label,
       registeredAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
@@ -37,24 +60,37 @@ export class Registry {
 
   /** Find subscribers whose filters match the given message. */
   match(msg: SlackMessage): Subscriber[] {
-    return this.all().filter((sub) => this.matches(sub.filters, msg));
+    return this.all().filter((sub) => this.matches(sub.filters, sub.regexp, msg));
   }
 
-  private matches(filters: SubscriptionFilters, msg: SlackMessage): boolean {
-    // Empty filters = match everything
-    const hasAnyFilter =
+  private matches(
+    filters: SubscriptionFilters,
+    regexp: SlackFilters | undefined,
+    msg: SlackMessage,
+  ): boolean {
+    // Layer 1 — ID-based OR matching
+    const hasAnyIdFilter =
       (filters.channels?.length ?? 0) > 0 ||
       (filters.users?.length ?? 0) > 0 ||
       (filters.threads?.length ?? 0) > 0;
 
-    if (!hasAnyFilter) return true;
+    if (hasAnyIdFilter) {
+      const matchesId =
+        (filters.channels?.includes(msg.channel_id) ?? false) ||
+        (filters.users?.includes(msg.user_id) ?? false) ||
+        (msg.thread_ts != null && (filters.threads?.includes(msg.thread_ts) ?? false));
+      if (!matchesId) return false;
+    }
 
-    // OR logic: match ANY filter
-    if (filters.channels?.includes(msg.channel_id)) return true;
-    if (filters.users?.includes(msg.user_id)) return true;
-    if (msg.thread_ts && filters.threads?.includes(msg.thread_ts)) return true;
+    // Layer 2 — Regexp AND matching (all patterns must pass)
+    if (regexp) {
+      if (regexp.channel && !tryMatch(regexp.channel, msg.channel_name)) return false;
+      if (regexp.user && !tryMatch(regexp.user, msg.user_name)) return false;
+      if (regexp.message && !tryMatch(regexp.message, msg.text ?? '')) return false;
+      if (regexp.thread && !tryMatch(regexp.thread, msg.thread_ts ?? '')) return false;
+    }
 
-    return false;
+    return true;
   }
 
   markSeen(port: number): void {

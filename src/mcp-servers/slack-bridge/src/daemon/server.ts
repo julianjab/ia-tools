@@ -64,9 +64,9 @@ export function createApiServer(
           json(res, 400, { error: 'port is required' });
           return;
         }
-        const sub = registry.add(body.port, body.filters ?? {}, body.label);
+        const sub = registry.add(body.port, body.filters ?? {}, body.regexp, body.label);
         console.log(
-          `[api] +subscriber :${body.port} (${body.label ?? '-'}) filters=${JSON.stringify(body.filters)}`,
+          `[api] +subscriber :${body.port} (${body.label ?? '-'}) filters=${JSON.stringify(body.filters)} regexp=${JSON.stringify(body.regexp ?? {})}`,
         );
         json(res, 200, sub);
       } catch (err) {

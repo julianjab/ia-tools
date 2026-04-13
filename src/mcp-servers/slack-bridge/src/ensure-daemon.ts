@@ -1,15 +1,12 @@
 /**
- * Ensures the slack-bridge daemon is running before the MCP server connects.
+ * Daemon lifecycle helpers.
  *
- * Strategy:
- *  1. Probe `${DAEMON_URL}/health`. If it responds, we're done.
- *  2. Otherwise, try to acquire an exclusive pidfile lock. First winner spawns
- *     the daemon as a detached child. Losers just wait for the winner's daemon
- *     to become healthy.
- *  3. Poll `/health` until ready (or timeout).
+ * resolveDaemonUrl() — resolves the daemon HTTP API URL.
+ * ensureDaemon()     — starts the daemon once if it is not already running (singleton).
  *
- * The daemon is a singleton Socket Mode connection to Slack, so only one must
- * run per machine regardless of how many MCP clients (Claude sessions) boot up.
+ * The daemon is a singleton Socket Mode connection to Slack. Only one runs per machine
+ * regardless of how many MCP clients (Claude sessions) are active. The first session
+ * that finds the daemon down will spawn it; the rest wait for it to become healthy.
  */
 
 import { spawn } from 'node:child_process';
@@ -67,10 +64,6 @@ function processAlive(pid: number): boolean {
   }
 }
 
-/**
- * Try to atomically create the pidfile. Returns true if we became the owner.
- * If the file exists but points at a dead pid, we take it over.
- */
 function acquireLock(lockPath: string): boolean {
   try {
     const fd = openSync(lockPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o644);
@@ -78,10 +71,8 @@ function acquireLock(lockPath: string): boolean {
     closeSync(fd);
     return true;
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'EEXIST') throw err;
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
-
   try {
     const pid = parseInt(readFileSync(lockPath, 'utf8').trim(), 10);
     if (Number.isFinite(pid) && processAlive(pid)) return false;
@@ -108,22 +99,18 @@ function spawnDaemon(logPath: string, port: number): void {
 }
 
 /**
- * Resolve the daemon URL using a priority chain:
- *   1. DAEMON_URL env var (if defined and non-empty after trim) → use as-is.
- *   2. Read ${stateDir}/daemon.port; if valid port (1-65535) → http://localhost:<port>.
- *   3. Fallback: http://localhost:3800.
+ * Resolve the daemon URL.
  *
- * The port file path is:
- *   - When XDG_STATE_HOME is set: ${XDG_STATE_HOME}/daemon.port
- *   - Otherwise: ${homedir()}/.local/state/ia-tools/slack-bridge/daemon.port
+ * Priority:
+ *   1. DAEMON_URL env var (if set and non-empty)
+ *   2. Port file: ${XDG_STATE_HOME}/ia-tools/slack-bridge/daemon.port
+ *      or ~/.local/state/ia-tools/slack-bridge/daemon.port
+ *   3. Fallback: http://localhost:3800
  */
 export function resolveDaemonUrl(): string {
   const envUrl = process.env['DAEMON_URL'];
-  if (envUrl && envUrl.trim()) {
-    return envUrl.trim();
-  }
+  if (envUrl?.trim()) return envUrl.trim();
 
-  // Determine port file path
   const xdgStateHome = process.env['XDG_STATE_HOME'];
   const portFilePath = xdgStateHome
     ? join(xdgStateHome, 'daemon.port')
@@ -136,15 +123,18 @@ export function resolveDaemonUrl(): string {
       return `http://localhost:${port}`;
     }
   } catch {
-    /* port file does not exist or is unreadable — fall through to default */
+    /* port file absent or unreadable — fall through */
   }
 
   return 'http://localhost:3800';
 }
 
 /**
- * Ensure a healthy daemon exists. Safe to call concurrently across processes —
- * at most one will actually spawn.
+ * Ensure a healthy daemon exists. Safe to call concurrently from multiple MCP instances —
+ * only one will actually spawn the daemon; the rest wait for it to become healthy.
+ *
+ * Throws if SLACK_BOT_TOKEN / SLACK_APP_TOKEN are missing and the daemon is not running,
+ * or if the daemon does not become healthy within HEALTH_TIMEOUT_MS.
  */
 export async function ensureDaemon(daemonUrl: string): Promise<void> {
   if (await isHealthy(daemonUrl)) return;
@@ -152,7 +142,7 @@ export async function ensureDaemon(daemonUrl: string): Promise<void> {
   if (!process.env['SLACK_BOT_TOKEN'] || !process.env['SLACK_APP_TOKEN']) {
     throw new Error(
       'slack-bridge daemon is not running and cannot be auto-started: ' +
-        'SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be set in the MCP server env.',
+        'SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be set.',
     );
   }
 
