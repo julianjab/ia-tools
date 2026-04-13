@@ -16,13 +16,17 @@
  *   DAEMON_URL        — Daemon API URL (default: http://localhost:3800)
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { WebClient } from '@slack/web-api';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { MessagePayload, SubscriptionFilters, ClaimResponse } from './shared/types.js';
-import { ensureDaemon } from './ensure-daemon.js';
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { WebClient } from "@slack/web-api";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { MessagePayload, SubscriptionFilters, ClaimResponse } from "./shared/types.js";
+import { ensureDaemon } from "./ensure-daemon.js";
+import { loadConfig } from "./config.js";
 
 const botToken = process.env['SLACK_BOT_TOKEN'];
 if (!botToken) {
@@ -362,10 +366,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 
 // ─── Auto-subscribe once client is fully connected ─────────────────
-// Opt-in via env: SLACK_CHANNELS, SLACK_USERS, SLACK_THREADS (comma-separated)
-const autoChannels = process.env['SLACK_CHANNELS']?.split(',').filter(Boolean) ?? [];
-const autoUsers = process.env['SLACK_USERS']?.split(',').filter(Boolean) ?? [];
-const autoThreads = process.env['SLACK_THREADS']?.split(',').filter(Boolean) ?? [];
+// Env vars take precedence over .slack.json config file values.
+const fileConfig = loadConfig();
+const autoChannels = process.env["SLACK_CHANNELS"]?.split(",").filter(Boolean) ?? fileConfig.channels ?? [];
+const autoUsers = process.env["SLACK_USERS"]?.split(",").filter(Boolean) ?? fileConfig.users ?? [];
+const autoThreads = process.env["SLACK_THREADS"]?.split(",").filter(Boolean) ?? fileConfig.threads ?? [];
 
 if (autoChannels.length || autoUsers.length || autoThreads.length) {
   mcp.oninitialized = async () => {
