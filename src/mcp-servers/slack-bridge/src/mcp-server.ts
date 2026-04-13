@@ -5,28 +5,27 @@
  *
  * Lightweight MCP server that:
  * 1. Subscribes to the slack-daemon for message routing
- * 2. Receives webhooks and pushes notifications to Claude
+ * 2. Receives webhooks and pushes notifications to Claude (with optional regexp filters)
  * 3. Exposes tools: subscribe_slack, claim_message, reply_slack, read_thread, read_channel
  *
- * The user tells Claude what to listen to ("escucha #dev-team y DMs de Julian")
+ * The user tells Claude what to listen to ("listen to #dev-team and DMs from Julian")
  * and Claude calls subscribe_slack to register with the daemon.
+ * Each subscribe_slack call persists the subscription to .claude/.channels.json → slack key.
  *
  * Env:
  *   SLACK_BOT_TOKEN   — Bot token for Slack API calls (reply, read)
  *   DAEMON_URL        — Daemon API URL (default: http://localhost:3800)
  */
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { WebClient } from "@slack/web-api";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { MessagePayload, SubscriptionFilters, ClaimResponse } from "./shared/types.js";
-import { ensureDaemon, resolveDaemonUrl } from "./ensure-daemon.js";
-import { loadConfig } from "./config.js";
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { WebClient } from '@slack/web-api';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { MessagePayload, SubscriptionFilters, ClaimResponse } from './shared/types.js';
+import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
+import { loadConfig, saveConfig } from './config.js';
+import type { SlackFilters } from './config.js';
 
 const botToken = process.env['SLACK_BOT_TOKEN'];
 if (!botToken) {
@@ -39,6 +38,7 @@ const web = new WebClient(botToken);
 
 // ─── State ──────────────────────────────────────────────────────────
 let webhookPort: number | undefined;
+let activeFilters: SlackFilters | undefined;
 
 // ─── MCP Server ─────────────────────────────────────────────────────
 const mcp = new Server(
@@ -58,6 +58,50 @@ const mcp = new Server(
   },
 );
 
+// ─── Filter helpers ──────────────────────────────────────────────────
+
+function matchesFilters(payload: MessagePayload, filters: SlackFilters | undefined): boolean {
+  if (!filters) return true;
+
+  const { message } = payload;
+
+  if (filters.channel) {
+    try {
+      if (!new RegExp(filters.channel).test(message.channel_name)) return false;
+    } catch {
+      // invalid regexp — skip filter
+    }
+  }
+
+  if (filters.user) {
+    try {
+      const userStr = message.user_name ?? message.user_id;
+      if (!new RegExp(filters.user).test(userStr)) return false;
+    } catch {
+      // invalid regexp — skip filter
+    }
+  }
+
+  if (filters.message) {
+    try {
+      if (!new RegExp(filters.message).test(message.text ?? '')) return false;
+    } catch {
+      // invalid regexp — skip filter
+    }
+  }
+
+  if (filters.thread) {
+    try {
+      const threadStr = message.thread_ts ?? '';
+      if (!new RegExp(filters.thread).test(threadStr)) return false;
+    } catch {
+      // invalid regexp — skip filter
+    }
+  }
+
+  return true;
+}
+
 // ─── Webhook server — receives messages from daemon ─────────────────
 function startWebhookServer(): Promise<number> {
   return new Promise((resolve) => {
@@ -76,6 +120,14 @@ function startWebhookServer(): Promise<number> {
         req.on('end', async () => {
           try {
             const payload: MessagePayload = JSON.parse(Buffer.concat(chunks).toString());
+
+            // Apply regexp filters — drop message if it does not match
+            if (!matchesFilters(payload, activeFilters)) {
+              res.writeHead(200);
+              res.end('filtered');
+              return;
+            }
+
             const { message } = payload;
 
             await mcp.notification({
@@ -157,6 +209,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: 'subscribe_slack',
       description:
         'Subscribe to Slack messages. Call this when the user tells you what channels/users/threads to listen to. ' +
+        'Subscription is persisted to .claude/.channels.json for auto-restore on next session. ' +
         'Empty filters = listen to everything the daemon sees.',
       inputSchema: {
         type: 'object' as const,
@@ -166,7 +219,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
             items: { type: 'string' },
             description: 'Channel IDs to listen to (e.g., ["C123ABC"])',
           },
-          users: {
+          dms: {
             type: 'array',
             items: { type: 'string' },
             description: 'User IDs for DM listening (e.g., ["U456DEF"])',
@@ -175,6 +228,18 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: 'array',
             items: { type: 'string' },
             description: 'Thread timestamps to follow',
+          },
+          filters: {
+            type: 'object',
+            description:
+              'Optional regexp filters applied client-side before forwarding to Claude. ' +
+              'All filters must match (AND logic). Invalid regexps are silently ignored.',
+            properties: {
+              channel: { type: 'string', description: 'Regexp matched against channel_name' },
+              user: { type: 'string', description: 'Regexp matched against user_name / user_id' },
+              message: { type: 'string', description: 'Regexp matched against message text' },
+              thread: { type: 'string', description: 'Regexp matched against thread_ts' },
+            },
           },
           label: {
             type: 'string',
@@ -259,14 +324,36 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     try {
       const filters: SubscriptionFilters = {
         channels: (args['channels'] as string[]) ?? [],
-        users: (args['users'] as string[]) ?? [],
+        users: (args['dms'] as string[]) ?? [], // daemon still calls them "users"
         threads: (args['threads'] as string[]) ?? [],
       };
+      const clientFilters = args['filters'] as SlackFilters | undefined;
+
       await daemonSubscribe(filters, args['label'] as string);
+
+      // Persist subscription to .claude/.channels.json → slack key
+      try {
+        saveConfig({
+          channels: filters.channels,
+          dms: filters.users, // map back to dms for storage
+          threads: filters.threads,
+          ...(clientFilters ? { filters: clientFilters } : {}),
+          ...(args['label'] ? { bot: { label: args['label'] as string } } : {}),
+        });
+      } catch (err) {
+        console.error(`[slack-bridge] Warning: could not persist subscription — ${err}`);
+      }
+
+      // Update active client-side filters
+      activeFilters = clientFilters;
+
       const parts: string[] = [];
       if (filters.channels?.length) parts.push(`channels: ${filters.channels.join(', ')}`);
-      if (filters.users?.length) parts.push(`users: ${filters.users.join(', ')}`);
+      if (filters.users?.length) parts.push(`dms: ${filters.users.join(', ')}`);
       if (filters.threads?.length) parts.push(`threads: ${filters.threads.join(', ')}`);
+      if (clientFilters && Object.keys(clientFilters).length) {
+        parts.push(`filters: ${JSON.stringify(clientFilters)}`);
+      }
       const summary = parts.length ? parts.join(' | ') : 'all messages';
       return {
         content: [
@@ -283,6 +370,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 
   if (name === 'unsubscribe_slack') {
     await daemonUnsubscribe();
+    activeFilters = undefined;
     return { content: [{ type: 'text' as const, text: 'Unsubscribed from daemon' }] };
   }
 
@@ -366,21 +454,26 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 
 // ─── Auto-subscribe once client is fully connected ─────────────────
-// Env vars take precedence over .slack.json config file values.
+// Env vars take precedence over .claude/.channels.json config file values.
 const fileConfig = loadConfig();
-const autoChannels = process.env["SLACK_CHANNELS"]?.split(",").filter(Boolean) ?? fileConfig.channels ?? [];
-const autoUsers = process.env["SLACK_USERS"]?.split(",").filter(Boolean) ?? fileConfig.users ?? [];
-const autoThreads = process.env["SLACK_THREADS"]?.split(",").filter(Boolean) ?? fileConfig.threads ?? [];
+const autoChannels =
+  process.env['SLACK_CHANNELS']?.split(',').filter(Boolean) ?? fileConfig.channels ?? [];
+const autoUsers = process.env['SLACK_USERS']?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
+const autoThreads =
+  process.env['SLACK_THREADS']?.split(',').filter(Boolean) ?? fileConfig.threads ?? [];
 
 if (autoChannels.length || autoUsers.length || autoThreads.length) {
+  // Apply stored filters from file on auto-subscribe
+  activeFilters = fileConfig.filters;
+
   mcp.oninitialized = async () => {
     try {
       await daemonSubscribe(
         { channels: autoChannels, users: autoUsers, threads: autoThreads },
-        'auto',
+        fileConfig.bot?.label ?? 'auto',
       );
       console.error(
-        `[slack-bridge] auto-subscribed on :${webhookPort} — channels=${autoChannels} users=${autoUsers} threads=${autoThreads}`,
+        `[slack-bridge] auto-subscribed on :${webhookPort} — channels=${autoChannels} dms=${autoUsers} threads=${autoThreads}`,
       );
     } catch {
       console.error('[slack-bridge] auto-subscribe failed (daemon not running?)');

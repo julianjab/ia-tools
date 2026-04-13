@@ -1,37 +1,40 @@
 /**
- * REQ-008 — TDD RED phase
+ * REQ-008 — Updated schema (TDD RED → GREEN)
  *
- * Tests for loadConfig() in src/config.ts (FILE DOES NOT EXIST YET).
- * All tests are expected to fail until the implementation is written.
+ * Tests for loadConfig() and saveConfig() in src/config.ts.
+ *
+ * File location: .claude/.channels.json
+ * Schema: { "slack": { "bot": { "label": string }, "channels": string[],
+ *                       "dms": string[], "threads": string[],
+ *                       "filters": { "channel": string, "user": string,
+ *                                    "message": string, "thread": string } } }
  *
  * Scenarios covered:
- *   - Happy path: .slack.json present and valid
- *   - Multiple fields (channels, users, threads, label)
- *   - Env vars override file values
- *   - Env var absent / empty does not override file
- *   - No .slack.json → empty config, no error
+ *   - Happy path: .claude/.channels.json present and valid
+ *   - Full schema (bot, channels, dms, threads, filters)
+ *   - Missing file → empty config, no error
  *   - Invalid JSON → warning + empty config, no crash
  *   - Field containing "token" → warning, field ignored
- *   - Field "bot_token" → warning, field ignored
+ *   - Filters: channel, user, message, thread (regexp strings)
+ *   - saveConfig() writes to .claude/.channels.json → slack key
+ *   - saveConfig() merges with existing slack config
+ *   - saveConfig() creates .claude/ directory if absent
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { writeFileSync, rmSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 // ─── Setup: isolated cwd per test ───────────────────────────────────────────
 
 let testDir: string;
-let originalCwd: () => string;
 
 beforeEach(() => {
-  // Each test gets its own tmp directory so process.cwd() is predictable
   testDir = join(tmpdir(), `req-008-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(testDir, { recursive: true });
-  originalCwd = process.cwd.bind(process);
-  vi.spyOn(process, "cwd").mockReturnValue(testDir);
-  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  vi.spyOn(process, 'cwd').mockReturnValue(testDir);
+  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 });
 
 afterEach(() => {
@@ -41,266 +44,335 @@ afterEach(() => {
   } catch {
     // ignore cleanup errors
   }
-  // Reset env vars that may have been set during tests
-  delete process.env["SLACK_CHANNELS"];
-  delete process.env["SLACK_USERS"];
-  delete process.env["SLACK_THREADS"];
 });
 
-// ─── Helper ─────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-function writeSlackJson(content: unknown | string): void {
-  const raw = typeof content === "string" ? content : JSON.stringify(content);
-  writeFileSync(join(testDir, ".slack.json"), raw, "utf8");
+function writeChannelsJson(content: unknown | string): void {
+  const claudeDir = join(testDir, '.claude');
+  mkdirSync(claudeDir, { recursive: true });
+  const raw = typeof content === 'string' ? content : JSON.stringify(content);
+  writeFileSync(join(claudeDir, '.channels.json'), raw, 'utf8');
+}
+
+function readChannelsJson(): unknown {
+  const filePath = join(testDir, '.claude', '.channels.json');
+  return JSON.parse(readFileSync(filePath, 'utf8'));
 }
 
 // ─── Import under test ──────────────────────────────────────────────────────
-// This import will fail (MODULE NOT FOUND) until config.ts is created.
-// That is the expected RED state.
 
-const { loadConfig } = await import("../config.js");
+const { loadConfig, saveConfig } = await import('../config.js');
 
-// ─── Scenario: auto-subscribe desde .slack.json al arrancar ─────────────────
+// ─── loadConfig() — happy path ───────────────────────────────────────────────
 
-describe("loadConfig() — happy path", () => {
-  it("retorna channels del archivo cuando SLACK_CHANNELS no esta definido", () => {
-    // Given
-    writeSlackJson({ channels: ["C123ABC"] });
-    delete process.env["SLACK_CHANNELS"];
+describe('loadConfig() — happy path', () => {
+  it('LoadConfig_FileWithChannels_ReturnsChannels', () => {
+    // Arrange
+    writeChannelsJson({ slack: { channels: ['C123ABC'] } });
+    delete process.env['SLACK_CHANNELS'];
 
-    // When
+    // Act
     const config = loadConfig();
 
-    // Then
-    expect(config.channels).toEqual(["C123ABC"]);
+    // Assert
+    expect(config.channels).toEqual(['C123ABC']);
   });
 
-  it("retorna todos los campos validos del archivo", () => {
-    // Given
-    writeSlackJson({
-      channels: ["C123ABC"],
-      users: ["U789GHI"],
-      threads: [],
-      label: "mi-workspace",
+  it('LoadConfig_FullSchema_ReturnsAllFields', () => {
+    // Arrange
+    writeChannelsJson({
+      slack: {
+        bot: { label: 'mi-bot' },
+        channels: ['C123ABC'],
+        dms: ['U789GHI'],
+        threads: ['T000001'],
+        filters: {
+          channel: '^dev-',
+          user: 'julian|admin',
+          message: 'deploy|release',
+          thread: '.*',
+        },
+      },
     });
 
-    // When
+    // Act
     const config = loadConfig();
 
-    // Then
-    expect(config.channels).toEqual(["C123ABC"]);
-    expect(config.users).toEqual(["U789GHI"]);
-    expect(config.threads).toEqual([]);
-    expect(config.label).toBe("mi-workspace");
+    // Assert
+    expect(config.bot).toEqual({ label: 'mi-bot' });
+    expect(config.channels).toEqual(['C123ABC']);
+    expect(config.dms).toEqual(['U789GHI']);
+    expect(config.threads).toEqual(['T000001']);
+    expect(config.filters?.channel).toBe('^dev-');
+    expect(config.filters?.user).toBe('julian|admin');
+    expect(config.filters?.message).toBe('deploy|release');
+    expect(config.filters?.thread).toBe('.*');
   });
 
-  it("ignora campos desconocidos sin error", () => {
-    // Given
-    writeSlackJson({ channels: ["C123ABC"], unknownField: "ignored" });
+  it('LoadConfig_UnknownFields_DoesNotThrow', () => {
+    // Arrange
+    writeChannelsJson({ slack: { channels: ['C123ABC'], unknownField: 'ignored' } });
 
-    // When — should not throw
+    // Act / Assert
     expect(() => loadConfig()).not.toThrow();
+  });
+
+  it('LoadConfig_FiltersOnlyPartial_ReturnsDefinedFilters', () => {
+    // Arrange
+    writeChannelsJson({ slack: { filters: { channel: '^eng-' } } });
+
+    // Act
+    const config = loadConfig();
+
+    // Assert
+    expect(config.filters?.channel).toBe('^eng-');
+    expect(config.filters?.user).toBeUndefined();
+    expect(config.filters?.message).toBeUndefined();
+    expect(config.filters?.thread).toBeUndefined();
   });
 });
 
-// ─── Scenario: arranca normalmente sin .slack.json ───────────────────────────
+// ─── loadConfig() — archivo ausente ─────────────────────────────────────────
 
-describe("loadConfig() — archivo ausente", () => {
-  it("retorna config vacia cuando no existe .slack.json", () => {
-    // Given: testDir exists but has no .slack.json
+describe('loadConfig() — archivo ausente', () => {
+  it('LoadConfig_FileAbsent_ReturnsEmptyConfig', () => {
+    // Arrange — testDir exists but has no .claude/.channels.json
 
-    // When
+    // Act
     const config = loadConfig();
 
-    // Then
+    // Assert
     expect(config.channels ?? []).toEqual([]);
-    expect(config.users ?? []).toEqual([]);
+    expect(config.dms ?? []).toEqual([]);
     expect(config.threads ?? []).toEqual([]);
-    expect(config.label).toBeUndefined();
+    expect(config.bot).toBeUndefined();
+    expect(config.filters).toBeUndefined();
   });
 
-  it("no emite ningun warning cuando no existe .slack.json", () => {
-    // Given: no file
+  it('LoadConfig_FileAbsent_EmitsNoWarning', () => {
+    // Arrange — no file
 
-    // When
+    // Act
     loadConfig();
 
-    // Then: stderr was not written
+    // Assert
     expect(process.stderr.write).not.toHaveBeenCalled();
   });
 
-  it("no lanza excepcion cuando no existe .slack.json", () => {
+  it('LoadConfig_FileAbsent_DoesNotThrow', () => {
+    // Arrange / Act / Assert
     expect(() => loadConfig()).not.toThrow();
   });
 });
 
-// ─── Scenario: .slack.json con JSON invalido ────────────────────────────────
+// ─── loadConfig() — JSON inválido ───────────────────────────────────────────
 
-describe("loadConfig() — JSON invalido", () => {
-  it("retorna config vacia cuando el JSON es invalido", () => {
-    // Given
-    writeSlackJson("{ channels: broken");
+describe('loadConfig() — JSON inválido', () => {
+  it('LoadConfig_InvalidJson_ReturnsEmptyConfig', () => {
+    // Arrange
+    writeChannelsJson('{ slack: broken');
 
-    // When
+    // Act
     const config = loadConfig();
 
-    // Then
+    // Assert
     expect(config.channels ?? []).toEqual([]);
-    expect(config.users ?? []).toEqual([]);
+    expect(config.dms ?? []).toEqual([]);
     expect(config.threads ?? []).toEqual([]);
   });
 
-  it("emite warning por stderr que menciona .slack.json cuando JSON es invalido", () => {
-    // Given
-    writeSlackJson("{ channels: broken");
+  it('LoadConfig_InvalidJson_WarningMentionsChannelsJson', () => {
+    // Arrange
+    writeChannelsJson('{ slack: broken');
 
-    // When
+    // Act
     loadConfig();
 
-    // Then
+    // Assert
     const stderrCalls = (process.stderr.write as ReturnType<typeof vi.fn>).mock.calls;
-    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join("");
-    expect(warningOutput).toMatch(/\.slack\.json/i);
+    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join('');
+    expect(warningOutput).toMatch(/\.channels\.json/i);
   });
 
-  it("emite warning que incluye 'invalid JSON' o similar cuando JSON es invalido", () => {
-    // Given
-    writeSlackJson("not json at all !!!");
+  it('LoadConfig_InvalidJson_WarningMentionsInvalidOrParse', () => {
+    // Arrange
+    writeChannelsJson('not json at all !!!');
 
-    // When
+    // Act
     loadConfig();
 
-    // Then
+    // Assert
     const stderrCalls = (process.stderr.write as ReturnType<typeof vi.fn>).mock.calls;
-    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join("");
-    // Accept "invalid JSON", "parse error", "SyntaxError", etc.
+    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join('');
     expect(warningOutput).toMatch(/invalid|parse|syntax/i);
   });
 
-  it("no llama process.exit cuando JSON es invalido", () => {
-    // Given
-    writeSlackJson("INVALID");
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit called");
+  it('LoadConfig_InvalidJson_DoesNotCallProcessExit', () => {
+    // Arrange
+    writeChannelsJson('INVALID');
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
     });
 
-    // When / Then — should not call exit
+    // Act / Assert
     expect(() => loadConfig()).not.toThrow();
     expect(exitSpy).not.toHaveBeenCalled();
   });
 });
 
-// ─── Scenario: campo "token" genera warning ──────────────────────────────────
+// ─── loadConfig() — campo con "token" ────────────────────────────────────────
 
 describe("loadConfig() — campo con 'token' en el nombre", () => {
-  it("emite warning cuando el archivo contiene un campo llamado 'token'", () => {
-    // Given
-    writeSlackJson({ channels: ["C123ABC"], token: "xoxb-secret" });
+  it('LoadConfig_TokenFieldPresent_WarnsAboutToken', () => {
+    // Arrange
+    writeChannelsJson({ slack: { channels: ['C123ABC'], token: 'xoxb-secret' } });
 
-    // When
+    // Act
     loadConfig();
 
-    // Then
+    // Assert
     const stderrCalls = (process.stderr.write as ReturnType<typeof vi.fn>).mock.calls;
-    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join("");
+    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join('');
     expect(warningOutput).toMatch(/token/i);
   });
 
-  it("el campo 'token' no aparece en la config retornada", () => {
-    // Given
-    writeSlackJson({ channels: ["C123ABC"], token: "xoxb-secret" });
+  it('LoadConfig_TokenFieldPresent_TokenNotInReturnedConfig', () => {
+    // Arrange
+    writeChannelsJson({ slack: { channels: ['C123ABC'], token: 'xoxb-secret' } });
 
-    // When
+    // Act
     const config = loadConfig();
 
-    // Then
-    expect((config as Record<string, unknown>)["token"]).toBeUndefined();
+    // Assert
+    expect((config as Record<string, unknown>)['token']).toBeUndefined();
   });
 
-  it("emite warning cuando el archivo contiene 'bot_token'", () => {
-    // Given
-    writeSlackJson({ channels: ["C456DEF"], bot_token: "xoxb-bot-secret" });
+  it('LoadConfig_BotTokenFieldPresent_WarnsAboutToken', () => {
+    // Arrange
+    writeChannelsJson({ slack: { channels: ['C456DEF'], bot_token: 'xoxb-bot-secret' } });
 
-    // When
+    // Act
     loadConfig();
 
-    // Then
+    // Assert
     const stderrCalls = (process.stderr.write as ReturnType<typeof vi.fn>).mock.calls;
-    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join("");
+    const warningOutput = stderrCalls.map((args: unknown[]) => String(args[0])).join('');
     expect(warningOutput).toMatch(/token/i);
   });
 
-  it("el campo 'bot_token' no aparece en la config retornada", () => {
-    // Given
-    writeSlackJson({ channels: ["C456DEF"], bot_token: "xoxb-bot-secret" });
+  it('LoadConfig_BotTokenFieldPresent_BotTokenNotInReturnedConfig', () => {
+    // Arrange
+    writeChannelsJson({ slack: { channels: ['C456DEF'], bot_token: 'xoxb-bot-secret' } });
 
-    // When
+    // Act
     const config = loadConfig();
 
-    // Then
-    expect((config as Record<string, unknown>)["bot_token"]).toBeUndefined();
+    // Assert
+    expect((config as Record<string, unknown>)['bot_token']).toBeUndefined();
   });
 
-  it("retorna el resto de la config correctamente aun cuando hay campo token", () => {
-    // Given
-    writeSlackJson({ channels: ["C123ABC"], users: ["U789GHI"], token: "xoxb-secret" });
+  it('LoadConfig_TokenFieldPresent_SafeFieldsPreserved', () => {
+    // Arrange
+    writeChannelsJson({ slack: { channels: ['C123ABC'], dms: ['U789GHI'], token: 'xoxb-secret' } });
 
-    // When
+    // Act
     const config = loadConfig();
 
-    // Then — known safe fields are preserved
-    expect(config.channels).toEqual(["C123ABC"]);
-    expect(config.users).toEqual(["U789GHI"]);
+    // Assert
+    expect(config.channels).toEqual(['C123ABC']);
+    expect(config.dms).toEqual(['U789GHI']);
   });
 });
 
-// ─── Scenario: env vars tienen precedencia sobre .slack.json ─────────────────
+// ─── saveConfig() — escritura ────────────────────────────────────────────────
 
-describe("loadConfig() — env vars vs archivo (integracion con mcp-server)", () => {
-  /**
-   * NOTE: loadConfig() itself returns the raw file config.
-   * The merge logic (env var precedence) lives in mcp-server.ts.
-   * These tests validate the CONTRACT that allows that merge to work:
-   * loadConfig() must return the file values so the caller can apply precedence.
-   */
+describe('saveConfig() — escritura en .claude/.channels.json', () => {
+  it('SaveConfig_NewFile_CreatesClaudeDirectoryAndFile', () => {
+    // Arrange — no .claude/ dir exists
+    const config = { channels: ['C123ABC'] };
 
-  it("retorna channels del archivo para que el caller pueda aplicar precedencia de env vars", () => {
-    // Given: archivo con C123ABC, env con C999ZZZ
-    writeSlackJson({ channels: ["C123ABC"] });
-    process.env["SLACK_CHANNELS"] = "C999ZZZ";
+    // Act
+    saveConfig(config);
 
-    // When
-    const config = loadConfig();
-
-    // Then: config devuelve lo del archivo (el merge lo hace el caller)
-    expect(config.channels).toEqual(["C123ABC"]);
-    // Caller logic: env ?? file → "C999ZZZ".split(",") → ["C999ZZZ"]
-    const effective = process.env["SLACK_CHANNELS"]?.split(",").filter(Boolean) ?? config.channels ?? [];
-    expect(effective).toEqual(["C999ZZZ"]);
+    // Assert
+    expect(existsSync(join(testDir, '.claude', '.channels.json'))).toBe(true);
   });
 
-  it("el caller puede usar channels del archivo cuando env var no esta definida", () => {
-    // Given: archivo con C123ABC, sin env var
-    writeSlackJson({ channels: ["C123ABC"] });
-    delete process.env["SLACK_CHANNELS"];
+  it('SaveConfig_WithChannels_WritesSlackKeyWithChannels', () => {
+    // Arrange
+    const config = { channels: ['C123ABC'], dms: ['U789GHI'] };
 
-    // When
-    const config = loadConfig();
+    // Act
+    saveConfig(config);
 
-    // Then: caller logic falls back to file
-    const effective = process.env["SLACK_CHANNELS"]?.split(",").filter(Boolean) ?? config.channels ?? [];
-    expect(effective).toEqual(["C123ABC"]);
+    // Assert
+    const written = readChannelsJson() as { slack: { channels: string[]; dms: string[] } };
+    expect(written.slack.channels).toEqual(['C123ABC']);
+    expect(written.slack.dms).toEqual(['U789GHI']);
   });
 
-  it("sin archivo y sin env var, el caller obtiene lista vacia", () => {
-    // Given: no file, no env var
-    delete process.env["SLACK_CHANNELS"];
+  it('SaveConfig_WithFilters_WritesFiltersUnderSlackKey', () => {
+    // Arrange
+    const config = {
+      channels: ['C123ABC'],
+      filters: { channel: '^dev-', user: 'julian' },
+    };
 
-    // When
-    const config = loadConfig();
+    // Act
+    saveConfig(config);
 
-    // Then
-    const effective = process.env["SLACK_CHANNELS"]?.split(",").filter(Boolean) ?? config.channels ?? [];
-    expect(effective).toEqual([]);
+    // Assert
+    const written = readChannelsJson() as {
+      slack: { filters: { channel: string; user: string } };
+    };
+    expect(written.slack.filters.channel).toBe('^dev-');
+    expect(written.slack.filters.user).toBe('julian');
+  });
+
+  it('SaveConfig_ExistingFile_MergesWithExistingSlackConfig', () => {
+    // Arrange — existing file has label set
+    writeChannelsJson({ slack: { bot: { label: 'mi-bot' }, channels: ['C_OLD'] } });
+    const newConfig = { channels: ['C_NEW'] };
+
+    // Act
+    saveConfig(newConfig);
+
+    // Assert — bot.label preserved, channels updated
+    const written = readChannelsJson() as {
+      slack: { bot: { label: string }; channels: string[] };
+    };
+    expect(written.slack.bot.label).toBe('mi-bot');
+    expect(written.slack.channels).toEqual(['C_NEW']);
+  });
+
+  it('SaveConfig_ExistingFileWithOtherTopLevelKeys_PreservesOtherKeys', () => {
+    // Arrange — existing file has a non-slack top-level key
+    writeChannelsJson({ slack: { channels: ['C_OLD'] }, other: { foo: 'bar' } });
+    const newConfig = { channels: ['C_NEW'] };
+
+    // Act
+    saveConfig(newConfig);
+
+    // Assert — other top-level keys preserved
+    const written = readChannelsJson() as { other: { foo: string } };
+    expect(written.other.foo).toBe('bar');
+  });
+
+  it('SaveConfig_DoesNotThrow', () => {
+    // Arrange / Act / Assert
+    expect(() => saveConfig({ channels: ['C123ABC'] })).not.toThrow();
+  });
+
+  it('SaveConfig_EmptyConfig_WritesEmptySlackObject', () => {
+    // Arrange
+    const config = {};
+
+    // Act
+    saveConfig(config);
+
+    // Assert
+    const written = readChannelsJson() as { slack: Record<string, unknown> };
+    expect(written.slack).toBeDefined();
   });
 });

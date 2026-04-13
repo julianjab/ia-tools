@@ -2,7 +2,7 @@
  * Shared types for slack-bridge daemon ↔ subscriber communication.
  */
 
-export type { SlackConfig } from "../config.js";
+export type { SlackChannelConfig, SlackFilters, ChannelsConfig } from '../config.js';
 
 /** A Slack message forwarded by the daemon to subscribers. */
 export interface SlackMessage {

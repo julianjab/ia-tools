@@ -30,9 +30,9 @@ Thumbs.db
 .data/
 .cache/
 
-# Slack Bridge local config (contains channel/token preferences; never commit)
-# Schema documented in .slack.json.example
-.slack.json
+# Slack Bridge local config (contains channel/subscription preferences; never commit)
+# Schema documented in .claude/.channels.json.example
+.claude/.channels.json
 
 # Legacy / archived agents (kept locally, not tracked)
 agents_bck/
