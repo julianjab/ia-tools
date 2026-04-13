@@ -15,13 +15,13 @@
  *   DAEMON_PORT       — HTTP API port (default: 3800)
  */
 
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { Registry } from "./registry.js";
-import { createApiServer } from "./server.js";
-import { startListener, resolveUser, resolveChannel, type SlackEvent } from "./listener.js";
-import type { SlackMessage, MessagePayload } from "../shared/types.js";
-import { writePortFile, cleanupPortFile } from "./port-file.js";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { Registry } from './registry.js';
+import { createApiServer } from './server.js';
+import { startListener, resolveUser, resolveChannel, type SlackEvent } from './listener.js';
+import type { SlackMessage, MessagePayload } from '../shared/types.js';
+import { writePortFile, cleanupPortFile } from './port-file.js';
 
 // ─── Pidfile so auto-started instances can be tracked / deduped ────
 const stateBase = process.env['XDG_STATE_HOME'] ?? `${homedir()}/.local/state`;
@@ -152,6 +152,6 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-process.on("exit", () => {
+process.on('exit', () => {
   cleanupPortFile(stateDir);
 });

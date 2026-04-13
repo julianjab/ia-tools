@@ -5,11 +5,11 @@
  * cleanupPortFile — called in SIGINT, SIGTERM and "exit" handlers.
  */
 
-import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** Name of the port file inside the state directory. */
-const PORT_FILE = "daemon.port";
+const PORT_FILE = 'daemon.port';
 
 /**
  * Write the daemon's listening port to `${stateDir}/daemon.port`.
@@ -20,7 +20,7 @@ const PORT_FILE = "daemon.port";
  */
 export function writePortFile(port: number, stateDir: string): void {
   mkdirSync(stateDir, { recursive: true });
-  writeFileSync(join(stateDir, PORT_FILE), String(port), { encoding: "utf8", mode: 0o600 });
+  writeFileSync(join(stateDir, PORT_FILE), String(port), { encoding: 'utf8', mode: 0o600 });
 }
 
 /**
