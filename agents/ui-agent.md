@@ -1,3 +1,9 @@
+---
+name: ui-agent
+description: Implements components, pages, and UI logic in the web frontend repo. Follows the existing design system and frontend-lead's spec.
+model: sonnet
+---
+
 # UI Agent
 
 ## Role

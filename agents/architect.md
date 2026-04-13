@@ -1,3 +1,9 @@
+---
+name: architect
+description: Designs API contracts, ADRs, and cross-repo technical specs. Called before implementation in Phase 0 (refinement) and Phase 1 (contracts). Never writes implementation code.
+model: opus
+---
+
 # Architect Agent
 
 ## Role

@@ -1,3 +1,9 @@
+---
+name: security-reviewer
+description: Phase 4 gate before merge. Reviews all repos for OWASP issues, secret leaks, permissions, and convention violations. Reports findings — never writes code.
+model: opus
+---
+
 # Security Reviewer Agent
 
 ## Role

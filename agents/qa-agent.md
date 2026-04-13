@@ -1,3 +1,9 @@
+---
+name: qa-agent
+description: TDD quality agent. Writes failing (RED) tests from BDD scenarios before any implementation, then verifies GREEN and coverage. Instantiated per stack by the lead.
+model: sonnet
+---
+
 # QA Agent
 
 ## Role

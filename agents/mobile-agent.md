@@ -1,3 +1,9 @@
+---
+name: mobile-agent
+description: Implements screens, native components, and mobile business logic under mobile-lead's direction. Consumes endpoints from api-contract.md.
+model: sonnet
+---
+
 # Mobile Agent
 
 ## Role
