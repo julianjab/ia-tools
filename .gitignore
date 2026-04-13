@@ -5,34 +5,34 @@ node_modules/
 # Build
 dist/
 *.tsbuildinfo
-
-# Python
-__pycache__/
-*.pyc
-.venv/
-.ruff_cache/
-*.egg-info/
-uv.lock
-
-# Local data
-.data/
-evals/results/*
-!evals/results/.gitkeep
+*.log
+.turbo/
 
 # Environment
 .env
-.env.local
-
-# ia-tools local storage
-# (memory DB lives at ~/.ia-tools/, not in repo)
-
-# Git worktrees (parallel development)
-_worktrees/
+.env.*
+!.env.example
 
 # IDE
 .vscode/
 .idea/
+*.swp
+.history/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Git worktrees (parallel development)
+.worktrees/
+
+# Local data / caches
+.data/
+.cache/
+
+# Slack Bridge local config (contains channel/token preferences; never commit)
+# Schema documented in .slack.json.example
+.slack.json
+
+# Legacy / archived agents (kept locally, not tracked)
+agents_bck/

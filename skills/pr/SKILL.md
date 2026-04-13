@@ -50,6 +50,42 @@ disable-model-invocation: false
      - If rebase has conflicts, resolve them file by file (read the conflicted files, apply the correct resolution, `git add` each resolved file, then `git rebase --continue`).
      - If conflicts are too complex to resolve automatically, abort the rebase (`git rebase --abort`) and ask the user for guidance.
 
+#### 1b — Commit Audit (before push)
+
+**MANDATORY — runs before /review and before any push.**
+
+1. List every commit that will enter the PR:
+   ```bash
+   git log origin/<base>..HEAD --oneline
+   ```
+
+2. **Rebasar siempre sobre `origin/<base>`** antes de auditar:
+   ```bash
+   git fetch origin
+   git rebase origin/<base>
+   ```
+   - Si hay conflictos durante el rebase: resolverlos archivo por archivo, luego `git rebase --continue`.
+   - Si el rebase es demasiado complejo: `git rebase --abort` y reportar al caller.
+
+3. **Auditar commits post-rebase**:
+   ```bash
+   git log origin/<base>..HEAD --oneline
+   ```
+   Verificar:
+   - **Solo commits de esta rama** — ningún commit de otras features que no debería estar aquí.
+   - **Sin commits de merge** — si aparece `Merge branch '...'` el historial no está limpio.
+   
+   Si se detectan commits ajenos o de merge → **STOP**: reportar exactamente qué commits sobran y pedir instrucciones. No continuar.
+
+4. Si el audit pasa: continuar al paso 2.
+
+| Problema | Acción |
+|----------|--------|
+| Conflictos en rebase | Resolver file-by-file y continuar |
+| Rebase demasiado complejo | Abort + reportar |
+| Commits ajenos después del rebase | STOP — listar commits que sobran, pedir instrucciones |
+| Commits de merge en el historial | STOP — historial sucio, reportar |
+
 #### 2 — Quality Gate (invoke /review)
 
 **MANDATORY — BLOCKING. No exceptions.**
@@ -182,8 +218,12 @@ gh pr view --json url,state,title,number,body 2>/dev/null
 
 ##### If NO PR exists: Create it
 
+**ALWAYS use `--body-file` with a temp file — NEVER inline `--body`.**
+Inline `--body` with escaped backticks (`\`\`\``) breaks mermaid rendering in GitHub.
+
 ```bash
-gh pr create --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
+# 1. Write the PR body to a temp file (triple backticks render correctly this way)
+cat > /tmp/pr_body.md << 'PREOF'
 ## Summary
 - <bullet 1: what changed and why>
 - <bullet 2: key implementation detail>
@@ -194,14 +234,20 @@ gh pr create --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
 - [x] Unit tests pass — <N> tests, 0 failures
 - [x] Coverage validated — new files: <N>% | no regressions
 - [x] Coding standards — <N> rules checked, 0 violations
-<warnings if any>
 
 ## Architecture Impact
 
 ### Component Changes
-<component diagram BEFORE>
 
-<component diagram AFTER>
+**BEFORE**
+```mermaid
+<diagram code here>
+```
+
+**AFTER**
+```mermaid
+<diagram code here>
+```
 
 ### Modified Files
 | File | Layer | Change | Description |
@@ -210,9 +256,13 @@ gh pr create --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
 
 ---
 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
+PREOF
+
+# 2. Create PR using the file
+gh pr create --title "<type>(<scope>): <description>" --body-file /tmp/pr_body.md
 ```
+
+> **CRITICAL**: Write the body to `/tmp/pr_body.md` using the `Write` tool (not shell redirection), then pass `--body-file /tmp/pr_body.md` to `gh pr create`. This is the only reliable way to get mermaid blocks rendered in GitHub.
 
 ##### If PR ALREADY exists: Update it
 
@@ -221,12 +271,10 @@ EOF
    gh pr edit <pr-number> --title "<type>(<scope>): <updated description>"
    ```
 
-2. **Update the body** with fresh diagrams, quality gate results, and summary reflecting ALL commits:
+2. **Write the updated body to a temp file, then update**:
    ```bash
-   gh pr edit <pr-number> --body "$(cat <<'EOF'
-   <same body structure, regenerated from full diff>
-   EOF
-   )"
+   # Write body with Write tool → /tmp/pr_body.md
+   gh pr edit <pr-number> --body-file /tmp/pr_body.md
    ```
 
 3. Report the update:

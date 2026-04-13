@@ -4,32 +4,27 @@
 
 ## About This Repo
 
-Centralized AI ecosystem. Contains shared agents, rules, MCP servers, prompts, and evaluations consumed by multiple app repos via symlinks.
+Centralized AI ecosystem. Ships shared Claude Code agents, skills, and the Slack bridge MCP server as a single plugin.
 
 ## Structure
 
-- `agents/` — Stack-agnostic agent definitions (senior-developer, test-expert) + stack-specific examples in `agents/python/`
-- `rules/` — Coding standards (distributed to app repos via symlinks)
-- `skills/` — Reusable skills (worktree, commit, review, pr, deliver, team, ship, sync-docs)
-- `mcp-servers/` — TypeScript MCP servers (memory, conventions)
-- `prompts/` — System prompts and templates per agent
-- `evals/` — Quality evaluation datasets and runners (Python)
-- `scripts/` — Utilities (sync, memory CLI)
+- `agents/` — Stack-agnostic agent definitions (orchestrator, architect, leads, specialists)
+- `skills/` — Reusable Claude Code skills (worktree, commit, review, pr, deliver, team, ship, sync-docs, …)
+- `src/mcp-servers/*` — pnpm workspace with standalone MCP servers (today: `slack-bridge`)
+- `.claude-plugin/plugin.json` — Root Claude Code plugin manifest
+- `.claude-plugin/plugins/*` — Nested Claude plugins; each one owns its `plugin.json` + `.mcp.json`
 
 ## Development
 
-- MCP servers: `pnpm install && pnpm build` (TypeScript)
-- Scripts/evals: `uv sync` (Python)
-- Lint TS: `pnpm typecheck`
-- Lint Python: `uv run ruff check .`
+- Install deps: `pnpm install`
+- Build TS: `pnpm build`
+- Typecheck: `pnpm typecheck`
+- Lint/format (Biome): `pnpm lint`, `pnpm lint:fix`, `pnpm format`
+- Git hooks: `pre-commit install` (enforces Biome, JSON/YAML hygiene, and Conventional Commits on `commit-msg`)
 
 ## MCP Servers
 
-Memory server: `node mcp-servers/memory/dist/index.js`
-Conventions server: `node mcp-servers/conventions/dist/index.js`
-Slack bridge: `node mcp-servers/slack-bridge/dist/index.js` (requires `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` env vars)
-
-All servers are configured in `.mcp.json` at the project root.
+The Slack bridge is a nested Claude plugin at `.claude-plugin/plugins/slack-bridge/`. Its `.mcp.json` points at `src/mcp-servers/slack-bridge/dist/mcp-server.js`. It requires the daemon (`pnpm --filter @ia-tools/slack-bridge daemon`) and `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` env vars.
 
 ## Skills
 
@@ -38,14 +33,10 @@ All servers are configured in `.mcp.json` at the project root.
 - `/review` — Quality gate: formatting, tests, coverage, coding standards
 - `/pr` — Push + PR: invokes `/review`, resolves conflicts, creates PR with architecture diagrams
 - `/deliver` — Smart orchestrator: detects state, invokes the right skills in sequence
-- `/team` — Multi-agent: spawns tmux session with specialized agents (orchestrator, backend, QA), each in its own worktree
+- `/team` — Multi-agent: spawns tmux session with specialized agents, each in its own worktree
 - `/ship` — PR review request: waits for CI, notifies Slack channel
 - `/sync-docs` — CLAUDE.md synchronization: detects and fixes documentation drift
 
 ## Parallel Development
 
-Uses `git worktree` to maintain multiple active branches simultaneously. Worktrees are created under `_worktrees/` (gitignored). See `/worktree` skill and `AGENTS.md` for workflow details.
-
-## Rules
-
-All rules in `rules/` use markdown with optional `paths:` frontmatter for context-specific loading. When editing rules, keep them under 150 lines and actionable (not generic).
+Uses `git worktree` to maintain multiple active branches simultaneously. Worktrees are created under `.worktrees/` (gitignored). See `/worktree` skill and `AGENTS.md` for workflow details.

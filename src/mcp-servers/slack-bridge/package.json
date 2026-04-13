@@ -1,0 +1,28 @@
+{
+  "name": "@ia-tools/slack-bridge",
+  "version": "0.2.0",
+  "description": "Slack ↔ Claude Code bridge: daemon (Socket Mode singleton) + MCP server (lightweight subscriber)",
+  "type": "module",
+  "bin": {
+    "slack-daemon": "./dist/daemon/index.js",
+    "slack-bridge-mcp": "./dist/mcp-server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "daemon": "node dist/daemon/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@slack/bolt": "^4.1.0",
+    "@slack/web-api": "^7.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

@@ -32,17 +32,17 @@ Parse `$ARGUMENTS` to determine which sub-command to execute:
 
 ### Worktree Directory Layout
 
-All worktrees are created as siblings of the main repo under a `_worktrees/` directory:
+All worktrees are created as siblings of the main repo under a `.worktrees/` directory:
 
 ```
 ia-tools/                  ← main repo (stays on main/master)
-ia-tools/_worktrees/
+ia-tools/.worktrees/
   feat-notification/       ← worktree for feat/notification-service
   fix-duplicate-msgs/      ← worktree for fix/duplicate-whatsapp-messages
   review-pr-42/            ← worktree for reviewing PR #42
 ```
 
-**Why `_worktrees/` inside the repo?**
+**Why `.worktrees/` inside the repo?**
 - Underscore prefix keeps it sorted at the top and signals "infrastructure"
 - `.gitignore` excludes it — never committed
 - Easy to find relative to the project root
@@ -81,13 +81,13 @@ Rule: replace `/` with `-`.
    git fetch origin
    ```
 
-3. **Ensure `_worktrees/` directory exists and is gitignored**:
+3. **Ensure `.worktrees/` directory exists and is gitignored**:
    ```bash
    mkdir -p _worktrees
    ```
-   - Check if `_worktrees/` is in `.gitignore`. If not, append it:
+   - Check if `.worktrees/` is in `.gitignore`. If not, append it:
      ```bash
-     grep -qxF '_worktrees/' .gitignore || echo '_worktrees/' >> .gitignore
+     grep -qxF '.worktrees/' .gitignore || echo '.worktrees/' >> .gitignore
      ```
 
 4. **Determine base branch**: Use `--base` if provided, default to `main`. Fall back to `master` if `main` doesn't exist.
@@ -95,7 +95,7 @@ Rule: replace `/` with `-`.
 5. **Convert branch name to directory name**:
    ```bash
    DIR_NAME=$(echo "<branch-name>" | tr '/' '-')
-   WORKTREE_PATH="_worktrees/${DIR_NAME}"
+   WORKTREE_PATH=".worktrees/${DIR_NAME}"
    ```
 
 6. **Check if worktree already exists**:
@@ -132,7 +132,7 @@ Rule: replace `/` with `-`.
 9. **Report**:
    ```
    Worktree created:
-     Path:   _worktrees/<dir-name>
+     Path:   .worktrees/<dir-name>
      Branch: <branch-name>
      Base:   origin/<base>
      Status: clean
@@ -169,8 +169,8 @@ Rule: replace `/` with `-`.
    | # | Directory              | Branch                       | Uncommitted | Unpushed | PR     |
    |---|------------------------|------------------------------|-------------|----------|--------|
    | 1 | (main repo)            | main                         | 0           | 0        | —      |
-   | 2 | _worktrees/feat-notif  | feat/notification-service    | 3           | 2        | #45    |
-   | 3 | _worktrees/fix-dupes   | fix/duplicate-whatsapp-msgs  | 0           | 1        | —      |
+   | 2 | .worktrees/feat-notif  | feat/notification-service    | 3           | 2        | #45    |
+   | 3 | .worktrees/fix-dupes   | fix/duplicate-whatsapp-msgs  | 0           | 1        | —      |
    ```
 
 4. **Check for PR association**:
@@ -258,7 +258,7 @@ Rule: replace `/` with `-`.
 4. **Report**:
    ```
    Cleanup complete:
-     Removed: feat/notification-service (_worktrees/feat-notification-service)
+     Removed: feat/notification-service (.worktrees/feat-notification-service)
      Remote branch: deleted
      Remaining worktrees: 2
    ```
@@ -288,21 +288,21 @@ Rule: replace `/` with `-`.
    Worktree Status Overview:
 
    feat/notification-service (2 days old)
-     Path: _worktrees/feat-notification-service
+     Path: .worktrees/feat-notification-service
      Commits: 4 ahead of main
      Changes: 2 uncommitted files
      PR: #45 — CI passing ✓
      Action needed: commit + push
 
    fix/duplicate-whatsapp-msgs (5 days old)
-     Path: _worktrees/fix-duplicate-whatsapp-msgs
+     Path: .worktrees/fix-duplicate-whatsapp-msgs
      Commits: 1 ahead of main
      Changes: clean
      PR: none
      Action needed: create PR
 
    review/pr-42 (1 day old)
-     Path: _worktrees/review-pr-42
+     Path: .worktrees/review-pr-42
      Commits: 0 local changes
      Changes: clean
      PR: #42 (reviewing)
@@ -324,7 +324,7 @@ The `/worktree` skill is designed to complement `/deliver`:
 | Workflow Step | Skill | What happens |
 |--------------|-------|--------------|
 | Start new task | `/worktree init feat/x` | Creates isolated worktree + branch |
-| Write code | _(agent works in worktree path)_ | Files at `_worktrees/feat-x/` |
+| Write code | _(agent works in worktree path)_ | Files at `.worktrees/feat-x/` |
 | Commit checkpoint | `/commit` | Formats, stages, commits from within the worktree |
 | Validate quality | `/review` | Runs fmt + tests + coverage + rules |
 | Create PR | `/pr` | Invokes `/review --fix`, pushes, creates PR with diagrams |
@@ -353,6 +353,7 @@ The `/worktree` skill is designed to complement `/deliver`:
 - **NEVER delete the main worktree** (the primary repo checkout)
 - **ALWAYS check for uncommitted changes** before removing a worktree
 - **ALWAYS run `git worktree prune`** after removals to clean up stale references
-- **`_worktrees/` MUST be in `.gitignore`** — never commit worktree directories
+- **`.worktrees/` MUST be in `.gitignore`** — never commit worktree directories
 - **Worktrees share the same `.git` database** — commits, stashes, and refs are shared across all worktrees
 - **Each worktree has an independent working directory** — changes in one don't affect others
+- **Never `cd` into a worktree** — always use `git -C <worktree-path>` and `pnpm --dir <worktree-path>` to run commands inside a worktree from the main repo
