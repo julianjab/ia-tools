@@ -5,11 +5,11 @@
 > Any change under `src/`, `agents/`, `skills/`, `scripts/`, or `profiles/` MUST
 > go through the pipeline defined in `AGENTS.md`:
 >
-> 1. `Agent(ia-tools:issue-refiner)` — refine the problem into BDD sub-tasks
-> 2. `/worktree init feat/<name>` — create an isolated worktree **before anything else**
-> 3. `Agent(ia-tools:orchestrator)` — produce the spec + contract (runs inside the worktree)
+> 1. `Agent(ia-tools:orchestrator)` — **always first**: assesses complexity, asks up to 3 questions, creates worktree + task list, decides if Issue Refiner is needed
+> 2. `/worktree init feat/<name>` — isolated worktree created by the Orchestrator before any spec or code
+> 3. `Agent(ia-tools:issue-refiner)` — deep refinement into BDD sub-tasks _(only if complex — Orchestrator decides)_
 > 4. QA writes **RED** tests before any implementation
-> 5. Leads/specialists make them **GREEN**
+> 5. Leads/specialists make them **GREEN** (spawned via `Agent` tool)
 > 6. `Agent(ia-tools:security-reviewer)` — security gate
 > 7. `/pr` — open the PR
 >

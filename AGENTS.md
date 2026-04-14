@@ -7,52 +7,58 @@ This file defines the agent roster for the ia-tools ecosystem. It is read native
 All work follows this pipeline. No phase begins until the previous one is complete.
 
 ```
-PHASE 0 — Refinement
-  Issue Refiner  ← Explore agents + Architect + Leads
-  └─ Input:  problem description (GitHub, Linear, Slack, URL, plain text)
-  └─ Output: sub-tasks with BDD seeds + technical context
+PHASE 0 — Intake + Assessment  (Orchestrator)
+  └─ Input:  any request — raw text, issue URL, Slack message, plain description
+  └─ Output: complexity assessment + clarifying questions (max 3)
 
-PHASE 0.5 — Isolation  (/worktree init feat/<name>)
-  └─ Input:  refined sub-task name
-  └─ Output: isolated worktree + feature branch
+PHASE 0.5 — Isolation  (Orchestrator → /worktree init or /worktree spawn)
+  └─ Input:  task name derived from request
+  └─ Output: isolated worktree + feature branch + task list in .sdlc/tasks.md
   ⚠️  BLOCKING — no agent writes code on main. All subsequent phases run inside the worktree.
+  ℹ️  /worktree spawn only when engineer explicitly requests Slack-linked async work.
 
-PHASE 1 — Specification  (Orchestrator)
-  └─ Input:  refined sub-task (runs inside the worktree)
+PHASE 1 — Refinement  (Orchestrator → Issue Refiner, only if complex)
+  └─ Input:  raw request + initial codebase context
+  └─ Output: refined sub-tasks with BDD seeds  [SKIPPED for simple/direct tasks]
+
+PHASE 2 — Specification  (Orchestrator)
+  └─ Input:  refined sub-tasks OR direct request (if simple/direct)
   └─ Output: complete BDD scenarios + api-contract.md (if applicable)
 
-PHASE 2 — Tests in RED  (QA Agent)
+PHASE 3 — Tests in RED  (QA Agent)
   └─ Input:  BDD scenarios
   └─ Output: tests written and failing (RED confirmed)
   ⚠️  BLOCKING — nobody implements without RED tests
 
-PHASE 3 — Implementation  (Leads → Specialists, via Agent tool)
+PHASE 4 — Implementation  (Leads → Specialists, via Agent tool)
   └─ Input:  RED tests
   └─ Output: code that makes the tests pass (GREEN)
   DDD order: Domain Agent → API Agent → UI/Mobile Agent
 
-PHASE 4 — Security gate  (Security Reviewer)
+PHASE 5 — Security gate  (Security Reviewer)
   └─ Input:  GREEN tests
   └─ Output: APPROVED or list of findings
   ⚠️  BLOCKING — no APPROVED means no merge
 
-PHASE 5 — Delivery  (/pr → /ship)
+PHASE 6 — Delivery  (/pr → /ship)
   └─ PR open + CI green + team notification
 ```
 
 ## Team Structure
 
-### Phase 0 — Issue Refiner (`agents/issue-refiner.md`)
+### Phase 0 — Orchestrator (`agents/orchestrator.md`)
 
-**First agent in the pipeline.** No other agent starts without going through here.
+**Always the first agent invoked. No exceptions.**
 
-Receives a problem description in any format (GitHub issue, Linear ticket, Slack message, URL, or plain text) and coordinates an exploration team to produce technically refined sub-tasks with BDD seeds. Its output is the input of the Orchestrator.
+Receives any request directly from the engineer. Asks up to 3 clarifying questions to assess complexity, then creates the worktree and task list before any spec or implementation. Decides autonomously whether to invoke the Issue Refiner or proceed directly to spec.
 
-### Phase 1 — Orchestrator (`agents/orchestrator.md`)
+Flow: Intake → Worktree → [Issue Refiner if complex] → Spec → QA (RED) → Leads (GREEN) → Security → PR.
 
-Receives a refined sub-task (with BDD seeds) from the Issue Refiner and converts it into a complete spec following SDD → BDD → TDD. Coordinates all implementation agents via the `Agent` tool. NEVER writes code. **Always runs inside a worktree** — never on `main`.
+### Phase 1 (optional) — Issue Refiner (`agents/issue-refiner.md`)
 
-Flow: Architect (contracts) → QA (RED) → Leads (GREEN) → Security → PR.
+Invoked by the Orchestrator when task complexity is HIGH. Coordinates deep codebase exploration (Explore agents + Architect + Leads) to produce refined sub-tasks with BDD seeds. Returns output to the Orchestrator — not to the engineer directly.
+
+Skipped for simple or already well-specified tasks.
 
 ### Design — Architect (`agents/architect.md`)
 
@@ -90,13 +96,20 @@ Agents use git worktrees to maintain parallel workstreams without context-switch
 ### Workflow Cadence
 
 ```
-Raw issue   → Issue Refiner → refined sub-tasks with BDD
-Sub-task #1 → /worktree init feat/sub-task-1 → Orchestrator (inside worktree) → work → /commit → /review → /pr
-Sub-task #2 → /worktree init feat/sub-task-2 → Orchestrator (inside worktree) → work → /commit → /pr  (parallel)
-Both merged → /worktree cleanup --merged
-```
+Any request  → Orchestrator (assess complexity + questions)
+             → /worktree init feat/<name>     [always]
+             → [Issue Refiner]                [only if complex]
+             → Spec + task list
+             → QA (RED) → Leads (GREEN) → Security → /pr
 
-Optionally, after `/worktree init`, run `/worktree spawn` to open a Claude session in tmux subscribed to a Slack thread for async task communication.
+Async request → Orchestrator → /worktree spawn feat/<name> --slack-thread <ts> --channel <id>
+             → Claude session in tmux, subscribed to Slack thread
+             → Spec + task list → QA → Leads → Security → /pr
+
+Multiple tasks → /worktree init feat/task-1  (parallel)
+                 /worktree init feat/task-2
+                 Both merged → /worktree cleanup --merged
+```
 
 ## Multi-Agent Mode
 
@@ -107,11 +120,13 @@ For async human-AI collaboration over Slack, use `/worktree spawn` to open a ded
 ## Rules
 
 All agents must:
-1. **Issue Refiner first** — never work on an issue without going through Phase 0.
-2. **Worktree before everything else** — immediately after Issue Refiner produces a sub-task, run `/worktree init feat/<name>`. No Orchestrator, no spec, no code touches `main`.
-3. Search for existing patterns in the codebase before creating new ones.
-4. Follow the project's established conventions.
-5. Run `/worktree status` when resuming work to understand active context.
+1. **Orchestrator first, always** — every request goes to the Orchestrator. It decides whether to invoke the Issue Refiner.
+2. **Worktree before spec or code** — the Orchestrator creates the worktree immediately after assessing complexity. No spec, no implementation, no file edit touches `main`.
+3. **Task list before implementation** — the Orchestrator writes `.sdlc/tasks.md` inside the worktree before delegating to any agent.
+4. **spawn only when explicitly requested** — use `/worktree spawn` only when the engineer asks for Slack-linked async work or a long-running task session. Default is `/worktree init`.
+5. Search for existing patterns in the codebase before creating new ones.
+6. Follow the project's established conventions.
+7. Run `/worktree status` when resuming work to understand active context.
 6. Run `/review` before requesting a PR to validate quality.
 7. Use `/commit` for checkpoint commits (never raw `git commit`) — messages must follow Conventional Commits (enforced by `pre-commit` on `commit-msg`).
 8. **Worktree commands use `-C`** — always `git -C <worktree-path>` and `pnpm --dir <worktree-path>` when operating on a worktree. Never `cd` into a worktree directory.
