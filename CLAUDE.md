@@ -13,9 +13,9 @@
 > 6. `Agent(ia-tools:security-reviewer)` — security gate
 > 7. `/pr` — open the PR
 >
-> **This plugin ships a `PreToolUse` hook (`hooks/enforce-worktree.sh`) that
-> BLOCKS `Edit`/`Write`/`MultiEdit` on protected paths when the current branch
-> is `main`/`master`.** If you see `Pipeline violation: you are on main`,
+> **This plugin ships a `PreToolUse` hook (`hooks/scripts/enforce-worktree.sh`)
+> that BLOCKS `Edit`/`Write`/`MultiEdit` on protected paths when the current
+> branch is `main`/`master`.** If you see `Pipeline violation: you are on main`,
 > run `/worktree init feat/<name>` — the block is intentional.
 
 @AGENTS.md
