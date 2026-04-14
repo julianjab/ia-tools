@@ -37,34 +37,38 @@ const DEFAULT_EMOJI = 'eyes';
 
 // ─── WebClient stub builder ─────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyFn = (...args: any[]) => any;
 type WebMock = {
-  reactions: { remove: ReturnType<typeof vi.fn> };
-  assistant: { threads: { setStatus: ReturnType<typeof vi.fn> } };
-  chat: { postMessage: ReturnType<typeof vi.fn> };
+  reactions: { remove: ReturnType<typeof vi.fn<AnyFn>> };
+  assistant: { threads: { setStatus: ReturnType<typeof vi.fn<AnyFn>> } };
+  chat: { postMessage: ReturnType<typeof vi.fn<AnyFn>> };
 };
 
-function makeWebMock(options: {
-  reactionsRemoveResult?: Promise<unknown>;
-  setStatusResult?: Promise<unknown>;
-  postMessageResult?: Promise<unknown>;
-} = {}): WebMock {
+function makeWebMock(
+  options: {
+    reactionsRemoveResult?: Promise<unknown>;
+    setStatusResult?: Promise<unknown>;
+    postMessageResult?: Promise<unknown>;
+  } = {},
+): WebMock {
   return {
     reactions: {
-      remove: vi.fn().mockReturnValue(
-        options.reactionsRemoveResult ?? Promise.resolve({ ok: true }),
-      ),
+      remove: vi
+        .fn()
+        .mockReturnValue(options.reactionsRemoveResult ?? Promise.resolve({ ok: true })),
     },
     assistant: {
       threads: {
-        setStatus: vi.fn().mockReturnValue(
-          options.setStatusResult ?? Promise.resolve({ ok: true }),
-        ),
+        setStatus: vi
+          .fn()
+          .mockReturnValue(options.setStatusResult ?? Promise.resolve({ ok: true })),
       },
     },
     chat: {
-      postMessage: vi.fn().mockReturnValue(
-        options.postMessageResult ?? Promise.resolve({ ok: true, ts: '555.666' }),
-      ),
+      postMessage: vi
+        .fn()
+        .mockReturnValue(options.postMessageResult ?? Promise.resolve({ ok: true, ts: '555.666' })),
     },
   };
 }
@@ -73,11 +77,13 @@ function makeWebMock(options: {
 
 describe('clearThinkingAck — reactions.remove call', () => {
   beforeEach(() => {
+    // biome-ignore lint/performance/noDelete: env cleanup requires delete to unset the key
     delete process.env.SLACK_ACK_EMOJI;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // biome-ignore lint/performance/noDelete: env cleanup requires delete to unset the key
     delete process.env.SLACK_ACK_EMOJI;
   });
 
