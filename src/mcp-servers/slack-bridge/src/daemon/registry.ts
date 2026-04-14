@@ -3,7 +3,10 @@
  * Health-checks subscribers periodically and removes dead ones.
  *
  * Matching logic (two layers):
- *   1. ID filters (OR)  — channels / users / threads: match ANY to pass
+ *   1. ID filters — threads are INDEPENDENT (match alone); channels AND users use AND logic
+ *      - Thread match bypasses channels/users and goes straight to regexp layer
+ *      - If both channels and users are specified, BOTH must match
+ *      - If only one is specified, only that one must match
  *   2. Regexp filters (AND) — channel_name / user_name / text / thread_ts: ALL must match
  */
 
@@ -73,28 +76,33 @@ export class Registry {
     regexp: SlackFilters | undefined,
     msg: SlackMessage,
   ): boolean {
-    // Layer 1 — ID-based OR matching
-    const hasAnyIdFilter =
-      (filters.channels?.length ?? 0) > 0 ||
-      (filters.users?.length ?? 0) > 0 ||
-      (filters.threads?.length ?? 0) > 0;
+    // Layer 1a — Threads are independent: a thread match bypasses channels/users
+    const hasThreadFilter = (filters.threads?.length ?? 0) > 0;
+    if (hasThreadFilter && msg.thread_ts != null && filters.threads?.includes(msg.thread_ts)) {
+      return this.matchesRegexp(regexp, msg);
+    }
 
-    if (hasAnyIdFilter) {
-      const matchesId =
-        (filters.channels?.includes(msg.channel_id) ?? false) ||
-        (filters.users?.includes(msg.user_id) ?? false) ||
-        (msg.thread_ts != null && (filters.threads?.includes(msg.thread_ts) ?? false));
-      if (!matchesId) return false;
+    // Layer 1b — Channels AND users (both must match if both are specified)
+    const hasChannelFilter = (filters.channels?.length ?? 0) > 0;
+    const hasUserFilter = (filters.users?.length ?? 0) > 0;
+
+    if (hasChannelFilter || hasUserFilter) {
+      const channelMatch =
+        !hasChannelFilter || (filters.channels?.includes(msg.channel_id) ?? false);
+      const userMatch = !hasUserFilter || (filters.users?.includes(msg.user_id) ?? false);
+      if (!channelMatch || !userMatch) return false;
     }
 
     // Layer 2 — Regexp AND matching (all patterns must pass)
-    if (regexp) {
-      if (regexp.channel && !tryMatch(regexp.channel, msg.channel_name)) return false;
-      if (regexp.user && !tryMatch(regexp.user, msg.user_name)) return false;
-      if (regexp.message && !tryMatch(regexp.message, msg.text ?? '')) return false;
-      if (regexp.thread && !tryMatch(regexp.thread, msg.thread_ts ?? '')) return false;
-    }
+    return this.matchesRegexp(regexp, msg);
+  }
 
+  private matchesRegexp(regexp: SlackFilters | undefined, msg: SlackMessage): boolean {
+    if (!regexp) return true;
+    if (regexp.channel && !tryMatch(regexp.channel, msg.channel_name)) return false;
+    if (regexp.user && !tryMatch(regexp.user, msg.user_name)) return false;
+    if (regexp.message && !tryMatch(regexp.message, msg.text ?? '')) return false;
+    if (regexp.thread && !tryMatch(regexp.thread, msg.thread_ts ?? '')) return false;
     return true;
   }
 

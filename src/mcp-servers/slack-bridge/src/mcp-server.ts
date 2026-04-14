@@ -66,7 +66,9 @@ export class McpBridgeServer {
           'Slack messages arrive as channel notifications with source="slack-bridge".',
           'When you want to respond to a message, FIRST call claim_message with the message_ts.',
           'If the claim succeeds, call reply_slack. If it fails, another session already claimed it — do nothing.',
-          'In DMs (is_dm=true in the notification meta), omit thread_ts unless the source message already had one.',
+          'Reply routing priority: (1) if thread_ts is present, always reply in the thread;',
+          '(2) if is_dm=true and no thread_ts, reply directly to the DM — omit thread_ts;',
+          '(3) otherwise reply to the channel.',
           'Use subscribe_slack at the start of the session to tell the daemon what to listen to.',
           'Use read_thread or read_channel to fetch conversation history.',
         ].join(' '),
@@ -156,8 +158,9 @@ export class McpBridgeServer {
           name: 'reply_slack',
           description:
             'Reply to a Slack message. Only call after a successful claim. ' +
-            'In DMs (is_dm=true), omit thread_ts unless the source message already had one — ' +
-            'DMs do not use threads by default.',
+            'Reply routing: (1) thread_ts present → always reply in thread; ' +
+            '(2) is_dm=true and no thread_ts → reply to DM, omit thread_ts; ' +
+            '(3) channel with no thread_ts → reply to channel.',
           inputSchema: {
             type: 'object' as const,
             properties: {
@@ -452,6 +455,18 @@ export class McpBridgeServer {
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
+process.on('unhandledRejection', (reason) => {
+  process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}\n`);
+  if (reason instanceof Error) process.stderr.write(reason.stack ?? '');
+  process.stderr.write('\n');
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  process.stderr.write(`[mcp] uncaughtException: ${err.message}\n${err.stack ?? ''}\n`);
+  process.exit(1);
+});
+
 const SESSION_ID = `${Date.now()}-${process.pid}`;
 const mcpLogPath = './.logs/mcp-logs.json';
 const logger = createLogger({ logPath: mcpLogPath, label: 'mcp', stderr: true });
@@ -467,28 +482,35 @@ logger.log(`starting — session=${SESSION_ID} daemon=${DAEMON_URL ?? 'none'} lo
 
 const web = new WebClient(botToken);
 
+// Build server first so the webhook callback can reference it safely
 const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
   const { message } = payload;
-  await server.server.notification({
-    method: 'notifications/claude/channel',
-    params: {
-      content: message.text,
-      meta: {
-        source: 'slack-bridge',
-        channel_id: message.channel_id,
-        channel_name: message.channel_name,
-        user_id: message.user_id,
-        user_name: message.user_name,
-        message_ts: message.message_ts,
-        thread_ts: message.thread_ts ?? '',
-        is_dm: message.is_dm,
+  try {
+    await mcpServer.server.notification({
+      method: 'notifications/claude/channel',
+      params: {
+        content: message.text,
+        meta: {
+          source: 'slack-bridge',
+          channel_id: message.channel_id,
+          channel_name: message.channel_name,
+          user_id: message.user_id,
+          user_name: message.user_name,
+          message_ts: message.message_ts,
+          thread_ts: message.thread_ts ?? '',
+          is_dm: message.is_dm ? 'true' : 'false',
+        },
       },
-    },
-  });
+    });
+  } catch (err) {
+    logger.error(`[webhook] notification failed: ${err}`);
+    if (err instanceof Error) logger.error(err.stack ?? '');
+    throw err;
+  }
 });
 
 const webhookPort = await webhookSrv.start();
 const daemonClient = DAEMON_URL ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-const server = new McpBridgeServer({ web, daemonClient, logger });
+const mcpServer = new McpBridgeServer({ web, daemonClient, logger });
 
-await server.connect(new StdioServerTransport());
+await mcpServer.connect(new StdioServerTransport());
