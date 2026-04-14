@@ -20,7 +20,11 @@ export class DaemonClient {
     return this.webhookPort;
   }
 
-  async subscribe(filters: SubscriptionFilters, regexp?: SlackFilters, label?: string): Promise<boolean> {
+  async subscribe(
+    filters: SubscriptionFilters,
+    regexp?: SlackFilters,
+    label?: string,
+  ): Promise<boolean> {
     if (!this.daemonUrl) {
       throw new Error('DAEMON_URL is not set — cannot subscribe');
     }
@@ -56,6 +60,7 @@ export class DaemonClient {
   }
 
   async claim(messageTs: string): Promise<ClaimResponse> {
+    if (!this.daemonUrl) throw new Error('DAEMON_URL is not set — cannot claim messages');
     const res = await fetch(`${this.daemonUrl}/claim/${messageTs}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

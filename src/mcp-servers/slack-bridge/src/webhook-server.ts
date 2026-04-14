@@ -64,15 +64,31 @@ export class WebhookServer {
     }
 
     if (req.method === 'POST' && req.url === '/message') {
+      const MAX_BODY_BYTES = 1_048_576;
       const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      let bytesReceived = 0;
+      let destroyed = false;
+
+      req.on('data', (chunk: Buffer) => {
+        bytesReceived += chunk.length;
+        if (bytesReceived > MAX_BODY_BYTES) {
+          destroyed = true;
+          req.destroy();
+          res.writeHead(413);
+          res.end('payload too large');
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on('end', async () => {
+        if (destroyed) return;
         let payload: MessagePayload;
         try {
           payload = JSON.parse(Buffer.concat(chunks).toString()) as MessagePayload;
         } catch (err) {
-          res.writeHead(500);
-          res.end(String(err));
+          process.stderr.write(`[WebhookServer] JSON parse error: ${String(err)}\n`);
+          res.writeHead(400);
+          res.end('internal error');
           return;
         }
         try {
@@ -80,8 +96,9 @@ export class WebhookServer {
           res.writeHead(200);
           res.end('ok');
         } catch (err) {
+          process.stderr.write(`[WebhookServer] onMessage error: ${String(err)}\n`);
           res.writeHead(500);
-          res.end(String(err));
+          res.end('internal error');
         }
       });
       return;

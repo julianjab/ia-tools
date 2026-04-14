@@ -21,10 +21,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SlackFilters } from '../config.js';
 // RED: this module does not exist yet
 import { DaemonClient } from '../daemon-client.js';
 import type { ClaimResponse, SubscriptionFilters } from '../shared/types.js';
-import type { SlackFilters } from '../config.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

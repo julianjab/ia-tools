@@ -18,9 +18,9 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { MessagePayload } from '../shared/types.js';
 // RED: this module does not exist yet
 import { WebhookServer } from '../webhook-server.js';
-import type { MessagePayload } from '../shared/types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -296,8 +296,8 @@ describe('WebhookServer — POST /message with malformed JSON', () => {
       body: 'not json',
     });
 
-    // Assert
-    expect(res.status).toBe(500);
+    // Assert — malformed JSON now returns 400 (bad request), not 500
+    expect(res.status).toBe(400);
   });
 
   it('postMessage_malformedJson_onMessageNotCalled', async () => {
@@ -359,8 +359,9 @@ describe('WebhookServer — POST /message when onMessage throws', () => {
     });
     const body = await res.text();
 
-    // Assert
-    expect(body).toContain('boom');
+    // Assert — error details must not leak; response body is generic
+    expect(body).toBe('internal error');
+    expect(body).not.toContain('boom');
   });
 });
 

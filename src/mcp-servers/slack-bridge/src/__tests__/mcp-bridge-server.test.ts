@@ -27,10 +27,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// RED: McpBridgeServer class does not exist yet
-import { McpBridgeServer } from '../mcp-server.js';
 import type { DaemonClient } from '../daemon-client.js';
 import type { Logger } from '../logger.js';
+// RED: McpBridgeServer class does not exist yet
+import { McpBridgeServer } from '../mcp-server.js';
 
 // ─── Mock modules ────────────────────────────────────────────────────────────
 
@@ -108,10 +108,16 @@ async function invokeListTools(bridge: McpBridgeServer) {
   const handlers = getHandlers(bridge);
   const handler = handlers.get('tools/list');
   if (!handler) throw new Error('tools/list handler not registered');
-  return handler({ method: 'tools/list' }, {}) as Promise<{ tools: Array<{ name: string; description: string; inputSchema: unknown }> }>;
+  return handler({ method: 'tools/list' }, {}) as Promise<{
+    tools: Array<{ name: string; description: string; inputSchema: unknown }>;
+  }>;
 }
 
-async function invokeTool(bridge: McpBridgeServer, name: string, args: Record<string, unknown> = {}) {
+async function invokeTool(
+  bridge: McpBridgeServer,
+  name: string,
+  args: Record<string, unknown> = {},
+) {
   const handlers = getHandlers(bridge);
   const handler = handlers.get('tools/call');
   if (!handler) throw new Error('tools/call handler not registered');
@@ -831,10 +837,7 @@ describe('McpBridgeServer — oninitialized auto-subscribe', () => {
 // ─── Tests: ensureDaemon removed (Sub-task #4) ────────────────────────────────
 
 describe('McpBridgeServer — ensureDaemon removed from mcp-server.ts', () => {
-  const MCP_SERVER_PATH = join(
-    new URL(import.meta.url).pathname,
-    '../../mcp-server.ts',
-  );
+  const MCP_SERVER_PATH = join(new URL(import.meta.url).pathname, '../../mcp-server.ts');
 
   it('mcpServerFile_inspected_doesNotImportEnsureDaemon', () => {
     // Arrange

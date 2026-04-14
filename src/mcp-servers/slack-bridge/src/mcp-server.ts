@@ -33,8 +33,8 @@ import { loadConfig, saveConfig } from './config.js';
 import { DaemonClient } from './daemon-client.js';
 import { createLogger } from './logger.js';
 import type { Logger } from './logger.js';
-import { WebhookServer } from './webhook-server.js';
 import type { MessagePayload, SubscriptionFilters } from './shared/types.js';
+import { WebhookServer } from './webhook-server.js';
 
 // ─── McpBridgeServer ─────────────────────────────────────────────────────────
 
@@ -438,8 +438,7 @@ export class McpBridgeServer {
       const fileConfig = loadConfig();
       const channels =
         process.env.SLACK_CHANNELS?.split(',').filter(Boolean) ?? fileConfig.channels ?? [];
-      const users =
-        process.env.SLACK_USERS?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
+      const users = process.env.SLACK_USERS?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
       const threads =
         process.env.SLACK_THREADS?.split(',').filter(Boolean) ?? fileConfig.threads ?? [];
 
