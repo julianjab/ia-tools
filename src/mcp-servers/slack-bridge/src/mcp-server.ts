@@ -305,7 +305,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
           ...(label ? { bot: { label } } : {}),
         });
       } catch (err) {
-        console.error(`[slack-bridge] Warning: could not persist subscription — ${err}`);
+        mcpWarn(`could not persist subscription — ${err}`);
       }
 
       const parts: string[] = [];
