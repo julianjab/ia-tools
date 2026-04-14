@@ -27,7 +27,7 @@ case "$file_path" in
     ;;
 esac
 
-branch=$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --abbrev-ref HEAD 2>/dev/null)
+branch=$(git -C "$(dirname "$file_path")" rev-parse --abbrev-ref HEAD 2>/dev/null)
 
 if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
   printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Pipeline violation: you are on '"$branch"' and tried to edit a protected path ('"$file_path"'). Per AGENTS.md rule #4, any change under src/, agents/, skills/, scripts/, or profiles/ must happen inside a worktree. Run /worktree init feat/<name> and edit inside that worktree."}}'
