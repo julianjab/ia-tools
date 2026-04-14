@@ -19,7 +19,7 @@
  * - saveConfig() merges the provided patch into the existing file's slack key.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface SlackFilters {
@@ -75,7 +75,7 @@ function readRawFile(filePath: string): ChannelsConfig | null {
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     process.stderr.write(
-      `[slack-bridge] Warning: .claude/.channels.json must be a JSON object — ignoring file\n`,
+      '[slack-bridge] Warning: .claude/.channels.json must be a JSON object — ignoring file\n',
     );
     return null;
   }
@@ -140,8 +140,8 @@ export function saveConfig(patch: Partial<SlackChannelConfig>, cwd?: string): vo
   }
 
   const existingSlack =
-    typeof existing['slack'] === 'object' && existing['slack'] !== null
-      ? (existing['slack'] as Record<string, unknown>)
+    typeof existing.slack === 'object' && existing.slack !== null
+      ? (existing.slack as Record<string, unknown>)
       : {};
 
   // Merge patch into existing slack section

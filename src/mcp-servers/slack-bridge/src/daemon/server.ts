@@ -9,14 +9,15 @@
  *   GET    /health             — Health check
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { Registry } from './registry.js';
+import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import type {
-  SubscribeRequest,
   ClaimRequest,
   ClaimResponse,
   DaemonHealth,
+  SubscribeRequest,
 } from '../shared/types.js';
+import { log } from './logger.js';
+import type { Registry } from './registry.js';
 
 /** In-memory claim store: message_ts → subscriber port */
 const claims = new Map<string, number>();
@@ -47,7 +48,7 @@ export function createApiServer(
   setInterval(() => {
     const now = Date.now();
     for (const [ts] of claims) {
-      const claimTime = parseFloat(ts) * 1000;
+      const claimTime = Number.parseFloat(ts) * 1000;
       if (now - claimTime > CLAIM_TTL_MS) claims.delete(ts);
     }
   }, 60_000);
@@ -65,7 +66,7 @@ export function createApiServer(
           return;
         }
         const sub = registry.add(body.port, body.filters ?? {}, body.regexp, body.label);
-        console.log(
+        log(
           `[api] +subscriber :${body.port} (${body.label ?? '-'}) filters=${JSON.stringify(body.filters)} regexp=${JSON.stringify(body.regexp ?? {})}`,
         );
         json(res, 200, sub);
@@ -77,13 +78,13 @@ export function createApiServer(
 
     // DELETE /subscribe/:port
     if (req.method === 'DELETE' && path.startsWith('/subscribe/')) {
-      const port = parseInt(path.split('/')[2], 10);
-      if (isNaN(port)) {
+      const port = Number.parseInt(path.split('/')[2], 10);
+      if (Number.isNaN(port)) {
         json(res, 400, { error: 'invalid port' });
         return;
       }
       const removed = registry.remove(port);
-      console.log(`[api] -subscriber :${port} removed=${removed}`);
+      log(`[api] -subscriber :${port} removed=${removed}`);
       json(res, 200, { removed });
       return;
     }
@@ -107,7 +108,7 @@ export function createApiServer(
 
         if (existing !== undefined) {
           const resp: ClaimResponse = { claimed: false, claimed_by: existing };
-          console.log(
+          log(
             `[claim] ${messageTs} already claimed by :${existing}, rejected :${body.subscriber_port}`,
           );
           json(res, 409, resp);
@@ -116,7 +117,7 @@ export function createApiServer(
 
         claims.set(messageTs, body.subscriber_port);
         const resp: ClaimResponse = { claimed: true };
-        console.log(`[claim] ${messageTs} → :${body.subscriber_port}`);
+        log(`[claim] ${messageTs} → :${body.subscriber_port}`);
         json(res, 200, resp);
       } catch (err) {
         json(res, 400, { error: String(err) });

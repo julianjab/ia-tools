@@ -21,10 +21,10 @@
  *   - saveConfig() creates .claude/ directory if absent
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Setup: isolated cwd per test ───────────────────────────────────────────
 
@@ -70,7 +70,7 @@ describe('loadConfig() — happy path', () => {
   it('LoadConfig_FileWithChannels_ReturnsChannels', () => {
     // Arrange
     writeChannelsJson({ slack: { channels: ['C123ABC'] } });
-    delete process.env['SLACK_CHANNELS'];
+    process.env.SLACK_CHANNELS = undefined;
 
     // Act
     const config = loadConfig();
@@ -245,7 +245,7 @@ describe("loadConfig() — campo con 'token' en el nombre", () => {
     const config = loadConfig();
 
     // Assert
-    expect((config as Record<string, unknown>)['token']).toBeUndefined();
+    expect((config as Record<string, unknown>).token).toBeUndefined();
   });
 
   it('LoadConfig_BotTokenFieldPresent_WarnsAboutToken', () => {
@@ -269,7 +269,7 @@ describe("loadConfig() — campo con 'token' en el nombre", () => {
     const config = loadConfig();
 
     // Assert
-    expect((config as Record<string, unknown>)['bot_token']).toBeUndefined();
+    expect((config as Record<string, unknown>).bot_token).toBeUndefined();
   });
 
   it('LoadConfig_TokenFieldPresent_SafeFieldsPreserved', () => {
