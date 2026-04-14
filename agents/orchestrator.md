@@ -43,13 +43,41 @@ If the request is ambiguous, ask **at most 3 targeted questions** to clarify sco
 
 All subsequent work happens inside this worktree. Never on `main`.
 
-If the engineer explicitly asks to work on a task asynchronously via a Slack thread (e.g. "work on this in this thread", "let's track this in Slack"), run `/worktree spawn` instead:
+The `.claude/` directory from the root repo is copied into the worktree automatically by `init` — the session inside the worktree will have the same hooks, skills, and channel config as the main repo.
 
-```
-/worktree spawn feat/<task-name> --slack-thread <ts> --channel <channel-id>
-```
+#### When to use spawn instead of init
 
-Spawn is only used when the engineer explicitly requests Slack-linked async work or when the task is long-running and benefits from async communication. Default: use `init`.
+Use `/worktree spawn` **only** when ALL of the following are true:
+- The task is long-running or requires async human-AI collaboration
+- A Slack thread already exists (or will be created in Step 3b) to track the work
+- The task list (Step 4) is written and non-empty
+
+Never spawn speculatively. Default is always `init`.
+
+#### Step 3b — Announce the task in Slack before spawning (if spawn is warranted)
+
+If the task meets the spawn criteria above, **before** calling spawn:
+
+1. Send a message to the appropriate Slack channel announcing the task:
+   ```
+   reply_slack (or send_message) to the channel with:
+   "Starting work on: <task-name>
+    Branch: feat/<task-name>
+    Tasks:
+    - <task 1>
+    - <task 2>
+    ...
+    I'll continue this work in this thread."
+   ```
+
+2. Capture the `message_ts` (thread timestamp) from the Slack response.
+
+3. Then call:
+   ```
+   /worktree spawn feat/<task-name> --slack-thread <message_ts> --channel <channel-id>
+   ```
+
+This ensures the spawned Claude session knows exactly which thread to subscribe to, and the engineer has a clear record in Slack of what is being worked on and where.
 
 ### Step 4 — Build the task list
 

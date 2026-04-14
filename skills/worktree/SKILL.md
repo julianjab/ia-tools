@@ -126,36 +126,59 @@ Rule: replace `/` with `-`.
    git worktree add --track -b <branch-name> "${WORKTREE_PATH}" origin/<branch-name>
    ```
 
-8. **Verify the worktree**:
+8. **Copy root `.claude/` into the worktree**:
    ```bash
-   cd "${WORKTREE_PATH}" && git branch --show-current && git log --oneline -3
+   REPO_ROOT=$(git rev-parse --show-toplevel)
+   cp -r "${REPO_ROOT}/.claude/" "${WORKTREE_PATH}/.claude/"
+   ```
+   This carries over all Claude config (hooks, skills, channels, settings) so the worktree
+   session behaves identically to the main repo. The copy is local — `.claude/` is already
+   gitignored so it never reaches the remote.
+
+9. **Verify the worktree**:
+   ```bash
+   git -C "${WORKTREE_PATH}" branch --show-current && git -C "${WORKTREE_PATH}" log --oneline -3
    ```
 
-9. **Report**:
-   ```
-   Worktree created:
-     Path:   .worktrees/<dir-name>
-     Branch: <branch-name>
-     Base:   origin/<base>
-     Status: clean
+10. **Report**:
+    ```
+    Worktree created:
+      Path:    .worktrees/<dir-name>
+      Branch:  <branch-name>
+      Base:    origin/<base>
+      .claude: copied from root
+      Status:  clean
 
-   To work in this worktree, operate on files at: <absolute-path>
-   The main repo remains on: main (undisturbed)
-   ```
+    To work in this worktree, operate on files at: <absolute-path>
+    The main repo remains on: main (undisturbed)
+    ```
 
 ---
 
 ## Sub-command: `spawn`
 
-**Purpose**: Create a worktree (if it doesn't exist yet) and open a Claude Code session inside it in a tmux window. Optionally pre-subscribe Claude to a Slack thread so the session receives messages and can act on them autonomously.
+**Purpose**: Open a dedicated Claude Code session in a tmux window for a task that requires async human-AI collaboration via Slack. The worktree must already exist (created by `init`). Spawn is only called when the Orchestrator has a clear task definition AND a Slack thread to link it to.
 
-**Arguments**: `/worktree spawn <branch-name> [--slack-thread <ts>] [--channel <channel-id>] [--session <tmux-session-name>]`
+**Arguments**: `/worktree spawn <branch-name> --slack-thread <ts> --channel <channel-id> [--session <tmux-session-name>]`
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--slack-thread <ts>` | _(none)_ | Slack thread timestamp to subscribe to |
-| `--channel <id>` | _(none)_ | Slack channel ID (required when `--slack-thread` is set) |
-| `--session <name>` | branch dir name | tmux session name; if it already exists, a new window is added |
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--slack-thread <ts>` | **Yes** | Slack thread timestamp where the task was announced |
+| `--channel <id>` | **Yes** | Slack channel ID containing the thread |
+| `--session <name>` | No | tmux session name; defaults to branch dir name; adds window if session exists |
+
+> **spawn requires both `--slack-thread` and `--channel`.** If either is missing, STOP and report the error. Do not spawn without a linked Slack thread — use `init` instead.
+
+> **The worktree must already exist.** If it doesn't, STOP and tell the caller to run `/worktree init` first.
+
+### Pre-conditions (enforced before spawning)
+
+Before executing spawn, verify:
+
+1. **Task is defined**: `.sdlc/tasks.md` exists inside the worktree and is non-empty. If not, STOP — the Orchestrator must define the task list before spawning.
+2. **Slack thread is set**: `--slack-thread` and `--channel` are both provided.
+3. **Worktree exists**: the directory at `.worktrees/<dir-name>` exists and is a valid git worktree.
+4. **tmux and claude CLI are available**.
 
 ### Steps
 
@@ -165,7 +188,7 @@ Rule: replace `/` with `-`.
    command -v claude || { echo "claude CLI not found in PATH"; exit 1; }
    ```
 
-2. **Ensure the worktree exists** — if not, run the `init` logic first (fetch origin, create `.worktrees/<dir>`, create branch). If it already exists, skip creation and report.
+2. **Verify worktree and task list** (see Pre-conditions above).
 
 3. **Resolve the worktree absolute path**:
    ```bash
@@ -176,18 +199,18 @@ Rule: replace `/` with `-`.
 
 4. **Resolve the tmux session name**: Use `--session` if provided, otherwise use `$DIR_NAME`.
 
-5. **Resolve the OAuth token** (same pattern as `spawn-team.sh`):
+5. **Resolve the OAuth token**:
    ```bash
    AGENT_TOKEN="${CLAUDE_TEAM_OAUTH_TOKEN:-$CLAUDE_CODE_OAUTH_TOKEN}"
    ```
 
 6. **Build the Claude launch command**:
-   - With Slack: `SLACK_THREAD_TS=<ts> SLACK_CHANNELS=<channel-id> CLAUDE_CODE_OAUTH_TOKEN=<token> claude --dangerously-skip-permissions`
-   - Without Slack: `CLAUDE_CODE_OAUTH_TOKEN=<token> claude --dangerously-skip-permissions`
+   ```bash
+   CLAUDE_CMD="SLACK_THREAD_TS=<ts> SLACK_CHANNELS=<channel-id> CLAUDE_CODE_OAUTH_TOKEN=<token> claude --dangerously-skip-permissions"
+   ```
 
 7. **Create or reuse tmux session**:
    ```bash
-   # If session exists, add a new window; otherwise create a new session
    if tmux has-session -t "$SESSION" 2>/dev/null; then
      tmux new-window -t "$SESSION" -n "$DIR_NAME" -c "$WORKTREE_PATH"
    else
@@ -195,54 +218,45 @@ Rule: replace `/` with `-`.
    fi
    ```
 
-8. **Send the Claude launch command** to the tmux pane:
+8. **Send the Claude launch command**:
    ```bash
-   tmux send-keys -t "$SESSION:$DIR_NAME" "$CLAUDE_CMD" Enter
+   tmux send-keys -t "${SESSION}:${DIR_NAME}" "$CLAUDE_CMD" Enter
    ```
 
-9. **Send the boot prompt** after a short delay (1s for Claude to start):
-   - **With Slack**: instruct Claude to call `subscribe_slack` with `threads: ["<ts>"]`, `channels: ["<channel-id>"]`, and `label: "task: <branch-name>"`, then wait for messages and act on them autonomously.
-   - **Without Slack**: instruct Claude to read the worktree's `CLAUDE.md`, understand the project context, and wait for tasks from the main session or user.
-
+9. **Send the boot prompt** (after 1s):
    ```bash
    sleep 1
-   tmux send-keys -t "$SESSION:$DIR_NAME" "<boot-prompt>" Enter
+   tmux send-keys -t "${SESSION}:${DIR_NAME}" "<boot-prompt>" Enter
    ```
 
 10. **Report**:
     ```
     Worktree session spawned:
-      Branch:   <branch-name>
-      Path:     .worktrees/<dir-name>
-      tmux:     session=<session-name>  window=<dir-name>
-      Slack:    subscribed to thread <ts> in channel <channel-id>  [or: not connected]
+      Branch:  <branch-name>
+      Path:    .worktrees/<dir-name>
+      tmux:    session=<session-name>  window=<dir-name>
+      Slack:   thread=<ts>  channel=<channel-id>
+      Tasks:   loaded from .sdlc/tasks.md
 
     Attach with:
       tmux attach -t <session-name>
     ```
 
-### Boot prompts
+### Boot prompt
 
-**With Slack thread:**
 ```
 You are a Claude Code agent working on branch <branch-name> inside worktree <path>.
-Call subscribe_slack with threads=["<ts>"], channels=["<channel-id>"], label="task: <branch-name>".
-Then wait for messages from the Slack thread. When a message arrives, read it, plan your response,
-and act on it. Use /commit for checkpoints. Report progress back via reply_slack.
-Do NOT do anything until you receive a Slack message.
-```
 
-**Without Slack:**
-```
-You are a Claude Code agent working on branch <branch-name> inside worktree <path>.
-Read CLAUDE.md to understand the project. Then wait — the orchestrator or user will
-send you tasks via the main Claude session or by writing to .worktrees/.team/tasks/.
-Use /commit for checkpoints. Do NOT do anything until you receive a task.
+Your task list is at .sdlc/tasks.md — read it first.
+
+Subscribe to the Slack thread where this task was announced:
+  subscribe_slack(threads=["<ts>"], channels=["<channel-id>"], label="task: <branch-name>")
+
+Then begin the first task in the list. Report progress and blockers via reply_slack to the thread.
+Use /commit for checkpoints. Follow the pipeline in CLAUDE.md.
 ```
 
 ### Delegate to script
-
-The actual shell work is handled by `skills/worktree/scripts/spawn-claude.sh`:
 
 ```bash
 bash "$(git rev-parse --show-toplevel)/skills/worktree/scripts/spawn-claude.sh" \
