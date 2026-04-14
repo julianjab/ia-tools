@@ -1,5 +1,23 @@
 # ia-tools — AI Toolbox for Development Teams
 
+> ## 🚨 PIPELINE IS MANDATORY
+>
+> Any change under `src/`, `agents/`, `skills/`, `scripts/`, or `profiles/` MUST
+> go through the pipeline defined in `AGENTS.md`:
+>
+> 1. `Agent(ia-tools:issue-refiner)` — refine the problem into BDD sub-tasks
+> 2. `Agent(ia-tools:orchestrator)` — produce the spec + contract
+> 3. `/worktree init feat/<name>` — create an isolated worktree
+> 4. QA writes **RED** tests before any implementation
+> 5. Leads/specialists make them **GREEN**
+> 6. `Agent(ia-tools:security-reviewer)` — security gate
+> 7. `/pr` — open the PR
+>
+> **This plugin ships a `PreToolUse` hook (`hooks/scripts/enforce-worktree.sh`)
+> that BLOCKS `Edit`/`Write`/`MultiEdit` on protected paths when the current
+> branch is `main`/`master`.** If you see `Pipeline violation: you are on main`,
+> run `/worktree init feat/<name>` — the block is intentional.
+
 @AGENTS.md
 
 ## About This Repo
