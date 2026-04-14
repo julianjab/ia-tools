@@ -9,15 +9,15 @@
  *   GET    /health             — Health check
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { log } from './logger.js';
-import type { Registry } from './registry.js';
+import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import type {
-  SubscribeRequest,
   ClaimRequest,
   ClaimResponse,
   DaemonHealth,
+  SubscribeRequest,
 } from '../shared/types.js';
+import { log } from './logger.js';
+import type { Registry } from './registry.js';
 
 /** In-memory claim store: message_ts → subscriber port */
 const claims = new Map<string, number>();
@@ -48,7 +48,7 @@ export function createApiServer(
   setInterval(() => {
     const now = Date.now();
     for (const [ts] of claims) {
-      const claimTime = parseFloat(ts) * 1000;
+      const claimTime = Number.parseFloat(ts) * 1000;
       if (now - claimTime > CLAIM_TTL_MS) claims.delete(ts);
     }
   }, 60_000);
@@ -78,8 +78,8 @@ export function createApiServer(
 
     // DELETE /subscribe/:port
     if (req.method === 'DELETE' && path.startsWith('/subscribe/')) {
-      const port = parseInt(path.split('/')[2], 10);
-      if (isNaN(port)) {
+      const port = Number.parseInt(path.split('/')[2], 10);
+      if (Number.isNaN(port)) {
         json(res, 400, { error: 'invalid port' });
         return;
       }

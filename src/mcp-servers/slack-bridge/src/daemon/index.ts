@@ -22,11 +22,11 @@
 
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import type { MessagePayload, SlackMessage } from '../shared/types.js';
+import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
+import { error, log, logPath, warn } from './logger.js';
 import { Registry } from './registry.js';
 import { createApiServer } from './server.js';
-import { startListener, resolveUser, resolveChannel, type SlackEvent } from './listener.js';
-import type { SlackMessage, MessagePayload } from '../shared/types.js';
-import { log, warn, error, logPath } from './logger.js';
 
 // ─── CLI args ───────────────────────────────────────────────────────
 function arg(name: string): string | undefined {
@@ -36,7 +36,7 @@ function arg(name: string): string | undefined {
 }
 
 // ─── Pidfile ────────────────────────────────────────────────────────
-const stateBase = process.env['XDG_STATE_HOME'] ?? `${homedir()}/.local/state`;
+const stateBase = process.env.XDG_STATE_HOME ?? `${homedir()}/.local/state`;
 const stateDir = `${stateBase}/ia-tools/slack-bridge`;
 if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
 const pidFile = `${stateDir}/daemon.pid`;
@@ -50,9 +50,9 @@ const cleanupPidFile = () => {
 };
 process.on('exit', cleanupPidFile);
 
-const botToken = arg('bot-token') ?? process.env['SLACK_BOT_TOKEN'];
-const appToken = arg('app-token') ?? process.env['SLACK_APP_TOKEN'];
-const port = parseInt(process.env['DAEMON_PORT'] ?? '3800', 10);
+const botToken = arg('bot-token') ?? process.env.SLACK_BOT_TOKEN;
+const appToken = arg('app-token') ?? process.env.SLACK_APP_TOKEN;
+const port = Number.parseInt(process.env.DAEMON_PORT ?? '3800', 10);
 
 if (!botToken || !appToken) {
   error('Missing --bot-token / SLACK_BOT_TOKEN or --app-token / SLACK_APP_TOKEN');
@@ -131,7 +131,7 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
           return;
         }
         registry.markSeen(sub.port);
-      } catch (err) {
+      } catch (_err) {
         warn(`[route] subscriber :${sub.port} unreachable — removing`);
         registry.remove(sub.port);
       }

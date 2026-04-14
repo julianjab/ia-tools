@@ -7,13 +7,13 @@
  *   2. Regexp filters (AND) — channel_name / user_name / text / thread_ts: ALL must match
  */
 
-import { log } from './logger.js';
 import type {
+  SlackFilters,
+  SlackMessage,
   Subscriber,
   SubscriptionFilters,
-  SlackMessage,
-  SlackFilters,
 } from '../shared/types.js';
+import { log } from './logger.js';
 
 function tryMatch(pattern: string, value: string): boolean {
   try {

@@ -22,23 +22,27 @@
  *   SLACK_THREADS     — Comma-separated thread timestamps (overrides .claude/.channels.json)
  */
 
+import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { MessagePayload, SubscriptionFilters, ClaimResponse } from './shared/types.js';
 import type { SlackFilters } from './config.js';
-import { resolveDaemonUrl, ensureDaemon } from './ensure-daemon.js';
 import { loadConfig, saveConfig } from './config.js';
+import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
 import { createLogger } from './logger.js';
+import type { ClaimResponse, MessagePayload, SubscriptionFilters } from './shared/types.js';
 
 // ─── Session logger ──────────────────────────────────────────────────
 const SESSION_ID = `${Date.now()}-${process.pid}`;
-const mcpLogPath = `./.logs/mcp-logs.json`;
-const { log: mcpLog, warn: mcpWarn, error: mcpError } = createLogger({ logPath: mcpLogPath, label: 'mcp', stderr: true });
+const mcpLogPath = './.logs/mcp-logs.json';
+const {
+  log: mcpLog,
+  warn: mcpWarn,
+  error: mcpError,
+} = createLogger({ logPath: mcpLogPath, label: 'mcp', stderr: true });
 
-const botToken = process.env['SLACK_BOT_TOKEN'];
+const botToken = process.env.SLACK_BOT_TOKEN;
 if (!botToken) {
   mcpError('Missing SLACK_BOT_TOKEN');
   process.exit(1);
@@ -282,12 +286,12 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (name === 'subscribe_slack') {
     try {
       const filters: SubscriptionFilters = {
-        channels: (args['channels'] as string[]) ?? [],
-        users: (args['dms'] as string[]) ?? [],
-        threads: (args['threads'] as string[]) ?? [],
+        channels: (args.channels as string[]) ?? [],
+        users: (args.dms as string[]) ?? [],
+        threads: (args.threads as string[]) ?? [],
       };
-      const regexp = args['filters'] as SlackFilters | undefined;
-      const label = args['label'] as string | undefined;
+      const regexp = args.filters as SlackFilters | undefined;
+      const label = args.label as string | undefined;
 
       await daemonSubscribe(filters, regexp, label);
 
@@ -331,7 +335,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 
   if (name === 'claim_message') {
     try {
-      const result = await daemonClaim(args['message_ts'] as string);
+      const result = await daemonClaim(args.message_ts as string);
       if (result.claimed) {
         return { content: [{ type: 'text' as const, text: 'Claimed — you may reply.' }] };
       }
@@ -414,14 +418,13 @@ mcp.oninitialized = async () => {
   if (!DAEMON_URL) {
     mcpWarn('DAEMON_URL is not set — running in read-only mode (no subscriptions possible)');
     return;
-  };
+  }
   // Read .claude/.channels.json — subscribe only if data exists
   const fileConfig = loadConfig();
   const channels =
-    process.env['SLACK_CHANNELS']?.split(',').filter(Boolean) ?? fileConfig.channels ?? [];
-  const users = process.env['SLACK_USERS']?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
-  const threads =
-    process.env['SLACK_THREADS']?.split(',').filter(Boolean) ?? fileConfig.threads ?? [];
+    process.env.SLACK_CHANNELS?.split(',').filter(Boolean) ?? fileConfig.channels ?? [];
+  const users = process.env.SLACK_USERS?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
+  const threads = process.env.SLACK_THREADS?.split(',').filter(Boolean) ?? fileConfig.threads ?? [];
 
   if (!channels.length && !users.length && !threads.length) return;
 
@@ -431,9 +434,13 @@ mcp.oninitialized = async () => {
       fileConfig.filters,
       fileConfig.bot?.label ?? 'auto',
     );
-    mcpLog(`auto-subscribed on :${webhookPort} — channels=${channels} dms=${users} threads=${threads}`);
+    mcpLog(
+      `auto-subscribed on :${webhookPort} — channels=${channels} dms=${users} threads=${threads}`,
+    );
   } catch {
-    mcpWarn('daemon not reachable — subscription skipped. Use subscribe_slack once the daemon is running.');
+    mcpWarn(
+      'daemon not reachable — subscription skipped. Use subscribe_slack once the daemon is running.',
+    );
   }
 };
 

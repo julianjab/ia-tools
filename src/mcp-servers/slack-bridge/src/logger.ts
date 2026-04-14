@@ -21,8 +21,8 @@ export interface Logger {
 function now(): { date: string; time: string } {
   const d = new Date();
   return {
-    date: d.toLocaleDateString('en-CA'),  // YYYY-MM-DD
-    time: d.toTimeString().slice(0, 8),   // HH:mm:ss
+    date: d.toLocaleDateString('en-CA'), // YYYY-MM-DD
+    time: d.toTimeString().slice(0, 8), // HH:mm:ss
   };
 }
 

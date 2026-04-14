@@ -38,16 +38,16 @@ export async function startListener(
 
   app.message(async ({ message }) => {
     const msg = message as unknown as Record<string, unknown>;
-    const text = msg['text'] as string | undefined;
+    const text = msg.text as string | undefined;
 
-    if (!text || msg['bot_id'] || msg['subtype']) return;
+    if (!text || msg.bot_id || msg.subtype) return;
 
     await onMessage({
-      channel_id: msg['channel'] as string,
-      user_id: (msg['user'] as string) ?? 'unknown',
+      channel_id: msg.channel as string,
+      user_id: (msg.user as string) ?? 'unknown',
       text,
-      message_ts: msg['ts'] as string,
-      thread_ts: msg['thread_ts'] as string | undefined,
+      message_ts: msg.ts as string,
+      thread_ts: msg.thread_ts as string | undefined,
     });
   });
 
@@ -68,8 +68,8 @@ export async function startListener(
   });
 
   // Expose caches for name resolution
-  (app as unknown as Record<string, unknown>)['_userCache'] = userCache;
-  (app as unknown as Record<string, unknown>)['_channelCache'] = channelCache;
+  (app as unknown as Record<string, unknown>)._userCache = userCache;
+  (app as unknown as Record<string, unknown>)._channelCache = channelCache;
 
   await app.start();
   log('[daemon] Socket Mode connected');
@@ -79,7 +79,7 @@ export async function startListener(
 
 /** Resolve user ID → display name using Slack API */
 export async function resolveUser(app: InstanceType<typeof App>, userId: string): Promise<string> {
-  const cache = (app as unknown as Record<string, Map<string, string>>)['_userCache'];
+  const cache = (app as unknown as Record<string, Map<string, string>>)._userCache;
   if (cache.has(userId)) return cache.get(userId)!;
 
   try {
@@ -97,7 +97,7 @@ export async function resolveChannel(
   app: InstanceType<typeof App>,
   channelId: string,
 ): Promise<string> {
-  const cache = (app as unknown as Record<string, Map<string, string>>)['_channelCache'];
+  const cache = (app as unknown as Record<string, Map<string, string>>)._channelCache;
   if (cache.has(channelId)) return cache.get(channelId)!;
 
   try {
