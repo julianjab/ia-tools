@@ -109,7 +109,9 @@ describe('Registry.match — Level 1: channel / DM gate', () => {
       reg.add(1, { channels: ['C1'], dms: ['U1'] });
 
       // Channel match (non-DM in C1)
-      expect(reg.match(makeMsg({ channel_id: 'C1', user_id: 'U99', is_dm: false }))).toHaveLength(1);
+      expect(reg.match(makeMsg({ channel_id: 'C1', user_id: 'U99', is_dm: false }))).toHaveLength(
+        1,
+      );
       // DM match (DM from U1 in some other channel)
       expect(reg.match(makeMsg({ channel_id: 'C2', user_id: 'U1', is_dm: true }))).toHaveLength(1);
     });
