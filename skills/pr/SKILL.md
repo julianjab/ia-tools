@@ -23,9 +23,22 @@ disable-model-invocation: false
    ```bash
    git branch --show-current
    ```
-   If on `main`/`master`, **STOP** and tell the caller to run `/worktree init` first.
+   If on `main`/`master`, decide between auto-recover and ask-first based on the invoking command:
 
-2. **Check for uncommitted changes** — if any exist, warn and ask whether to commit first (suggest `/commit`).
+   - **Pipeline commands** (`/pr`, `/commit`, `/deliver`, `/ship`, `/review`, or any skill explicitly delegating here from those): **auto-recover** without asking. The user already opted into the pipeline, so don't interrupt.
+   - **Any other caller** (manual invocation, unrelated skill, ad-hoc agent): **STOP and ask** before touching the working tree. Pending changes on `main` may belong to the user's in-progress work and must not be moved silently.
+
+   **Auto-recover procedure** (only for pipeline callers):
+   1. Infer a branch name from the pending diff (`git diff --stat`, `git status --short`, staged + unstaged). Pick a conventional prefix (`feat/`, `fix/`, `refactor/`, `chore/`, `docs/`, `test/`) and a short kebab-case slug from the most affected scope. If nothing is pending, default to `chore/pr-<timestamp>`.
+   2. Invoke `/worktree init <inferred-branch>` to create an isolated worktree off `origin/main`.
+   3. If there were uncommitted changes on `main`, move them into the new worktree: `git stash push -u -m "auto-recover:<branch>"` on main, then `git -C <worktree-path> stash pop` inside the worktree. Never leave local edits on `main`.
+   4. Continue this skill inside the new worktree. From this point on, all git/pnpm/skill commands MUST target the worktree via `git -C <worktree-path>` / `pnpm --dir <worktree-path>` — never `cd`.
+   5. Report the recovery in one line before proceeding: `auto-recovered: <branch> at <worktree-path> (moved <N> files)`.
+
+2. **Check for uncommitted changes** — apply the same caller gate:
+
+   - **Pipeline caller** (`/pr`, `/commit`, `/deliver`, `/ship`): **auto-recover** by invoking `/commit` to stage and commit the pending changes with a conventional message inferred from the diff. Continue only after `/commit` returns successfully. If `/commit` itself fails (hook rejection, test failure, etc.), STOP and surface the underlying error.
+   - **Other caller**: STOP and ask the user whether to commit first — do not stage or move files automatically.
 
 3. **Fetch and check base**:
    ```bash
@@ -315,8 +328,10 @@ Files changed: <count>
 
 | Error | Action |
 |-------|--------|
-| On `main`/`master` | STOP — tell caller to run `/worktree init` first |
-| Uncommitted changes | Warn and suggest `/commit` first |
+| On `main`/`master` (pipeline caller: `/pr`, `/commit`, `/deliver`, `/ship`) | Auto-recover: infer branch name from diff, invoke `/worktree init`, move pending changes into the worktree, continue inside it |
+| On `main`/`master` (other caller) | STOP and ask before touching the working tree |
+| Uncommitted changes (pipeline caller) | Auto-recover: invoke `/commit`, then continue. Only stop if `/commit` itself fails |
+| Uncommitted changes (other caller) | STOP and ask whether to commit first |
 | `/review` reports BLOCKED | STOP — do not push. Report failures |
 | Merge conflicts too complex | Abort rebase, ask user for guidance |
 | Push rejected after rebase | Use `git push --force-with-lease` (NOT `--force`) |
