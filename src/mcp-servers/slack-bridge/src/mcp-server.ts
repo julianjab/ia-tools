@@ -485,6 +485,9 @@ const web = new WebClient(botToken);
 // Build server first so the webhook callback can reference it safely
 const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
   const { message } = payload;
+  logger.debug(
+    `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm}`,
+  );
   try {
     await mcpServer.server.notification({
       method: 'notifications/claude/channel',
@@ -502,6 +505,7 @@ const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
         },
       },
     });
+    logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
   } catch (err) {
     logger.error(`[webhook] notification failed: ${err}`);
     if (err instanceof Error) logger.error(err.stack ?? '');
