@@ -548,7 +548,8 @@ describe('McpBridgeServer — reply_slack tool', () => {
     expect(result.content[0].text).toContain(REPLY_TS);
   });
 
-  it('replySlack_missingMessageTs_responseHasIsError', async () => {
+  it('replySlack_missingMessageTs_stillSendsMessage', async () => {
+    // message_ts is optional — omitting it skips clearThinkingAck but still sends
     // Arrange
     const stub_web = makeWebClientMock();
     const bridge = new McpBridgeServer({
@@ -565,26 +566,8 @@ describe('McpBridgeServer — reply_slack tool', () => {
     });
 
     // Assert
-    expect(result.isError).toBe(true);
-  });
-
-  it('replySlack_missingMessageTs_responseTextContainsMessageTsRequired', async () => {
-    // Arrange
-    const stub_web = makeWebClientMock();
-    const bridge = new McpBridgeServer({
-      web: stub_web as never,
-      daemonClient: null,
-      logger: makeLogger(),
-    });
-
-    // Act
-    const result = await invokeTool(bridge, 'reply_slack', {
-      channel_id: CHANNEL_ID,
-      text: MESSAGE_TEXT,
-    });
-
-    // Assert
-    expect(result.content[0].text).toContain('message_ts is required');
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain('Sent');
   });
 });
 

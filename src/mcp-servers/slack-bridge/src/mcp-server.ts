@@ -66,7 +66,6 @@ export class McpBridgeServer {
           'Slack messages arrive as channel notifications with source="slack-bridge".',
           'When you want to respond to a message, FIRST call claim_message with the message_ts.',
           'If the claim succeeds, call reply_slack. If it fails, another session already claimed it — do nothing.',
-          'Always pass message_ts to reply_slack — it is required to clear the thinking indicator.',
           'In DMs (is_dm=true in the notification meta), omit thread_ts unless the source message already had one.',
           'Use subscribe_slack at the start of the session to tell the daemon what to listen to.',
           'Use read_thread or read_channel to fetch conversation history.',
@@ -157,7 +156,6 @@ export class McpBridgeServer {
           name: 'reply_slack',
           description:
             'Reply to a Slack message. Only call after a successful claim. ' +
-            'Always pass message_ts (required). ' +
             'In DMs (is_dm=true), omit thread_ts unless the source message already had one — ' +
             'DMs do not use threads by default.',
           inputSchema: {
@@ -168,7 +166,7 @@ export class McpBridgeServer {
               message_ts: {
                 type: 'string',
                 description:
-                  'Timestamp of the original message (required — used to clear the thinking ack).',
+                  'Timestamp of the original message (optional — used to clear the thinking ack if set).',
               },
               thread_ts: {
                 type: 'string',
@@ -176,7 +174,7 @@ export class McpBridgeServer {
                   'Thread ts. In DMs omit unless the source message had an explicit thread_ts.',
               },
             },
-            required: ['channel_id', 'text', 'message_ts'],
+            required: ['channel_id', 'text'],
           },
         },
         {
@@ -350,21 +348,11 @@ export class McpBridgeServer {
       thread_ts?: string;
     };
 
-    if (!message_ts) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: 'message_ts is required for reply_slack. Pass the message_ts from the channel notification.',
-          },
-        ],
-        isError: true,
-      };
-    }
-
     try {
       const result = await this.web.chat.postMessage({ channel: channel_id, text, thread_ts });
-      await clearThinkingAck(this.web, { channel_id, message_ts, thread_ts });
+      if (message_ts) {
+        await clearThinkingAck(this.web, { channel_id, message_ts, thread_ts });
+      }
       return { content: [{ type: 'text' as const, text: `Sent (ts: ${result.ts})` }] };
     } catch (err) {
       return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
