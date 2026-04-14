@@ -22,7 +22,9 @@
 
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import type { MessagePayload, SlackMessage } from '../shared/types.js';
+import { buildSlackMessage } from '../shared/build-message.js';
+import type { MessagePayload } from '../shared/types.js';
+import { addThinkingAck } from './ack.js';
 import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
 import { error, log, logPath, warn } from './logger.js';
 import { Registry } from './registry.js';
@@ -53,6 +55,10 @@ process.on('exit', cleanupPidFile);
 const botToken = arg('bot-token') ?? process.env.SLACK_BOT_TOKEN;
 const appToken = arg('app-token') ?? process.env.SLACK_APP_TOKEN;
 const port = Number.parseInt(process.env.DAEMON_PORT ?? '3800', 10);
+
+// Ack configuration — read once at module top, not per-message
+const ACK_EMOJI = process.env.SLACK_ACK_EMOJI ?? 'eyes';
+const ACK_STATUS = process.env.SLACK_ACK_STATUS ?? 'thinking...';
 
 if (!botToken || !appToken) {
   error('Missing --bot-token / SLACK_BOT_TOKEN or --app-token / SLACK_APP_TOKEN');
@@ -91,7 +97,7 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
     resolveChannel(app, event.channel_id),
   ]);
 
-  const msg: SlackMessage = {
+  const msg = buildSlackMessage({
     channel_id: event.channel_id,
     channel_name: channelName,
     user_id: event.user_id,
@@ -99,7 +105,7 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
     text: event.text,
     message_ts: event.message_ts,
     thread_ts: event.thread_ts,
-  };
+  });
 
   const payload: MessagePayload = {
     message: msg,
@@ -116,6 +122,9 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
   log(
     `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" → ${targets.length} subscriber(s)`,
   );
+
+  // Best-effort thinking ack — fires before fan-out, errors are swallowed
+  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
 
   await Promise.allSettled(
     targets.map(async (sub) => {

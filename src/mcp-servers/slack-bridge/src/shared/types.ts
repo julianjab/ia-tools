@@ -14,6 +14,8 @@ export interface SlackMessage {
   text: string;
   message_ts: string;
   thread_ts?: string;
+  /** True when the message originates from a DM channel (channel_id starts with 'D'). */
+  is_dm: boolean;
 }
 
 /** Subscription filters — OR logic: match ANY channel/user/thread ID to receive the message. */

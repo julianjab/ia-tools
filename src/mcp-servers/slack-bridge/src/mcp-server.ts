@@ -27,6 +27,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
+import { clearThinkingAck } from './ack-client.js';
 import type { SlackFilters } from './config.js';
 import { loadConfig, saveConfig } from './config.js';
 import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
@@ -67,6 +68,8 @@ const mcp = new Server(
       'Slack messages arrive as channel notifications with source="slack-bridge".',
       'When you want to respond to a message, FIRST call claim_message with the message_ts.',
       'If the claim succeeds, call reply_slack. If it fails, another session already claimed it — do nothing.',
+      'Always pass message_ts to reply_slack — it is required to clear the thinking indicator.',
+      'In DMs (is_dm=true in the notification meta), omit thread_ts unless the source message already had one.',
       'Use subscribe_slack at the start of the session to tell the daemon what to listen to.',
       'Use read_thread or read_channel to fetch conversation history.',
     ].join(' '),
@@ -104,6 +107,7 @@ function startWebhookServer(): Promise<number> {
                   user_name: message.user_name,
                   message_ts: message.message_ts,
                   thread_ts: message.thread_ts ?? '',
+                  is_dm: message.is_dm,
                 },
               },
             });
@@ -235,15 +239,28 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'reply_slack',
-      description: 'Reply to a Slack message in-thread. Only call after a successful claim.',
+      description:
+        'Reply to a Slack message. Only call after a successful claim. ' +
+        'Always pass message_ts (required). ' +
+        'In DMs (is_dm=true), omit thread_ts unless the source message already had one — ' +
+        'DMs do not use threads by default.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           channel_id: { type: 'string', description: 'Channel ID' },
           text: { type: 'string', description: 'Message text (Slack mrkdwn)' },
-          thread_ts: { type: 'string', description: 'Thread ts (use message_ts if no thread_ts)' },
+          message_ts: {
+            type: 'string',
+            description:
+              'Timestamp of the original message (required — used to clear the thinking ack).',
+          },
+          thread_ts: {
+            type: 'string',
+            description:
+              'Thread ts. In DMs omit unless the source message had an explicit thread_ts.',
+          },
         },
-        required: ['channel_id', 'text'],
+        required: ['channel_id', 'text', 'message_ts'],
       },
     },
     {
@@ -353,13 +370,29 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === 'reply_slack') {
-    const { channel_id, text, thread_ts } = args as {
+    const { channel_id, text, message_ts, thread_ts } = args as {
       channel_id: string;
       text: string;
+      message_ts?: string;
       thread_ts?: string;
     };
+
+    if (!message_ts) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'message_ts is required for reply_slack. Pass the message_ts from the channel notification.',
+          },
+        ],
+        isError: true,
+      };
+    }
+
     try {
       const result = await web.chat.postMessage({ channel: channel_id, text, thread_ts });
+      // Clear thinking ack after successful send — best-effort, never throws
+      await clearThinkingAck(web, { channel_id, message_ts, thread_ts });
       return { content: [{ type: 'text' as const, text: `Sent (ts: ${result.ts})` }] };
     } catch (err) {
       return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };

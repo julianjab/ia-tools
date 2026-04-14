@@ -14,9 +14,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { SlackMessage } from '../shared/types.js';
 // RED: this module does not exist yet — implementing agent must create it
 import { buildSlackMessage } from '../shared/build-message.js';
+import type { SlackMessage } from '../shared/types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -122,7 +122,7 @@ describe('SlackMessage type — is_dm field required', () => {
       user_name: 'alice',
       text: 'hello',
       message_ts: MESSAGE_TS,
-      is_dm: true,  // RED: property 'is_dm' does not exist on type 'SlackMessage'
+      is_dm: true, // RED: property 'is_dm' does not exist on type 'SlackMessage'
     };
 
     // Act
@@ -141,7 +141,7 @@ describe('SlackMessage type — is_dm field required', () => {
       user_name: 'bob',
       text: 'hey',
       message_ts: MESSAGE_TS,
-      is_dm: false,  // RED: property 'is_dm' does not exist on type 'SlackMessage'
+      is_dm: false, // RED: property 'is_dm' does not exist on type 'SlackMessage'
     };
 
     // Act
