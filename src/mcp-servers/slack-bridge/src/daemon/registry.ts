@@ -7,6 +7,7 @@
  *   2. Regexp filters (AND) — channel_name / user_name / text / thread_ts: ALL must match
  */
 
+import { log } from './logger.js';
 import type {
   Subscriber,
   SubscriptionFilters,
@@ -16,7 +17,11 @@ import type {
 
 function tryMatch(pattern: string, value: string): boolean {
   try {
-    return new RegExp(pattern).test(value);
+    // Extract inline flags like (?i) — not supported natively by JS RegExp constructor
+    const inlineFlags = pattern.match(/^\(\?([gimsuy]+)\)/);
+    const flags = inlineFlags ? inlineFlags[1] : undefined;
+    const src = inlineFlags ? pattern.slice(inlineFlags[0].length) : pattern;
+    return new RegExp(src, flags).test(value);
   } catch {
     return true; // invalid regexp — don't filter
   }
@@ -103,7 +108,7 @@ export class Registry {
       for (const [port, sub] of this.subscribers) {
         const alive = await checkFn(port);
         if (!alive) {
-          console.log(`[registry] removing dead subscriber :${port} (${sub.label ?? 'no label'})`);
+          log(`[registry] removing dead subscriber :${port} (${sub.label ?? 'no label'})`);
           this.subscribers.delete(port);
         }
       }

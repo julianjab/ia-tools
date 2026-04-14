@@ -10,6 +10,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { log } from './logger.js';
 import type { Registry } from './registry.js';
 import type {
   SubscribeRequest,
@@ -65,7 +66,7 @@ export function createApiServer(
           return;
         }
         const sub = registry.add(body.port, body.filters ?? {}, body.regexp, body.label);
-        console.log(
+        log(
           `[api] +subscriber :${body.port} (${body.label ?? '-'}) filters=${JSON.stringify(body.filters)} regexp=${JSON.stringify(body.regexp ?? {})}`,
         );
         json(res, 200, sub);
@@ -83,7 +84,7 @@ export function createApiServer(
         return;
       }
       const removed = registry.remove(port);
-      console.log(`[api] -subscriber :${port} removed=${removed}`);
+      log(`[api] -subscriber :${port} removed=${removed}`);
       json(res, 200, { removed });
       return;
     }
@@ -107,7 +108,7 @@ export function createApiServer(
 
         if (existing !== undefined) {
           const resp: ClaimResponse = { claimed: false, claimed_by: existing };
-          console.log(
+          log(
             `[claim] ${messageTs} already claimed by :${existing}, rejected :${body.subscriber_port}`,
           );
           json(res, 409, resp);
@@ -116,7 +117,7 @@ export function createApiServer(
 
         claims.set(messageTs, body.subscriber_port);
         const resp: ClaimResponse = { claimed: true };
-        console.log(`[claim] ${messageTs} → :${body.subscriber_port}`);
+        log(`[claim] ${messageTs} → :${body.subscriber_port}`);
         json(res, 200, resp);
       } catch (err) {
         json(res, 400, { error: String(err) });

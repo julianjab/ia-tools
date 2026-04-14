@@ -4,6 +4,7 @@
  */
 
 import pkg from '@slack/bolt';
+import { log, error as logError } from './logger.js';
 const { App, LogLevel } = pkg;
 
 export interface ListenerConfig {
@@ -63,7 +64,7 @@ export async function startListener(
   });
 
   app.error(async (error) => {
-    console.error(`[bolt] ${error}`);
+    logError(`[bolt] ${error}`);
   });
 
   // Expose caches for name resolution
@@ -71,7 +72,7 @@ export async function startListener(
   (app as unknown as Record<string, unknown>)['_channelCache'] = channelCache;
 
   await app.start();
-  console.log('[daemon] Socket Mode connected');
+  log('[daemon] Socket Mode connected');
 
   return app;
 }
