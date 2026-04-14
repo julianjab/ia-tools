@@ -37,3 +37,6 @@ Thumbs.db
 
 # Legacy / archived agents (kept locally, not tracked)
 agents_bck/
+
+# SDLC tooling local state
+.sdlc/
