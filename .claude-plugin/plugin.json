@@ -5,6 +5,5 @@
   "author": {
     "name": "ia-tools"
   },
-  "mcpServers": "./plugins/slack-bridge/.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "mcpServers": "./plugins/slack-bridge/.mcp.json"
 }
