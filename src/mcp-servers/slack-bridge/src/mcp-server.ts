@@ -36,6 +36,14 @@ import type { Logger } from './logger.js';
 import type { MessagePayload, SubscriptionFilters } from './shared/types.js';
 import { WebhookServer } from './webhook-server.js';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Union two optional string arrays, deduplicating values. */
+function union(a: string[] | undefined, b: string[] | undefined): string[] {
+  if (!a?.length && !b?.length) return [];
+  return [...new Set([...(a ?? []), ...(b ?? [])])];
+}
+
 // ─── McpBridgeServer ─────────────────────────────────────────────────────────
 
 export interface McpBridgeServerOptions {
@@ -273,14 +281,15 @@ export class McpBridgeServer {
 
       await this.daemonClient.subscribe(filters, regexp, label);
 
-      // Persist to .claude/.channels.json
+      // Persist to .claude/.channels.json — merge with existing so previous subscriptions survive
       try {
+        const existing = loadConfig();
         saveConfig({
-          channels: filters.channels,
-          dms: filters.dms,
-          threads: filters.threads,
-          ...(regexp ? { filters: regexp } : {}),
-          ...(label ? { bot: { label } } : {}),
+          channels: union(existing.channels, filters.channels),
+          dms: union(existing.dms, filters.dms),
+          threads: union(existing.threads, filters.threads),
+          ...(regexp ? { filters: regexp } : existing.filters ? { filters: existing.filters } : {}),
+          ...(label ? { bot: { label } } : existing.bot ? { bot: existing.bot } : {}),
         });
       } catch (err) {
         this.logger.warn(`could not persist subscription — ${err}`);

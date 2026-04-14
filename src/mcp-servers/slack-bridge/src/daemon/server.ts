@@ -67,7 +67,7 @@ export function createApiServer(
         }
         const sub = registry.add(body.port, body.filters ?? {}, body.regexp, body.label);
         log(
-          `[api] +subscriber :${body.port} (${body.label ?? '-'}) filters=${JSON.stringify(body.filters)} regexp=${JSON.stringify(body.regexp ?? {})}`,
+          `[api] +subscriber :${body.port} (${body.label ?? '-'}) filters=${JSON.stringify(sub.filters)} regexp=${JSON.stringify(body.regexp ?? {})}`,
         );
         json(res, 200, sub);
       } catch (err) {

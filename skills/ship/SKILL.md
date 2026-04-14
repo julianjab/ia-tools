@@ -150,22 +150,27 @@ Slack: <new message | reply to existing thread>
 Thread: <thread_ts>
 ```
 
+Proceed immediately to Step 5 (subscribe to the thread) — no user confirmation needed.
+
 ---
 
-### Step 5 — Connect Claude to the thread
+### Step 5 — Subscribe to the thread
 
-Give the user the command to connect Claude to this thread in another terminal, using the **actual values** from the previous steps:
+Immediately after sending the Slack message, subscribe to the thread so Claude receives any replies:
 
-```
-🤖 Para conectar Claude al hilo, corre esto en otra terminal:
+Call `subscribe_slack` with:
+- `threads: [<thread_ts>]` — the timestamp returned by Slack in Step 4 (the new message ts OR the existing thread ts replied to)
+- `label` — set to `"ship: <pr-title>"` so the subscription is identifiable in daemon logs
 
-SLACK_THREAD_TS=<thread_ts> SLACK_CHANNELS=<channel_id> claude --dangerously-load-development-channels server:slack-bridge --resume <session-id>
+Example call:
+```
+subscribe_slack(
+  threads: ["1775665186.334219"],
+  label: "ship: feat(slack-bridge): class-based refactor"
+)
 ```
 
-Example (with actual resolved values from Step 4):
-```
-SLACK_THREAD_TS=1775665186.334219 SLACK_CHANNELS=<resolved_channel_id> claude --dangerously-load-development-channels server:slack-bridge --resume <session-id>
-```
+This replaces the old manual-command approach. The current session is now connected to the thread automatically — no extra terminal needed.
 
 ---
 

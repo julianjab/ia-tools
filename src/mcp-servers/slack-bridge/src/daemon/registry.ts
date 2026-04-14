@@ -29,6 +29,12 @@ import type {
 } from '../shared/types.js';
 import { log } from './logger.js';
 
+/** Merge two optional string arrays, deduplicating values. */
+function union(a: string[] | undefined, b: string[] | undefined): string[] {
+  if (!a?.length && !b?.length) return [];
+  return [...new Set([...(a ?? []), ...(b ?? [])])];
+}
+
 function tryMatch(pattern: string, value: string): boolean {
   try {
     // Extract inline flags like (?i) — not supported natively by JS RegExp constructor
@@ -53,6 +59,25 @@ export class Registry {
     regexp?: SlackFilters,
     label?: string,
   ): Subscriber {
+    const existing = this.subscribers.get(port);
+    if (existing) {
+      // Always merge into the existing subscription for this port
+      const sub: Subscriber = {
+        ...existing,
+        filters: {
+          channels: union(existing.filters.channels, filters.channels),
+          dms: union(existing.filters.dms, filters.dms),
+          users: union(existing.filters.users, filters.users),
+          threads: union(existing.filters.threads, filters.threads),
+        },
+        regexp: regexp ?? existing.regexp,
+        label: label ?? existing.label,
+        lastSeen: new Date().toISOString(),
+      };
+      this.subscribers.set(port, sub);
+      return sub;
+    }
+
     const sub: Subscriber = {
       port,
       filters,
