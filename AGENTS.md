@@ -12,8 +12,13 @@ PHASE 0 — Refinement
   └─ Input:  problem description (GitHub, Linear, Slack, URL, plain text)
   └─ Output: sub-tasks with BDD seeds + technical context
 
+PHASE 0.5 — Isolation  (/worktree init feat/<name>)
+  └─ Input:  refined sub-task name
+  └─ Output: isolated worktree + feature branch
+  ⚠️  BLOCKING — no agent writes code on main. All subsequent phases run inside the worktree.
+
 PHASE 1 — Specification  (Orchestrator)
-  └─ Input:  refined sub-task
+  └─ Input:  refined sub-task (runs inside the worktree)
   └─ Output: complete BDD scenarios + api-contract.md (if applicable)
 
 PHASE 2 — Tests in RED  (QA Agent)
@@ -21,7 +26,7 @@ PHASE 2 — Tests in RED  (QA Agent)
   └─ Output: tests written and failing (RED confirmed)
   ⚠️  BLOCKING — nobody implements without RED tests
 
-PHASE 3 — Implementation  (Leads → Specialists)
+PHASE 3 — Implementation  (Leads → Specialists, via Agent tool)
   └─ Input:  RED tests
   └─ Output: code that makes the tests pass (GREEN)
   DDD order: Domain Agent → API Agent → UI/Mobile Agent
@@ -45,7 +50,7 @@ Receives a problem description in any format (GitHub issue, Linear ticket, Slack
 
 ### Phase 1 — Orchestrator (`agents/orchestrator.md`)
 
-Receives a refined sub-task (with BDD seeds) from the Issue Refiner and converts it into a complete spec following SDD → BDD → TDD. Coordinates all implementation agents. NEVER writes code.
+Receives a refined sub-task (with BDD seeds) from the Issue Refiner and converts it into a complete spec following SDD → BDD → TDD. Coordinates all implementation agents via the `Agent` tool. NEVER writes code. **Always runs inside a worktree** — never on `main`.
 
 Flow: Architect (contracts) → QA (RED) → Leads (GREEN) → Security → PR.
 
@@ -85,27 +90,27 @@ Agents use git worktrees to maintain parallel workstreams without context-switch
 ### Workflow Cadence
 
 ```
-Raw issue      → Issue Refiner → refined sub-tasks with BDD
-Sub-task #1    → /worktree init feat/sub-task-1 → Orchestrator → work → /commit → /review → /pr
-Sub-task #2    → /worktree init feat/sub-task-2 → Orchestrator → work → /commit → /pr  (parallel)
-Both merged    → /worktree cleanup --merged
+Raw issue   → Issue Refiner → refined sub-tasks with BDD
+Sub-task #1 → /worktree init feat/sub-task-1 → Orchestrator (inside worktree) → work → /commit → /review → /pr
+Sub-task #2 → /worktree init feat/sub-task-2 → Orchestrator (inside worktree) → work → /commit → /pr  (parallel)
+Both merged → /worktree cleanup --merged
 ```
 
-## Multi-Agent Team Mode
+Optionally, after `/worktree init`, run `/worktree spawn` to open a Claude session in tmux subscribed to a Slack thread for async task communication.
 
-Use `/team` to spawn a full development team in tmux. Each agent runs in its own pane with a specialized role, and coding agents get their own worktrees for true parallel development.
+## Multi-Agent Mode
 
-Default team: Orchestrator (coordinates) + Backend Lead (implements) + QA (tests + PRs). The orchestrator decomposes tasks and delegates. Leads use `/commit` for checkpoints. QA runs `/review`, creates PRs with `/pr`, and notifies via `/ship`.
+Parallelism is handled via the `Agent` tool — each specialist (QA, Domain, API, UI, Mobile, Security) is spawned as a subagent and works inside the same worktree. No tmux multi-pane setup is needed for agents.
 
-All agents use the same skills ecosystem — no raw git commands.
+For async human-AI collaboration over Slack, use `/worktree spawn` to open a dedicated Claude session in tmux subscribed to a thread (see `/worktree` skill).
 
 ## Rules
 
 All agents must:
 1. **Issue Refiner first** — never work on an issue without going through Phase 0.
-2. Search for existing patterns in the codebase before creating new ones.
-3. Follow the project's established conventions.
-4. Use `/worktree init` for new tasks to enable parallel development.
+2. **Worktree before everything else** — immediately after Issue Refiner produces a sub-task, run `/worktree init feat/<name>`. No Orchestrator, no spec, no code touches `main`.
+3. Search for existing patterns in the codebase before creating new ones.
+4. Follow the project's established conventions.
 5. Run `/worktree status` when resuming work to understand active context.
 6. Run `/review` before requesting a PR to validate quality.
 7. Use `/commit` for checkpoint commits (never raw `git commit`) — messages must follow Conventional Commits (enforced by `pre-commit` on `commit-msg`).
