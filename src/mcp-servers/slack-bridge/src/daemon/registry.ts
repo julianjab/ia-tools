@@ -2,12 +2,23 @@
  * Subscriber registry — tracks MCP instances, their ID filters, and regexp filters.
  * Health-checks subscribers periodically and removes dead ones.
  *
- * Matching logic (two layers):
- *   1. ID filters — threads are INDEPENDENT (match alone); channels AND users use AND logic
- *      - Thread match bypasses channels/users and goes straight to regexp layer
- *      - If both channels and users are specified, BOTH must match
- *      - If only one is specified, only that one must match
- *   2. Regexp filters (AND) — channel_name / user_name / text / thread_ts: ALL must match
+ * Matching logic:
+ *
+ *   Level 0 — Threads (independent bypass)
+ *     If threads is non-empty and msg.thread_ts is in the list → PASS immediately.
+ *
+ *   Level 1 — Channel / DM (required: empty means "nothing allowed")
+ *     If both channels and dms are empty → BLOCK (no subscription).
+ *     Otherwise the message must satisfy at least one of:
+ *       - channels contains msg.channel_id
+ *       - dms contains msg.user_id AND msg.is_dm === true
+ *     If neither → BLOCK.
+ *
+ *   Level 2 — User refinement (optional, applies after Level 1)
+ *     If users is non-empty, msg.user_id must be in the list; otherwise BLOCK.
+ *     If users is empty, any user passes.
+ *
+ *   Level 3 — Regexp filters (AND): all patterns must match.
  */
 
 import type {
@@ -76,24 +87,27 @@ export class Registry {
     regexp: SlackFilters | undefined,
     msg: SlackMessage,
   ): boolean {
-    // Layer 1a — Threads are independent: a thread match bypasses channels/users
+    // Level 0 — Thread bypass (independent)
     const hasThreadFilter = (filters.threads?.length ?? 0) > 0;
     if (hasThreadFilter && msg.thread_ts != null && filters.threads?.includes(msg.thread_ts)) {
       return this.matchesRegexp(regexp, msg);
     }
 
-    // Layer 1b — Channels AND users (both must match if both are specified)
+    // Level 1 — Channel / DM (required gate: empty = nothing allowed)
     const hasChannelFilter = (filters.channels?.length ?? 0) > 0;
+    const hasDmFilter = (filters.dms?.length ?? 0) > 0;
+
+    if (!hasChannelFilter && !hasDmFilter) return false;
+
+    const channelMatch = hasChannelFilter && (filters.channels?.includes(msg.channel_id) ?? false);
+    const dmMatch = hasDmFilter && msg.is_dm && (filters.dms?.includes(msg.user_id) ?? false);
+    if (!channelMatch && !dmMatch) return false;
+
+    // Level 2 — User refinement (optional: if specified, user must match)
     const hasUserFilter = (filters.users?.length ?? 0) > 0;
+    if (hasUserFilter && !(filters.users?.includes(msg.user_id) ?? false)) return false;
 
-    if (hasChannelFilter || hasUserFilter) {
-      const channelMatch =
-        !hasChannelFilter || (filters.channels?.includes(msg.channel_id) ?? false);
-      const userMatch = !hasUserFilter || (filters.users?.includes(msg.user_id) ?? false);
-      if (!channelMatch || !userMatch) return false;
-    }
-
-    // Layer 2 — Regexp AND matching (all patterns must pass)
+    // Level 3 — Regexp AND matching (all patterns must pass)
     return this.matchesRegexp(regexp, msg);
   }
 

@@ -326,10 +326,10 @@ describe('McpBridgeServer — subscribe_slack tool', () => {
 
     // Assert
     const [filters] = (mock_daemonClient.subscribe as ReturnType<typeof vi.fn>).mock.calls[0] as [
-      { channels: string[]; users: string[]; threads: string[] },
+      { channels: string[]; dms: string[]; threads: string[] },
     ];
     expect(filters.channels).toEqual([CHANNEL_ID]);
-    expect(filters.users).toEqual([USER_ID]);
+    expect(filters.dms).toEqual([USER_ID]);
     expect(filters.threads).toEqual([]);
   });
 
@@ -755,10 +755,10 @@ describe('McpBridgeServer — oninitialized auto-subscribe', () => {
 
     // Assert
     const [filters] = (mock_daemonClient.subscribe as ReturnType<typeof vi.fn>).mock.calls[0] as [
-      { channels: string[]; users: string[]; threads: string[] },
+      { channels: string[]; dms: string[]; threads: string[] },
     ];
     expect(filters.channels).toEqual([CHANNEL_ID]);
-    expect(filters.users).toEqual([]);
+    expect(filters.dms).toEqual([]);
     expect(filters.threads).toEqual([]);
   });
 

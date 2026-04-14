@@ -18,10 +18,20 @@ export interface SlackMessage {
   is_dm: boolean;
 }
 
-/** Subscription filters — OR logic: match ANY channel/user/thread ID to receive the message. */
+/**
+ * Subscription filters.
+ *
+ * Matching rules (see registry.ts for full logic):
+ *   threads — independent: a thread match bypasses channels/users/dms
+ *   dms     — independent: matches only when msg.is_dm === true AND user_id is in the list
+ *   channels + users — AND logic: both must match if both are specified
+ */
 export interface SubscriptionFilters {
   channels?: string[];
+  /** Any message from these user IDs regardless of channel type. */
   users?: string[];
+  /** DMs only — matches messages where is_dm=true AND user_id is in this list. */
+  dms?: string[];
   threads?: string[];
 }
 

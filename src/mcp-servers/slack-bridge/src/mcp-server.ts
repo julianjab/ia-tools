@@ -261,7 +261,7 @@ export class McpBridgeServer {
     try {
       const filters: SubscriptionFilters = {
         channels: (args.channels as string[]) ?? [],
-        users: (args.dms as string[]) ?? [],
+        dms: (args.dms as string[]) ?? [],
         threads: (args.threads as string[]) ?? [],
       };
       const regexp = args.filters as SlackFilters | undefined;
@@ -277,7 +277,7 @@ export class McpBridgeServer {
       try {
         saveConfig({
           channels: filters.channels,
-          dms: filters.users,
+          dms: filters.dms,
           threads: filters.threads,
           ...(regexp ? { filters: regexp } : {}),
           ...(label ? { bot: { label } } : {}),
@@ -288,7 +288,7 @@ export class McpBridgeServer {
 
       const parts: string[] = [];
       if (filters.channels?.length) parts.push(`channels: ${filters.channels.join(', ')}`);
-      if (filters.users?.length) parts.push(`dms: ${filters.users.join(', ')}`);
+      if (filters.dms?.length) parts.push(`dms: ${filters.dms.join(', ')}`);
       if (filters.threads?.length) parts.push(`threads: ${filters.threads.join(', ')}`);
       if (regexp && Object.keys(regexp).length) parts.push(`regexp: ${JSON.stringify(regexp)}`);
       const summary = parts.length ? parts.join(' | ') : 'all messages';
@@ -429,20 +429,20 @@ export class McpBridgeServer {
       const fileConfig = loadConfig();
       const channels =
         process.env.SLACK_CHANNELS?.split(',').filter(Boolean) ?? fileConfig.channels ?? [];
-      const users = process.env.SLACK_USERS?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
+      const dms = process.env.SLACK_USERS?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
       const threads =
         process.env.SLACK_THREADS?.split(',').filter(Boolean) ?? fileConfig.threads ?? [];
 
-      if (!channels.length && !users.length && !threads.length) return;
+      if (!channels.length && !dms.length && !threads.length) return;
 
       try {
         await this.daemonClient.subscribe(
-          { channels, users, threads },
+          { channels, dms, threads },
           fileConfig.filters,
           fileConfig.bot?.label ?? 'auto',
         );
         this.logger.log(
-          `auto-subscribed on :${this.daemonClient.port} — channels=${channels} dms=${users} threads=${threads}`,
+          `auto-subscribed on :${this.daemonClient.port} — channels=${channels} dms=${dms} threads=${threads}`,
         );
       } catch {
         this.logger.warn(
