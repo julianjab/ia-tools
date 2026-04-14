@@ -16,7 +16,7 @@
  *
  * Env:
  *   SLACK_BOT_TOKEN   — Bot token for Slack API calls (reply, read)
- *   DAEMON_URL        — Daemon API URL (overrides port-file discovery)
+ *   DAEMON_URL        — Daemon API URL (required to receive messages; omit to run read-only)
  *   SLACK_CHANNELS    — Comma-separated channel IDs (overrides .claude/.channels.json)
  *   SLACK_USERS       — Comma-separated user IDs (overrides .claude/.channels.json)
  *   SLACK_THREADS     — Comma-separated thread timestamps (overrides .claude/.channels.json)
@@ -31,14 +31,21 @@ import type { MessagePayload, SubscriptionFilters, ClaimResponse } from './share
 import type { SlackFilters } from './config.js';
 import { resolveDaemonUrl, ensureDaemon } from './ensure-daemon.js';
 import { loadConfig, saveConfig } from './config.js';
+import { createLogger } from './logger.js';
+
+// ─── Session logger ──────────────────────────────────────────────────
+const SESSION_ID = `${Date.now()}-${process.pid}`;
+const mcpLogPath = `./.logs/mcp-logs.json`;
+const { log: mcpLog, warn: mcpWarn, error: mcpError } = createLogger({ logPath: mcpLogPath, label: 'mcp', stderr: true });
 
 const botToken = process.env['SLACK_BOT_TOKEN'];
 if (!botToken) {
-  console.error('Missing SLACK_BOT_TOKEN');
+  mcpError('Missing SLACK_BOT_TOKEN');
   process.exit(1);
 }
 
 const DAEMON_URL = resolveDaemonUrl();
+mcpLog(`starting — session=${SESSION_ID} daemon=${DAEMON_URL ?? 'none'} log=${mcpLogPath}`);
 const web = new WebClient(botToken);
 
 // ─── State ──────────────────────────────────────────────────────────
@@ -125,6 +132,7 @@ async function daemonSubscribe(
   regexp?: SlackFilters,
   label?: string,
 ): Promise<boolean> {
+  if (!DAEMON_URL) throw new Error('DAEMON_URL is not set — cannot subscribe');
   if (!webhookPort) {
     webhookPort = await startWebhookServer();
   }
@@ -140,12 +148,13 @@ async function daemonSubscribe(
 }
 
 async function daemonUnsubscribe(): Promise<boolean> {
-  if (!webhookPort) return false;
+  if (!DAEMON_URL || !webhookPort) return false;
   const res = await fetch(`${DAEMON_URL}/subscribe/${webhookPort}`, { method: 'DELETE' });
   return res.ok;
 }
 
 async function daemonClaim(messageTs: string): Promise<ClaimResponse> {
+  if (!DAEMON_URL) throw new Error('DAEMON_URL is not set — cannot claim messages');
   if (!webhookPort) throw new Error('Not subscribed — call subscribe_slack first');
   const res = await fetch(`${DAEMON_URL}/claim/${messageTs}`, {
     method: 'POST',
@@ -271,21 +280,6 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   const args = (req.params.arguments ?? {}) as Record<string, unknown>;
 
   if (name === 'subscribe_slack') {
-    if (!mcp.getClientCapabilities()?.experimental?.['claude/channel']) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text:
-              '✗ Channel notifications are disabled.\n\n' +
-              'Restart Claude with:\n' +
-              '  claude --dangerously-load-development-channels server:slack-bridge',
-          },
-        ],
-        isError: true,
-      };
-    }
-
     try {
       const filters: SubscriptionFilters = {
         channels: (args['channels'] as string[]) ?? [],
@@ -416,15 +410,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 
 // ─── On connect: check capability, auto-subscribe from config if data exists ──
 mcp.oninitialized = async () => {
-  // Verify Claude was started with --dangerously-load-development-channels server:slack-bridge
-  if (!mcp.getClientCapabilities()?.experimental?.['claude/channel']) {
-    console.error(
-      '[slack-bridge] WARNING: missing --dangerously-load-development-channels server:slack-bridge. ' +
-        'Channel notifications are disabled. Restart Claude with that flag to enable Slack.',
-    );
+  // No DAEMON_URL — running read-only, subscription not possible
+  if (!DAEMON_URL) {
+    mcpWarn('DAEMON_URL is not set — running in read-only mode (no subscriptions possible)');
     return;
-  }
-
+  };
   // Read .claude/.channels.json — subscribe only if data exists
   const fileConfig = loadConfig();
   const channels =
@@ -441,13 +431,9 @@ mcp.oninitialized = async () => {
       fileConfig.filters,
       fileConfig.bot?.label ?? 'auto',
     );
-    console.error(
-      `[slack-bridge] auto-subscribed on :${webhookPort} — channels=${channels} dms=${users} threads=${threads}`,
-    );
+    mcpLog(`auto-subscribed on :${webhookPort} — channels=${channels} dms=${users} threads=${threads}`);
   } catch {
-    console.error(
-      '[slack-bridge] daemon not reachable — subscription skipped. Use subscribe_slack once the daemon is running.',
-    );
+    mcpWarn('daemon not reachable — subscription skipped. Use subscribe_slack once the daemon is running.');
   }
 };
 
@@ -455,7 +441,7 @@ mcp.oninitialized = async () => {
 try {
   await ensureDaemon(DAEMON_URL);
 } catch (err) {
-  console.error(`[slack-bridge] ${(err as Error).message}`);
+  mcpError((err as Error).message);
   process.exit(1);
 }
 

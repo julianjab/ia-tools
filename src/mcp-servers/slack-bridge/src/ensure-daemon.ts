@@ -1,37 +1,28 @@
 /**
  * Daemon lifecycle helpers.
  *
- * resolveDaemonUrl() — resolves the daemon HTTP API URL.
+ * resolveDaemonUrl() — reads DAEMON_URL env var; returns null if absent.
  * ensureDaemon()     — starts the daemon once if it is not already running (singleton).
- *
- * The daemon is a singleton Socket Mode connection to Slack. Only one runs per machine
- * regardless of how many MCP clients (Claude sessions) are active. The first session
- * that finds the daemon down will spawn it; the rest wait for it to become healthy.
+ *                      Safe to call concurrently — only one MCP instance will spawn it.
+ *                      No-op if daemonUrl is null.
  */
 
 import { spawn } from 'node:child_process';
-import {
-  openSync,
-  writeSync,
-  closeSync,
-  readFileSync,
-  unlinkSync,
-  existsSync,
-  mkdirSync,
-  constants,
-} from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { openSync, writeSync, closeSync, readFileSync, unlinkSync, existsSync, mkdirSync, constants } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
 const HEALTH_TIMEOUT_MS = 10_000;
 const HEALTH_POLL_MS = 200;
 
-function stateDir(): string {
-  const base = process.env['XDG_STATE_HOME'] ?? `${homedir()}/.local/state`;
-  const dir = `${base}/ia-tools/slack-bridge`;
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  return dir;
+/**
+ * Resolve the daemon URL from the DAEMON_URL environment variable.
+ * Returns null if not set or empty — the MCP server will start but skip subscription.
+ */
+export function resolveDaemonUrl(): string | null {
+  const envUrl = process.env['DAEMON_URL'];
+  return envUrl?.trim() || null;
 }
 
 async function isHealthy(daemonUrl: string): Promise<boolean> {
@@ -88,55 +79,30 @@ function daemonEntrypoint(): string {
   return resolve(here, 'daemon/index.js');
 }
 
-function spawnDaemon(logPath: string, port: number): void {
-  const out = openSync(logPath, 'a');
+function spawnDaemon(port: number): void {
+  const logPath = process.env['DAEMON_LOG']?.trim() || '/tmp/slack-bridge/daemon-logs.json';
+  try { mkdirSync(dirname(logPath), { recursive: true }); } catch { /* best effort */ }
+  const logFd = openSync(logPath, 'a');
+  // Redirect stderr to the log file so crashes before the logger initialises are captured.
   const child = spawn(process.execPath, [daemonEntrypoint()], {
     detached: true,
-    stdio: ['ignore', out, out],
+    stdio: ['ignore', 'ignore', logFd],
     env: { ...process.env, DAEMON_PORT: String(port) },
   });
+  closeSync(logFd);
   child.unref();
-}
-
-/**
- * Resolve the daemon URL.
- *
- * Priority:
- *   1. DAEMON_URL env var (if set and non-empty)
- *   2. Port file: ${XDG_STATE_HOME}/ia-tools/slack-bridge/daemon.port
- *      or ~/.local/state/ia-tools/slack-bridge/daemon.port
- *   3. Fallback: http://localhost:3800
- */
-export function resolveDaemonUrl(): string {
-  const envUrl = process.env['DAEMON_URL'];
-  if (envUrl?.trim()) return envUrl.trim();
-
-  const xdgStateHome = process.env['XDG_STATE_HOME'];
-  const portFilePath = xdgStateHome
-    ? join(xdgStateHome, 'daemon.port')
-    : join(homedir(), '.local', 'state', 'ia-tools', 'slack-bridge', 'daemon.port');
-
-  try {
-    const raw = readFileSync(portFilePath, 'utf8').trim();
-    const port = parseInt(raw, 10);
-    if (Number.isInteger(port) && port >= 1 && port <= 65535) {
-      return `http://localhost:${port}`;
-    }
-  } catch {
-    /* port file absent or unreadable — fall through */
-  }
-
-  return 'http://localhost:3800';
 }
 
 /**
  * Ensure a healthy daemon exists. Safe to call concurrently from multiple MCP instances —
  * only one will actually spawn the daemon; the rest wait for it to become healthy.
+ * No-op if daemonUrl is null.
  *
  * Throws if SLACK_BOT_TOKEN / SLACK_APP_TOKEN are missing and the daemon is not running,
  * or if the daemon does not become healthy within HEALTH_TIMEOUT_MS.
  */
-export async function ensureDaemon(daemonUrl: string): Promise<void> {
+export async function ensureDaemon(daemonUrl: string | null): Promise<void> {
+  if (!daemonUrl) return;
   if (await isHealthy(daemonUrl)) return;
 
   if (!process.env['SLACK_BOT_TOKEN'] || !process.env['SLACK_APP_TOKEN']) {
@@ -146,20 +112,17 @@ export async function ensureDaemon(daemonUrl: string): Promise<void> {
     );
   }
 
-  const dir = stateDir();
-  const lockPath = `${dir}/daemon.pid`;
-  const logPath = `${dir}/daemon.log`;
+  const stateBase = process.env['XDG_STATE_HOME'] ?? `${homedir()}/.local/state`;
+  const stateDir = `${stateBase}/ia-tools/slack-bridge`;
+  if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
+  const lockPath = `${stateDir}/daemon.pid`;
 
   if (acquireLock(lockPath)) {
     try {
       const port = parseInt(new URL(daemonUrl).port || '3800', 10);
-      spawnDaemon(logPath, port);
+      spawnDaemon(port);
     } catch (err) {
-      try {
-        unlinkSync(lockPath);
-      } catch {
-        /* best effort */
-      }
+      try { unlinkSync(lockPath); } catch { /* best effort */ }
       throw err;
     }
   }
@@ -168,7 +131,7 @@ export async function ensureDaemon(daemonUrl: string): Promise<void> {
   if (!ok) {
     throw new Error(
       `slack-bridge daemon did not become healthy within ${HEALTH_TIMEOUT_MS}ms. ` +
-        `Check ${logPath} for details.`,
+        `Check ${process.env['DAEMON_LOG'] || '/tmp/slack-bridge/daemon-logs.json'} for details.`,
     );
   }
 }

@@ -7,12 +7,17 @@
  * Routes messages to registered subscribers (MCP instances) via HTTP webhooks.
  *
  * Usage:
- *   SLACK_BOT_TOKEN=xoxb-... SLACK_APP_TOKEN=xapp-... node dist/daemon/index.js
+ *   node dist/daemon/index.js --bot-token xoxb-... --app-token xapp-...
  *
- * Env:
- *   SLACK_BOT_TOKEN   — Bot token (required)
- *   SLACK_APP_TOKEN   — App-level token for Socket Mode (required)
+ * Args (take precedence over env vars):
+ *   --bot-token <token>   Bot token (xoxb-...)
+ *   --app-token <token>   App-level token for Socket Mode (xapp-...)
+ *
+ * Env (fallback):
+ *   SLACK_BOT_TOKEN   — Bot token
+ *   SLACK_APP_TOKEN   — App-level token for Socket Mode
  *   DAEMON_PORT       — HTTP API port (default: 3800)
+ *   DAEMON_LOG        — Log file path (default: /tmp/slack-bridge/daemon-logs.json)
  */
 
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -21,9 +26,16 @@ import { Registry } from './registry.js';
 import { createApiServer } from './server.js';
 import { startListener, resolveUser, resolveChannel, type SlackEvent } from './listener.js';
 import type { SlackMessage, MessagePayload } from '../shared/types.js';
-import { writePortFile, cleanupPortFile } from './port-file.js';
+import { log, warn, error, logPath } from './logger.js';
 
-// ─── Pidfile so auto-started instances can be tracked / deduped ────
+// ─── CLI args ───────────────────────────────────────────────────────
+function arg(name: string): string | undefined {
+  const flag = `--${name}`;
+  const idx = process.argv.indexOf(flag);
+  return idx !== -1 ? process.argv[idx + 1] : undefined;
+}
+
+// ─── Pidfile ────────────────────────────────────────────────────────
 const stateBase = process.env['XDG_STATE_HOME'] ?? `${homedir()}/.local/state`;
 const stateDir = `${stateBase}/ia-tools/slack-bridge`;
 if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
@@ -38,12 +50,12 @@ const cleanupPidFile = () => {
 };
 process.on('exit', cleanupPidFile);
 
-const botToken = process.env['SLACK_BOT_TOKEN'];
-const appToken = process.env['SLACK_APP_TOKEN'];
+const botToken = arg('bot-token') ?? process.env['SLACK_BOT_TOKEN'];
+const appToken = arg('app-token') ?? process.env['SLACK_APP_TOKEN'];
 const port = parseInt(process.env['DAEMON_PORT'] ?? '3800', 10);
 
 if (!botToken || !appToken) {
-  console.error('Missing SLACK_BOT_TOKEN or SLACK_APP_TOKEN');
+  error('Missing --bot-token / SLACK_BOT_TOKEN or --app-token / SLACK_APP_TOKEN');
   process.exit(1);
 }
 
@@ -51,16 +63,12 @@ const registry = new Registry();
 const startedAt = Date.now();
 let socketStatus: 'connected' | 'disconnected' = 'disconnected';
 
-// ─── HTTP API ───────────────────────────────────────────────────────
-// Write port file BEFORE listen() to eliminate the race window where a
-// spawner polls for the file before the async callback fires.
-writePortFile(port, stateDir);
+log(`[daemon] starting — port=${port} log=${logPath}`);
 
+// ─── HTTP API ───────────────────────────────────────────────────────
 const api = createApiServer(registry, startedAt, () => socketStatus);
 api.listen(port, () => {
-  console.log(`[daemon] API listening on :${port}`);
-  // Rewrite as confirmation that the socket is actually bound.
-  writePortFile(port, stateDir);
+  log(`[daemon] API listening on :${port}`);
 });
 
 // ─── Health checks — remove dead subscribers ────────────────────────
@@ -101,11 +109,11 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
   // Route to matching subscribers
   const targets = registry.match(msg);
   if (targets.length === 0) {
-    console.log(`[route] no subscribers for #${channelName} from ${userName} — dropping`);
+    log(`[route] no subscribers for #${channelName} from ${userName} — dropping`);
     return;
   }
 
-  console.log(
+  log(
     `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" → ${targets.length} subscriber(s)`,
   );
 
@@ -118,13 +126,13 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          console.warn(`[route] subscriber :${sub.port} responded ${res.status} — removing`);
+          warn(`[route] subscriber :${sub.port} responded ${res.status} — removing`);
           registry.remove(sub.port);
           return;
         }
         registry.markSeen(sub.port);
       } catch (err) {
-        console.warn(`[route] subscriber :${sub.port} unreachable — removing`);
+        warn(`[route] subscriber :${sub.port} unreachable — removing`);
         registry.remove(sub.port);
       }
     }),
@@ -135,23 +143,17 @@ socketStatus = 'connected';
 
 // ─── Graceful shutdown ──────────────────────────────────────────────
 process.on('SIGINT', () => {
-  console.log('[daemon] shutting down...');
+  log('[daemon] shutting down...');
   registry.stopHealthChecks();
   api.close();
   cleanupPidFile();
-  cleanupPortFile(stateDir);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('[daemon] shutting down...');
+  log('[daemon] shutting down...');
   registry.stopHealthChecks();
   api.close();
   cleanupPidFile();
-  cleanupPortFile(stateDir);
   process.exit(0);
-});
-
-process.on('exit', () => {
-  cleanupPortFile(stateDir);
 });
