@@ -17,10 +17,10 @@
  * RED phase: src/daemon/ack.ts does not exist — import will fail.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SlackMessage } from '../shared/types.js';
+import { describe, expect, it, vi } from 'vitest';
 // RED: this module does not exist yet
 import { addThinkingAck } from '../daemon/ack.js';
+import type { SlackMessage } from '../shared/types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -55,10 +55,12 @@ type AppMock = {
   };
 };
 
-function makeAppMock(options: {
-  reactionsAddResult?: Promise<unknown>;
-  setStatusResult?: Promise<unknown>;
-} = {}): AppMock {
+function makeAppMock(
+  options: {
+    reactionsAddResult?: Promise<unknown>;
+    setStatusResult?: Promise<unknown>;
+  } = {},
+): AppMock {
   return {
     client: {
       reactions: {
@@ -66,9 +68,9 @@ function makeAppMock(options: {
       },
       assistant: {
         threads: {
-          setStatus: vi.fn().mockReturnValue(
-            options.setStatusResult ?? Promise.resolve({ ok: true }),
-          ),
+          setStatus: vi
+            .fn()
+            .mockReturnValue(options.setStatusResult ?? Promise.resolve({ ok: true })),
         },
       },
     },
