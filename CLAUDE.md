@@ -67,9 +67,13 @@ The main session starts with no env var → triage. `/task` spawns tmux with
 
 ## MCP Servers
 
-The Slack bridge is a nested Claude plugin at `.claude-plugin/plugins/slack-bridge/`.
-Its `.mcp.json` points at `src/mcp-servers/slack-bridge/dist/mcp-server.js`. It
-requires the daemon (`pnpm --filter @ia-tools/slack-bridge daemon`) and
+The Slack bridge is a self-contained Claude plugin at `plugins/slack-bridge/`.
+Its `.mcp.json` points at `${CLAUDE_PLUGIN_ROOT}/dist/mcp-server.js`, and the
+plugin's own `package.json` / `tsconfig.json` / `src/` / `dist/` all live inside
+that directory. The built `dist/` is committed so marketplace consumers don't
+need a build step; `scripts/check-slack-bridge-dist.sh` enforces it stays in
+sync with the sources. Running the bridge requires the daemon
+(`pnpm --filter @ia-tools/slack-bridge daemon`) and
 `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` env vars.
 
 ## Skills

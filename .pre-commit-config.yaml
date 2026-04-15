@@ -29,3 +29,10 @@ repos:
         entry: bash -c 'pnpm exec biome check --write --no-errors-on-unmatched "$@" && git add "$@"' --
         types_or: [ts, tsx, js, jsx, json, jsonc]
         pass_filenames: true
+
+      - id: slack-bridge-dist-fresh
+        name: slack-bridge dist is in sync with src
+        language: system
+        entry: bash scripts/check-slack-bridge-dist.sh
+        pass_filenames: false
+        files: ^plugins/slack-bridge/(src/|tsconfig\.json|package\.json|dist/)

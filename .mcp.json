@@ -2,7 +2,7 @@
   "mcpServers": {
     "slack-bridge": {
       "command": "node",
-      "args": ["./src/mcp-servers/slack-bridge/dist/mcp-server.js"],
+      "args": ["./plugins/slack-bridge/dist/mcp-server.js"],
       "env": {
         "DAEMON_URL": "${DAEMON_URL:-http://localhost:3800}"
       }

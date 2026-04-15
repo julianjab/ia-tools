@@ -4,6 +4,10 @@ node_modules/
 
 # Build
 dist/
+# Exception: the slack-bridge plugin ships its built output so consumers
+# installing the Claude plugin don't need a build step. Staleness is enforced
+# by scripts/check-slack-bridge-dist.sh (run as prebuild + CI check).
+!plugins/slack-bridge/dist/
 *.tsbuildinfo
 *.log
 .logs/
