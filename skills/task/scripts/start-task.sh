@@ -199,7 +199,7 @@ log "Launching Claude in the window..."
 tmux send-keys -t "${SESSION}:${WINDOW}" "$CLAUDE_CMD" Enter
 
 # ── 9. Send boot prompt ──────────────────────────────────────────────────────
-sleep 1
+sleep 2
 
 if [ "$TASK_MODE" = "slack" ]; then
   BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: slack. Your Slack thread: ts=${SLACK_THREAD_TS} channel=${SLACK_CHANNEL_ID}. Your worktree: ${WORKTREE_PATH}. Read .sdlc/tasks.md first, then follow the pipeline in agents/orchestrator.md starting from the boot sequence. Phase 1 is your first action: build and publish the plan, then BLOCK on the approval gate until you see a ✅ reaction in the thread."
@@ -207,7 +207,9 @@ else
   BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: local (no Slack). Your worktree: ${WORKTREE_PATH}. Read .sdlc/tasks.md first, then follow the pipeline in agents/orchestrator.md starting from the boot sequence. Phase 1 is your first action: build and print the plan to this session, then BLOCK on the approval gate using AskUserQuestion — do NOT call any slack-bridge MCP tool."
 fi
 
-tmux send-keys -t "${SESSION}:${WINDOW}" "$BOOT_PROMPT" Enter
+tmux send-keys -t "${SESSION}:${WINDOW}" "$BOOT_PROMPT"
+sleep 2
+tmux send-keys -t "${SESSION}:${WINDOW}" Enter
 
 # ── 10. Report ───────────────────────────────────────────────────────────────
 printf "\n"
