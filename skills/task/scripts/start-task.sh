@@ -109,13 +109,44 @@ else
     git -C "$REPO_ROOT" worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "origin/${BASE_BRANCH}"
   fi
 
-  # Copy .claude/ so the sub-session has the same hooks/skills/config
-  if [ -d "${REPO_ROOT}/.claude" ] && [ ! -d "${WORKTREE_PATH}/.claude" ]; then
-    cp -r "${REPO_ROOT}/.claude" "${WORKTREE_PATH}/.claude"
-  fi
-
   ok "Worktree created: $WORKTREE_PATH"
 fi
+
+# ── 3b. Write a clean .claude/settings.json for the worktree ────────────────
+# The worktree does NOT inherit ${REPO_ROOT}/.claude — we used to copy it but
+# that coupled every sub-session to whatever was in the repo root at spawn
+# time. Instead we write a minimal settings.json that:
+#   (a) forces CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 so the orchestrator can
+#       create and coordinate teams
+#   (b) disables slack@claude-plugins-official (conflicts with slack-bridge)
+#   (c) in slack mode, persists SLACK_THREAD_TS / SLACK_CHANNEL_ID /
+#       SLACK_CHANNELS so they survive /resume, tmux restarts, and manual
+#       `claude` relaunches inside the worktree
+mkdir -p "${WORKTREE_PATH}/.claude"
+SETTINGS_FILE="${WORKTREE_PATH}/.claude/settings.json"
+if [ "$TASK_MODE" = "slack" ]; then
+  cat > "$SETTINGS_FILE" <<EOF
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "SLACK_THREAD_TS": "${SLACK_THREAD_TS}",
+    "SLACK_CHANNEL_ID": "${SLACK_CHANNEL_ID}",
+    "SLACK_CHANNELS": "${SLACK_CHANNEL_ID}"
+  },
+  "disabledPlugins": ["slack@claude-plugins-official"]
+}
+EOF
+else
+  cat > "$SETTINGS_FILE" <<EOF
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "disabledPlugins": ["slack@claude-plugins-official"]
+}
+EOF
+fi
+ok "Wrote ${SETTINGS_FILE}"
 
 # ── 4. Seed .sdlc/tasks.md ───────────────────────────────────────────────────
 TASKS_FILE="${WORKTREE_PATH}/.sdlc/tasks.md"

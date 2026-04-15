@@ -1,18 +1,27 @@
 # ia-tools — AI Toolbox for Development Teams
 
-> ## 🚨 PIPELINE IS MANDATORY
+> ## 🚨 INVARIANTS ARE MANDATORY
 >
-> **Every change flows through one deterministic pipeline.** No shortcuts,
-> no "trivial" edits, no autonomous execution without an approved plan.
+> **Every change flows through four hard invariants.** Everything else is up
+> to the orchestrator (acting as agent-team lead) to decide at runtime.
 >
-> 1. **Triage** (main Slack session) classifies the message into `read-only`
->    or `change`. `read-only` → reply inline. `change` → call `/task`.
-> 2. **`/task`** spawns a sub-session: worktree + tmux + orchestrator boot.
-> 3. **Orchestrator** writes the plan to `.sdlc/tasks.md`, publishes it to the
->    Slack thread, and **BLOCKS on a ✅ reaction**.
-> 4. After approval: spec → [architect if API new] → **QA RED** → **stack GREEN**
->    → **security gate** → **`/pr`** → follow-up → self-kill after 2h of thread
->    inactivity.
+> 1. **Approval gate.** Triage classifies Slack messages; `change` intents
+>    call `/task`, which spawns a sub-session. The orchestrator writes the
+>    plan to `.sdlc/tasks.md` and **BLOCKS on ✅** (slack) or the `Aprobar`
+>    option (local) before touching any code.
+> 2. **QA writes tests first.** No stack teammate leaves plan mode until
+>    `qa` reports `✅ RED confirmed`. Enforced via shared task dependencies
+>    (`stack:* blockedBy qa:red`) and plan-approval-mode on stack teammates.
+> 3. **Security gate.** `security` must return `APPROVED` before `/pr`.
+>    `HIGH`/`MEDIUM` findings are blocking and escalate to the user.
+>    `LOW`-only findings pass through as PR comments.
+> 4. **`/pr` is the only path to main.** Never `git push origin main`, never
+>    local merges into main.
+>
+> Outside those four rules, the orchestrator decides at runtime what team
+> to spawn, in what order, and with what parallelism — see
+> `agents/orchestrator.md`. This is the April 2026 agent-teams refactor:
+> we deleted the fixed `Phase 2..11` pipeline.
 >
 > **Two hooks enforce the rules:**
 > - `SessionStart` (`hooks/scripts/session-start.sh`) — injects the triage or
@@ -21,6 +30,13 @@
 >   `Edit`/`Write`/`MultiEdit` on protected paths when the current branch is
 >   `main`/`master`. If you see `Pipeline violation: you are on main`, run
 >   `/worktree init feat/<name>` — the block is intentional.
+>
+> **Prerequisite: Claude Code ≥ v2.1.32 with agent teams enabled.** Every
+> sub-session spawned by `/task` gets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+> written to its `<worktree>/.claude/settings.json` by `start-task.sh`, so
+> the orchestrator can create and coordinate teams. The same `settings.json`
+> disables `slack@claude-plugins-official` to avoid conflict with the
+> `slack-bridge` MCP shipped by this plugin.
 
 @AGENTS.md
 
@@ -30,10 +46,34 @@ Centralized AI ecosystem. Ships shared Claude Code agents, skills, hooks, and
 the Slack bridge MCP server as a single plugin. Installed in consumer repos
 where it runs the main triage session and spawns task sub-sessions on demand.
 
+## Plugin frontmatter limitations (read before editing `agents/*.md`)
+
+`ia-tools` ships as a plugin. Two Claude Code documentation limits apply:
+
+1. **Plugin subagents ignore `hooks`, `mcpServers`, `permissionMode`.** These
+   three frontmatter fields are silently dropped when an agent is loaded
+   from a plugin. Do not set them in any `agents/*.md` file in this repo.
+   If enforcement is needed, use the `tools:` allowlist (the only
+   plugin-enforceable capability restriction), instruct the body, or move
+   the rule to `settings.json` at the consumer level.
+2. **Teammates ignore `skills:` and `mcpServers:`.** When an agent runs as
+   a teammate in an agent team (qa, backend, frontend, mobile by default),
+   those two fields are dropped. Skill preload is done instead by having
+   the agent body invoke the skill on boot (see `agents/qa.md`,
+   `agents/security.md`).
+
+Fields that DO work in plugin agents: `name`, `description`, `tools`,
+`disallowedTools`, `model`, `maxTurns`, `memory`, `background`, `effort`,
+`isolation`, `color`, `initialPrompt`, `skills` (only when the agent runs
+as a one-shot subagent, not as a teammate).
+
 ## Structure
 
 - `agents/` — 8 stack-agnostic agent definitions (triage, orchestrator, architect,
-  backend, frontend, mobile, qa, security)
+  backend, frontend, mobile, qa, security). `orchestrator` is a main-thread
+  agent that acts as an **agent-team lead**; qa/backend/frontend/mobile are
+  its default teammates; architect/security are one-shot subagents by
+  default. Triage is the only main session in the plugin.
 - `skills/` — Reusable Claude Code skills (task, worktree, commit, review, pr,
   ship, sync-docs, pr-review, security-audit, test-generation)
 - `hooks/` — SessionStart + PreToolUse enforcement scripts
