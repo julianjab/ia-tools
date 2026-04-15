@@ -3,25 +3,28 @@ name: worktree
 description: >
   Git worktree management for parallel development workflows.
   Create isolated worktrees for features, reviews, and hotfixes without switching branches.
-  Supports: `init` (create worktree), `spawn` (create worktree + open Claude in tmux, optionally
-  subscribed to a Slack thread), `list` (show active worktrees), `switch` (change context),
-  `cleanup` (remove merged/stale worktrees), `status` (overview of all worktrees).
-  Examples: `/worktree init feat/notification-service`, `/worktree spawn feat/my-task --slack-thread 1234.567 --channel C07815S0XNX`,
+  Supports: `init` (create worktree), `list` (show active worktrees), `switch`
+  (change context), `cleanup` (remove merged/stale worktrees), `status`
+  (overview of all worktrees).
+  **Note**: For spawning a Claude sub-session linked to a Slack thread, use
+  `/task` instead — that is the only way `triage` hands off work.
+  Examples: `/worktree init feat/notification-service`,
   `/worktree list`, `/worktree cleanup --merged`, `/worktree status`.
-argument-hint: "[init|spawn|list|switch|cleanup|status] [branch-name] [--base main] [--slack-thread <ts>] [--channel <id>] [--session <name>]"
+argument-hint: "[init|list|switch|cleanup|status] [branch-name] [--base main] [--review <pr>]"
 disable-model-invocation: false
 ---
 
 ## Worktree Manager — Parallel Development Workflow
 
-**This is the preferred way to start new tasks.** Use `/worktree init` instead of `git checkout -b` to keep `main` clean and enable parallel development.
+**This skill manages git worktrees only.** It does NOT open Claude sessions, does
+NOT touch Slack, and does NOT inject any system prompt. For task sub-sessions
+linked to a Slack thread, use `/task` — see `skills/task/SKILL.md`.
 
 Parse `$ARGUMENTS` to determine which sub-command to execute:
 
 | First token in `$ARGUMENTS` | Action |
 |-----------------------------|--------|
 | `init` | Create a new worktree for a feature/fix/review |
-| `spawn` | Create worktree (if needed) + open Claude in tmux, optionally subscribed to a Slack thread |
 | `list` | List all active worktrees with their branches and status |
 | `switch` | Print the path of an existing worktree (context guidance) |
 | `cleanup` | Remove worktree(s) that are merged or no longer needed |
@@ -152,116 +155,6 @@ Rule: replace `/` with `-`.
     To work in this worktree, operate on files at: <absolute-path>
     The main repo remains on: main (undisturbed)
     ```
-
----
-
-## Sub-command: `spawn`
-
-**Purpose**: Open a dedicated Claude Code session in a tmux window for a task that requires async human-AI collaboration via Slack. The worktree must already exist (created by `init`). Spawn is only called when the Orchestrator has a clear task definition AND a Slack thread to link it to.
-
-**Arguments**: `/worktree spawn <branch-name> --slack-thread <ts> --channel <channel-id> [--session <tmux-session-name>]`
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--slack-thread <ts>` | **Yes** | Slack thread timestamp where the task was announced |
-| `--channel <id>` | **Yes** | Slack channel ID containing the thread |
-| `--session <name>` | No | tmux session name; defaults to branch dir name; adds window if session exists |
-
-> **spawn requires both `--slack-thread` and `--channel`.** If either is missing, STOP and report the error. Do not spawn without a linked Slack thread — use `init` instead.
-
-> **The worktree must already exist.** If it doesn't, STOP and tell the caller to run `/worktree init` first.
-
-### Pre-conditions (enforced before spawning)
-
-Before executing spawn, verify:
-
-1. **Task is defined**: `.sdlc/tasks.md` exists inside the worktree and is non-empty. If not, STOP — the Orchestrator must define the task list before spawning.
-2. **Slack thread is set**: `--slack-thread` and `--channel` are both provided.
-3. **Worktree exists**: the directory at `.worktrees/<dir-name>` exists and is a valid git worktree.
-4. **tmux and claude CLI are available**.
-
-### Steps
-
-1. **Check dependencies**:
-   ```bash
-   command -v tmux  || { echo "tmux not installed — brew install tmux"; exit 1; }
-   command -v claude || { echo "claude CLI not found in PATH"; exit 1; }
-   ```
-
-2. **Verify worktree and task list** (see Pre-conditions above).
-
-3. **Resolve the worktree absolute path**:
-   ```bash
-   REPO=$(git rev-parse --show-toplevel)
-   DIR_NAME=$(echo "<branch-name>" | tr '/' '-')
-   WORKTREE_PATH="$REPO/.worktrees/$DIR_NAME"
-   ```
-
-4. **Resolve the tmux session name**: Use `--session` if provided, otherwise use `$DIR_NAME`.
-
-5. **Resolve the OAuth token**:
-   ```bash
-   AGENT_TOKEN="${CLAUDE_TEAM_OAUTH_TOKEN:-$CLAUDE_CODE_OAUTH_TOKEN}"
-   ```
-
-6. **Build the Claude launch command**:
-   ```bash
-   CLAUDE_CMD="SLACK_THREAD_TS=<ts> SLACK_CHANNELS=<channel-id> CLAUDE_CODE_OAUTH_TOKEN=<token> claude --dangerously-skip-permissions"
-   ```
-
-7. **Create or reuse tmux session**:
-   ```bash
-   if tmux has-session -t "$SESSION" 2>/dev/null; then
-     tmux new-window -t "$SESSION" -n "$DIR_NAME" -c "$WORKTREE_PATH"
-   else
-     tmux new-session -d -s "$SESSION" -n "$DIR_NAME" -c "$WORKTREE_PATH"
-   fi
-   ```
-
-8. **Send the Claude launch command**:
-   ```bash
-   tmux send-keys -t "${SESSION}:${DIR_NAME}" "$CLAUDE_CMD" Enter
-   ```
-
-9. **Send the boot prompt** (after 1s):
-   ```bash
-   sleep 1
-   tmux send-keys -t "${SESSION}:${DIR_NAME}" "<boot-prompt>" Enter
-   ```
-
-10. **Report**:
-    ```
-    Worktree session spawned:
-      Branch:  <branch-name>
-      Path:    .worktrees/<dir-name>
-      tmux:    session=<session-name>  window=<dir-name>
-      Slack:   thread=<ts>  channel=<channel-id>
-      Tasks:   loaded from .sdlc/tasks.md
-
-    Attach with:
-      tmux attach -t <session-name>
-    ```
-
-### Boot prompt
-
-```
-You are a Claude Code agent working on branch <branch-name> inside worktree <path>.
-
-Your task list is at .sdlc/tasks.md — read it first.
-
-Subscribe to the Slack thread where this task was announced:
-  subscribe_slack(threads=["<ts>"], channels=["<channel-id>"], label="task: <branch-name>")
-
-Then begin the first task in the list. Report progress and blockers via reply_slack to the thread.
-Use /commit for checkpoints. Follow the pipeline in CLAUDE.md.
-```
-
-### Delegate to script
-
-```bash
-bash "$(git rev-parse --show-toplevel)/skills/worktree/scripts/spawn-claude.sh" \
-  "$WORKTREE_PATH" "$SESSION" "$DIR_NAME" "$SLACK_THREAD_TS" "$SLACK_CHANNEL_ID" "$BRANCH_NAME"
-```
 
 ---
 
@@ -477,22 +370,19 @@ bash "$(git rev-parse --show-toplevel)/skills/worktree/scripts/spawn-claude.sh" 
 
 ---
 
-## Integration with /deliver
-
-The `/worktree` skill is designed to complement `/deliver`:
+## Integration with other skills
 
 | Workflow Step | Skill | What happens |
-|--------------|-------|--------------|
-| Start new task (simple) | `/worktree init feat/x` | Creates isolated worktree + branch |
-| Start new task (async) | `/worktree spawn feat/x --slack-thread <ts> --channel <id>` | Creates worktree + opens Claude in tmux subscribed to Slack thread |
-| Write code | _(agent works in worktree path)_ | Files at `.worktrees/feat-x/` |
+|---------------|-------|--------------|
+| Start a task locally in the terminal | `/worktree init feat/x` | Creates worktree + branch (no Claude session, no Slack) |
+| Start a task from Slack (triage routes) | `/task feat/x --thread <ts> --channel <id> --description "..."` | Handles worktree creation + sub-session + Slack subscribe end-to-end |
+| Write code | _(sub-session's stack agents do this)_ | Files at `.worktrees/feat-x/` |
 | Commit checkpoint | `/commit` | Formats, stages, commits from within the worktree |
 | Validate quality | `/review` | Runs fmt + tests + coverage + rules |
 | Create PR | `/pr` | Invokes `/review --fix`, pushes, creates PR with diagrams |
-| Start review | `/worktree init --review 42` | Creates review worktree for PR #42 |
+| Start review | `/worktree init --review 42` _or_ `/task review/pr-42 --review 42 --thread <ts> --channel <id>` | Local-only vs Slack-linked variants |
 | Finish task | `/worktree cleanup feat/x` | Removes worktree after merge |
 | Parallel work | `/worktree switch fix/y` | Redirects agent to another worktree |
-| Full pipeline | `/deliver` | Auto-detects state, orchestrates all skills |
 
 **Key rule**: All skills (`/commit`, `/review`, `/pr`) work the same inside a worktree as in the main repo. The branch is already set by the worktree — no checkout needed.
 
@@ -508,10 +398,6 @@ The `/worktree` skill is designed to complement `/deliver`:
 | Inside a worktree, trying to create another | Navigate to main repo root first |
 | Branch name conflicts | Suggest a different name or ask user to resolve |
 | Detached HEAD in worktree | Warn and suggest creating/checking out a branch |
-| `spawn`: tmux not installed | Report error, suggest `brew install tmux` |
-| `spawn`: claude CLI not found | Report error, check PATH and `~/.claude/local/` |
-| `spawn`: `--slack-thread` without `--channel` | Report error, both flags are required together |
-| `spawn`: session name conflict (wrong project) | Warn user; use `--session` flag to pick a different name |
 
 ## Important Rules
 
