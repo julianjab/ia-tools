@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Fails if plugins/slack-bridge/dist is stale vs src/.
-# The slack-bridge plugin ships its compiled dist/ to the marketplace so
-# consumers don't need a build step. This script rebuilds into a temp dir
-# and compares .js/.d.ts output against the committed dist/. Source maps
-# (*.map) and declaration maps are ignored because they embed absolute
-# paths that differ between environments.
+# The slack-bridge plugin ships a self-contained bundled dist/ to the
+# marketplace so consumers installing the Claude plugin don't need a build
+# step (no npm install, no node_modules resolution at runtime). This script
+# rebuilds with the same esbuild config into a temp dir and compares the
+# output against the committed dist/.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,19 +19,13 @@ fi
 tmp_dir="$(mktemp -d -t slack-bridge-dist-check.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
-# Build into a sibling dist-check/ directory to avoid touching the committed one.
-(
-  cd "$plugin_dir"
-  pnpm exec tsc --outDir "$tmp_dir"
-)
+# Rebuild into tmp using the same bundler entrypoint as `pnpm build`.
+SLACK_BRIDGE_OUTDIR="$tmp_dir" node "$plugin_dir/scripts/bundle.mjs" >/dev/null
 
-# Compare only the stable artefacts.
-if ! diff -r \
-      --exclude='*.map' \
-      "$committed_dist" "$tmp_dir" >/dev/null; then
+if ! diff -r "$committed_dist" "$tmp_dir" >/dev/null; then
   echo "error: plugins/slack-bridge/dist is stale relative to src/." >&2
   echo "       Run: pnpm --filter @ia-tools/slack-bridge build && git add plugins/slack-bridge/dist" >&2
-  diff -r --exclude='*.map' "$committed_dist" "$tmp_dir" || true
+  diff -r "$committed_dist" "$tmp_dir" || true
   exit 1
 fi
 

@@ -818,32 +818,19 @@ describe('McpBridgeServer — oninitialized auto-subscribe', () => {
   });
 });
 
-// ─── Tests: ensureDaemon removed (Sub-task #4) ────────────────────────────────
+// ─── Tests: ensureDaemon wired into mcp-server.ts ─────────────────────────────
 
-describe('McpBridgeServer — ensureDaemon removed from mcp-server.ts', () => {
+describe('McpBridgeServer — ensureDaemon wired into mcp-server.ts', () => {
   const MCP_SERVER_PATH = join(new URL(import.meta.url).pathname, '../../mcp-server.ts');
 
-  it('mcpServerFile_inspected_doesNotImportEnsureDaemon', () => {
-    // Arrange
+  it('mcpServerFile_inspected_importsEnsureDaemon', () => {
     const source = readFileSync(MCP_SERVER_PATH, 'utf8');
-
-    // Act / Assert
-    expect(source).not.toMatch(/import.*ensureDaemon/);
+    expect(source).toMatch(/from ['"]\.\/ensure-daemon\.js['"]/);
+    expect(source).toMatch(/ensureDaemon/);
   });
 
-  it('mcpServerFile_inspected_doesNotCallEnsureDaemon', () => {
-    // Arrange
+  it('mcpServerFile_inspected_awaitsEnsureDaemonOnStartup', () => {
     const source = readFileSync(MCP_SERVER_PATH, 'utf8');
-
-    // Act / Assert
-    expect(source).not.toMatch(/await ensureDaemon\(/);
-  });
-
-  it('mcpServerFile_inspected_doesNotImportEnsureDaemonModule', () => {
-    // Arrange
-    const source = readFileSync(MCP_SERVER_PATH, 'utf8');
-
-    // Act / Assert
-    expect(source).not.toMatch(/from ['"].*ensure-daemon/);
+    expect(source).toMatch(/await ensureDaemon\(/);
   });
 });

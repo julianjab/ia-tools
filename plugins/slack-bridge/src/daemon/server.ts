@@ -10,6 +10,7 @@
  */
 
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import type {
   ClaimRequest,
   ClaimResponse,
@@ -18,6 +19,8 @@ import type {
 } from '../shared/types.js';
 import { log } from './logger.js';
 import type { Registry } from './registry.js';
+
+const DAEMON_ENTRYPOINT = fileURLToPath(import.meta.url);
 
 /** In-memory claim store: message_ts → subscriber port */
 const claims = new Map<string, number>();
@@ -132,6 +135,8 @@ export function createApiServer(
         uptime: Math.floor((Date.now() - startedAt) / 1000),
         subscribers: registry.all().length,
         socketMode: getSocketStatus(),
+        pid: process.pid,
+        entrypoint: DAEMON_ENTRYPOINT,
       };
       json(res, 200, health);
       return;

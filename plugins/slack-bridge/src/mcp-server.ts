@@ -31,6 +31,7 @@ import { clearThinkingAck } from './ack-client.js';
 import type { SlackFilters } from './config.js';
 import { loadConfig, saveConfig } from './config.js';
 import { DaemonClient } from './daemon-client.js';
+import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
 import { createLogger } from './logger.js';
 import type { Logger } from './logger.js';
 import type { MessagePayload, SubscriptionFilters } from './shared/types.js';
@@ -486,8 +487,25 @@ if (!botToken) {
   process.exit(1);
 }
 
-const DAEMON_URL = process.env.DAEMON_URL?.trim() || null;
-logger.log(`starting — session=${SESSION_ID} daemon=${DAEMON_URL ?? 'none'} log=${mcpLogPath}`);
+const DAEMON_URL = resolveDaemonUrl();
+logger.log(`starting — session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath}`);
+
+let daemonReady = false;
+try {
+  await ensureDaemon(DAEMON_URL);
+  daemonReady = true;
+  try {
+    const res = await fetch(`${DAEMON_URL}/health`);
+    const health = (await res.json()) as { pid?: number; entrypoint?: string };
+    logger.log(
+      `daemon ready at ${DAEMON_URL} — pid=${health.pid ?? '?'} entrypoint=${health.entrypoint ?? '?'}`,
+    );
+  } catch (err) {
+    logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+  }
+} catch (err) {
+  logger.warn(`ensureDaemon failed — continuing in read-only mode: ${err}`);
+}
 
 const web = new WebClient(botToken);
 
@@ -523,7 +541,7 @@ const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
 });
 
 const webhookPort = await webhookSrv.start();
-const daemonClient = DAEMON_URL ? new DaemonClient(DAEMON_URL, webhookPort) : null;
+const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
 const mcpServer = new McpBridgeServer({ web, daemonClient, logger });
 
 await mcpServer.connect(new StdioServerTransport());

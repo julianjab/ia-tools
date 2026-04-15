@@ -20,8 +20,7 @@
  *   DAEMON_LOG        — Log file path (default: /tmp/slack-bridge/daemon-logs.json)
  */
 
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { buildSlackMessage } from '../shared/build-message.js';
 import type { MessagePayload } from '../shared/types.js';
 import { addThinkingAck } from './ack.js';
@@ -36,21 +35,6 @@ function arg(name: string): string | undefined {
   const idx = process.argv.indexOf(flag);
   return idx !== -1 ? process.argv[idx + 1] : undefined;
 }
-
-// ─── Pidfile ────────────────────────────────────────────────────────
-const stateBase = process.env.XDG_STATE_HOME ?? `${homedir()}/.local/state`;
-const stateDir = `${stateBase}/ia-tools/slack-bridge`;
-if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
-const pidFile = `${stateDir}/daemon.pid`;
-writeFileSync(pidFile, String(process.pid));
-const cleanupPidFile = () => {
-  try {
-    unlinkSync(pidFile);
-  } catch {
-    /* best effort */
-  }
-};
-process.on('exit', cleanupPidFile);
 
 const botToken = arg('bot-token') ?? process.env.SLACK_BOT_TOKEN;
 const appToken = arg('app-token') ?? process.env.SLACK_APP_TOKEN;
@@ -69,12 +53,34 @@ const registry = new Registry();
 const startedAt = Date.now();
 let socketStatus: 'connected' | 'disconnected' = 'disconnected';
 
-log(`[daemon] starting — port=${port} log=${logPath}`);
+const entrypoint = fileURLToPath(import.meta.url);
+log(`[daemon] starting — pid=${process.pid} port=${port} entrypoint=${entrypoint} log=${logPath}`);
 
 // ─── HTTP API ───────────────────────────────────────────────────────
+// Bind the port BEFORE starting Socket Mode so that if another daemon is
+// already running we exit immediately with EADDRINUSE instead of opening a
+// duplicate Slack connection. The listen port is the singleton mutex.
 const api = createApiServer(registry, startedAt, () => socketStatus);
-api.listen(port, () => {
-  log(`[daemon] API listening on :${port}`);
+await new Promise<void>((resolveListen, rejectListen) => {
+  const onError = (err: NodeJS.ErrnoException) => {
+    api.off('listening', onListening);
+    rejectListen(err);
+  };
+  const onListening = () => {
+    api.off('error', onError);
+    log(`[daemon] API listening on :${port}`);
+    resolveListen();
+  };
+  api.once('error', onError);
+  api.once('listening', onListening);
+  api.listen(port);
+}).catch((err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    warn(`[daemon] port ${port} already bound — another daemon is running. Exiting.`);
+    process.exit(0);
+  }
+  error(`[daemon] failed to bind :${port} — ${err.message}`);
+  process.exit(1);
 });
 
 // ─── Health checks — remove dead subscribers ────────────────────────
@@ -155,7 +161,6 @@ process.on('SIGINT', () => {
   log('[daemon] shutting down...');
   registry.stopHealthChecks();
   api.close();
-  cleanupPidFile();
   process.exit(0);
 });
 
@@ -163,6 +168,5 @@ process.on('SIGTERM', () => {
   log('[daemon] shutting down...');
   registry.stopHealthChecks();
   api.close();
-  cleanupPidFile();
   process.exit(0);
 });

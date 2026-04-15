@@ -78,4 +78,6 @@ export interface DaemonHealth {
   uptime: number;
   subscribers: number;
   socketMode: 'connected' | 'disconnected';
+  pid: number;
+  entrypoint: string;
 }

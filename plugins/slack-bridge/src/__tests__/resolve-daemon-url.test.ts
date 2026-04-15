@@ -1,12 +1,14 @@
 /**
- * resolveDaemonUrl — DAEMON_URL env var resolution
+ * resolveDaemonUrl — DAEMON_URL env var resolution with local default fallback.
  *
- * Returns the trimmed DAEMON_URL value, or null if unset/empty.
- * No port-file fallback — if DAEMON_URL is absent, subscription is skipped.
+ * Returns the trimmed DAEMON_URL value, or a local default so the MCP can
+ * auto-boot the daemon out of the box.
  */
 
 import { describe, expect, it } from 'vitest';
 import { resolveDaemonUrl } from '../ensure-daemon.js';
+
+const DEFAULT_URL = 'http://127.0.0.1:3800';
 
 function withEnv(overrides: Record<string, string | undefined>, fn: () => void) {
   const originals: Record<string, string | undefined> = {};
@@ -27,32 +29,32 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
 
 describe('resolveDaemonUrl', () => {
   it('returns the DAEMON_URL value when set', () => {
-    withEnv({ DAEMON_URL: 'http://localhost:3800' }, () => {
-      expect(resolveDaemonUrl()).toBe('http://localhost:3800');
+    withEnv({ DAEMON_URL: 'http://localhost:9999' }, () => {
+      expect(resolveDaemonUrl()).toBe('http://localhost:9999');
     });
   });
 
   it('trims whitespace from DAEMON_URL', () => {
-    withEnv({ DAEMON_URL: '  http://localhost:3800  ' }, () => {
-      expect(resolveDaemonUrl()).toBe('http://localhost:3800');
+    withEnv({ DAEMON_URL: '  http://localhost:9999  ' }, () => {
+      expect(resolveDaemonUrl()).toBe('http://localhost:9999');
     });
   });
 
-  it('returns null when DAEMON_URL is not set', () => {
+  it('falls back to the local default when DAEMON_URL is not set', () => {
     withEnv({ DAEMON_URL: undefined }, () => {
-      expect(resolveDaemonUrl()).toBeNull();
+      expect(resolveDaemonUrl()).toBe(DEFAULT_URL);
     });
   });
 
-  it('returns null when DAEMON_URL is empty string', () => {
+  it('falls back to the local default when DAEMON_URL is empty string', () => {
     withEnv({ DAEMON_URL: '' }, () => {
-      expect(resolveDaemonUrl()).toBeNull();
+      expect(resolveDaemonUrl()).toBe(DEFAULT_URL);
     });
   });
 
-  it('returns null when DAEMON_URL is whitespace-only', () => {
+  it('falls back to the local default when DAEMON_URL is whitespace-only', () => {
     withEnv({ DAEMON_URL: '   ' }, () => {
-      expect(resolveDaemonUrl()).toBeNull();
+      expect(resolveDaemonUrl()).toBe(DEFAULT_URL);
     });
   });
 });

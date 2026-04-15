@@ -1,43 +1,38 @@
 /**
- * Daemon lifecycle helpers.
+ * Daemon lifecycle helpers — fileless singleton.
  *
  * resolveDaemonUrl() — reads DAEMON_URL env var; returns null if absent.
- * ensureDaemon()     — starts the daemon once if it is not already running (singleton).
- *                      Safe to call concurrently — only one MCP instance will spawn it.
- *                      No-op if daemonUrl is null.
+ * ensureDaemon()     — starts the daemon once if it is not already running.
+ *                      Safe to call concurrently from multiple MCP instances —
+ *                      the daemon's listen port acts as the mutex (the OS lets
+ *                      only one process bind 127.0.0.1:<port>). Race losers die
+ *                      with EADDRINUSE and every caller polls /health until the
+ *                      winner is ready. No pidfiles, no state on disk.
  */
 
 import { spawn } from 'node:child_process';
-import {
-  constants,
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeSync,
-} from 'node:fs';
-import { homedir } from 'node:os';
+import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HEALTH_TIMEOUT_MS = 10_000;
 const HEALTH_POLL_MS = 200;
+const HEALTH_PROBE_TIMEOUT_MS = 500;
+const DEFAULT_DAEMON_URL = 'http://127.0.0.1:3800';
 
 /**
- * Resolve the daemon URL from the DAEMON_URL environment variable.
- * Returns null if not set or empty — the MCP server will start but skip subscription.
+ * Resolve the daemon URL. Uses DAEMON_URL if set, otherwise falls back to the
+ * local default so the MCP can auto-boot the daemon out of the box.
  */
-export function resolveDaemonUrl(): string | null {
-  const envUrl = process.env.DAEMON_URL;
-  return envUrl?.trim() || null;
+export function resolveDaemonUrl(): string {
+  const envUrl = process.env.DAEMON_URL?.trim();
+  return envUrl || DEFAULT_DAEMON_URL;
 }
 
 async function isHealthy(daemonUrl: string): Promise<boolean> {
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 500);
+    const t = setTimeout(() => ctrl.abort(), HEALTH_PROBE_TIMEOUT_MS);
     const res = await fetch(`${daemonUrl}/health`, { signal: ctrl.signal });
     clearTimeout(t);
     return res.ok;
@@ -55,34 +50,6 @@ async function waitHealthy(daemonUrl: string, timeoutMs: number): Promise<boolea
   return false;
 }
 
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function acquireLock(lockPath: string): boolean {
-  try {
-    const fd = openSync(lockPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o644);
-    writeSync(fd, String(process.pid));
-    closeSync(fd);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-  }
-  try {
-    const pid = Number.parseInt(readFileSync(lockPath, 'utf8').trim(), 10);
-    if (Number.isFinite(pid) && processAlive(pid)) return false;
-    unlinkSync(lockPath);
-    return acquireLock(lockPath);
-  } catch {
-    return false;
-  }
-}
-
 function daemonEntrypoint(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, 'daemon/index.js');
@@ -96,7 +63,6 @@ function spawnDaemon(port: number): void {
     /* best effort */
   }
   const logFd = openSync(logPath, 'a');
-  // Redirect stderr to the log file so crashes before the logger initialises are captured.
   const child = spawn(process.execPath, [daemonEntrypoint()], {
     detached: true,
     stdio: ['ignore', 'ignore', logFd],
@@ -107,15 +73,16 @@ function spawnDaemon(port: number): void {
 }
 
 /**
- * Ensure a healthy daemon exists. Safe to call concurrently from multiple MCP instances —
- * only one will actually spawn the daemon; the rest wait for it to become healthy.
- * No-op if daemonUrl is null.
+ * Ensure a healthy daemon exists. Safe to call concurrently from multiple MCP
+ * instances — at most one spawn wins the port bind; the rest see EADDRINUSE,
+ * exit, and all callers poll /health until the winner is ready. No-op when
+ * daemonUrl is null.
  *
- * Throws if SLACK_BOT_TOKEN / SLACK_APP_TOKEN are missing and the daemon is not running,
- * or if the daemon does not become healthy within HEALTH_TIMEOUT_MS.
+ * Throws if SLACK_BOT_TOKEN / SLACK_APP_TOKEN are missing and the daemon is
+ * not already running, or if the daemon does not become healthy within
+ * HEALTH_TIMEOUT_MS.
  */
-export async function ensureDaemon(daemonUrl: string | null): Promise<void> {
-  if (!daemonUrl) return;
+export async function ensureDaemon(daemonUrl: string): Promise<void> {
   if (await isHealthy(daemonUrl)) return;
 
   if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) {
@@ -125,24 +92,8 @@ export async function ensureDaemon(daemonUrl: string | null): Promise<void> {
     );
   }
 
-  const stateBase = process.env.XDG_STATE_HOME ?? `${homedir()}/.local/state`;
-  const stateDir = `${stateBase}/ia-tools/slack-bridge`;
-  if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
-  const lockPath = `${stateDir}/daemon.pid`;
-
-  if (acquireLock(lockPath)) {
-    try {
-      const port = Number.parseInt(new URL(daemonUrl).port || '3800', 10);
-      spawnDaemon(port);
-    } catch (err) {
-      try {
-        unlinkSync(lockPath);
-      } catch {
-        /* best effort */
-      }
-      throw err;
-    }
-  }
+  const port = Number.parseInt(new URL(daemonUrl).port || '3800', 10);
+  spawnDaemon(port);
 
   const ok = await waitHealthy(daemonUrl, HEALTH_TIMEOUT_MS);
   if (!ok) {

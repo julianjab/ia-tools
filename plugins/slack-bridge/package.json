@@ -8,8 +8,8 @@
     "slack-bridge-mcp": "./dist/mcp-server.js"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "node scripts/bundle.mjs",
+    "dev": "node scripts/bundle.mjs --watch",
     "daemon": "node dist/daemon/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.4"
   }
