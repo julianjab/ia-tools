@@ -5,11 +5,11 @@
 > Any change under `src/`, `agents/`, `skills/`, `scripts/`, or `profiles/` MUST
 > go through the pipeline defined in `AGENTS.md`:
 >
-> 1. `Agent(ia-tools:issue-refiner)` — refine the problem into BDD sub-tasks
-> 2. `Agent(ia-tools:orchestrator)` — produce the spec + contract
-> 3. `/worktree init feat/<name>` — create an isolated worktree
+> 1. `Agent(ia-tools:orchestrator)` — **always first**: assesses complexity, asks up to 3 questions, creates worktree + task list, decides if Issue Refiner is needed
+> 2. `/worktree init feat/<name>` — isolated worktree created by the Orchestrator before any spec or code
+> 3. `Agent(ia-tools:issue-refiner)` — deep refinement into BDD sub-tasks _(only if complex — Orchestrator decides)_
 > 4. QA writes **RED** tests before any implementation
-> 5. Leads/specialists make them **GREEN**
+> 5. Leads/specialists make them **GREEN** (spawned via `Agent` tool)
 > 6. `Agent(ia-tools:security-reviewer)` — security gate
 > 7. `/pr` — open the PR
 >
@@ -46,12 +46,11 @@ The Slack bridge is a nested Claude plugin at `.claude-plugin/plugins/slack-brid
 
 ## Skills
 
-- `/worktree` — Parallel development: create/list/switch/cleanup git worktrees
+- `/worktree` — Parallel development: create/list/switch/cleanup/spawn git worktrees; `spawn` opens a Claude session in tmux subscribed to a Slack thread
 - `/commit` — Conventional commits: format, stage, commit with soft test validation
 - `/review` — Quality gate: formatting, tests, coverage, coding standards
 - `/pr` — Push + PR: invokes `/review`, resolves conflicts, creates PR with architecture diagrams
 - `/deliver` — Smart orchestrator: detects state, invokes the right skills in sequence
-- `/team` — Multi-agent: spawns tmux session with specialized agents, each in its own worktree
 - `/ship` — PR review request: waits for CI, notifies Slack channel
 - `/sync-docs` — CLAUDE.md synchronization: detects and fixes documentation drift
 
