@@ -212,7 +212,7 @@ Rule: replace `/` with `-`.
 
 **Purpose**: Remove worktrees that are no longer needed.
 
-**Arguments**: `/worktree cleanup [<branch-name>] [--merged] [--stale <days>] [--force]`
+**Arguments**: `/worktree cleanup [<branch-name>] [--merged] [--stale <days>] [--force] [--dry-run]`
 
 ### Steps
 
@@ -224,7 +224,10 @@ Rule: replace `/` with `-`.
    | `--merged` | Remove all worktrees whose branch has been merged into main |
    | `--stale 30` | Remove worktrees with no commits in the last N days |
    | `--force` | Skip confirmation prompts |
+   | `--dry-run` | Preview only — list candidates + reasons, make zero changes |
    | _(none)_ | Interactive — show candidates and ask which to remove |
+
+   `--dry-run` composes with every selector (`<branch-name>`, `--merged`, `--stale`, interactive) and with `--force`. When `--dry-run` is set, `--force` only affects whether confirmation prompts are skipped in the preview — nothing is ever executed.
 
 2. **For `--merged` detection**:
    ```bash
@@ -238,30 +241,65 @@ Rule: replace `/` with `-`.
       git -C <path> status --porcelain
       ```
       - If uncommitted changes exist and `--force` not set: **STOP** and warn the user.
+      - This check runs in dry-run too, so the preview matches real behavior.
 
-   b. **Remove the worktree**:
+   b. **If `--dry-run` is set, STOP HERE**. Do NOT execute any of the commands in sub-steps (c), (d), or (e). Instead, record the candidate and its reason (merged / stale / explicit name) for the preview report.
+
+   c. **Remove the worktree**:
       ```bash
       git worktree remove <path>
       ```
       - If locked: `git worktree remove --force <path>` (only with `--force` flag)
+      - **Skipped under `--dry-run`.**
 
-   c. **Optionally delete the remote branch** (ask user unless `--force`):
+   d. **Optionally delete the remote branch** (ask user unless `--force`):
       ```bash
       git push origin --delete <branch-name>
       ```
+      - **Skipped under `--dry-run`.**
 
-   d. **Prune stale worktree references**:
+   e. **Prune stale worktree references**:
       ```bash
       git worktree prune
       ```
+      - **Skipped under `--dry-run`.**
 
 4. **Report**:
+
+   **Normal run**:
    ```
    Cleanup complete:
      Removed: feat/notification-service (.worktrees/feat-notification-service)
      Remote branch: deleted
      Remaining worktrees: 2
    ```
+
+   **Dry run** (must lead with the preview banner so the user can see it was a preview):
+   ```
+   DRY RUN — no changes made
+
+   Would remove:
+     - feat/notification-service  (.worktrees/feat-notification-service)  reason: merged into main
+     - fix/stale-ticket-123       (.worktrees/fix-stale-ticket-123)       reason: stale (42 days)
+
+   Would delete remote branches:
+     - origin/feat/notification-service
+     - origin/fix/stale-ticket-123
+
+   Safety warnings:
+     - .worktrees/feat-notification-service has 2 uncommitted files (would require --force)
+
+   Re-run without --dry-run to apply.
+   ```
+
+### Examples
+
+```bash
+/worktree cleanup --merged --dry-run             # preview everything that --merged would remove
+/worktree cleanup --stale 30 --dry-run           # preview stale worktrees older than 30 days
+/worktree cleanup feat/old-branch --dry-run      # preview removal of a single named worktree
+/worktree cleanup --merged --force --dry-run     # preview, including worktrees with uncommitted changes
+```
 
 ---
 
