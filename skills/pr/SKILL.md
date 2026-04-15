@@ -25,7 +25,7 @@ disable-model-invocation: false
    ```
    If on `main`/`master`, decide between auto-recover and ask-first based on the invoking command:
 
-   - **Pipeline commands** (`/pr`, `/commit`, `/deliver`, `/ship`, `/review`, or any skill explicitly delegating here from those): **auto-recover** without asking. The user already opted into the pipeline, so don't interrupt.
+   - **Pipeline commands** (`/pr`, `/commit`, `/ship`, `/review`, `/task`, or any skill explicitly delegating here from those): **auto-recover** without asking. The user already opted into the pipeline, so don't interrupt.
    - **Any other caller** (manual invocation, unrelated skill, ad-hoc agent): **STOP and ask** before touching the working tree. Pending changes on `main` may belong to the user's in-progress work and must not be moved silently.
 
    **Auto-recover procedure** (only for pipeline callers):
@@ -37,7 +37,7 @@ disable-model-invocation: false
 
 2. **Check for uncommitted changes** — apply the same caller gate:
 
-   - **Pipeline caller** (`/pr`, `/commit`, `/deliver`, `/ship`): **auto-recover** by invoking `/commit` to stage and commit the pending changes with a conventional message inferred from the diff. Continue only after `/commit` returns successfully. If `/commit` itself fails (hook rejection, test failure, etc.), STOP and surface the underlying error.
+   - **Pipeline caller** (`/pr`, `/commit`, `/ship`, `/task`): **auto-recover** by invoking `/commit` to stage and commit the pending changes with a conventional message inferred from the diff. Continue only after `/commit` returns successfully. If `/commit` itself fails (hook rejection, test failure, etc.), STOP and surface the underlying error.
    - **Other caller**: STOP and ask the user whether to commit first — do not stage or move files automatically.
 
 3. **Fetch and check base**:
@@ -328,7 +328,7 @@ Files changed: <count>
 
 | Error | Action |
 |-------|--------|
-| On `main`/`master` (pipeline caller: `/pr`, `/commit`, `/deliver`, `/ship`) | Auto-recover: infer branch name from diff, invoke `/worktree init`, move pending changes into the worktree, continue inside it |
+| On `main`/`master` (pipeline caller: `/pr`, `/commit`, `/ship`, `/task`) | Auto-recover: infer branch name from diff, invoke `/worktree init`, move pending changes into the worktree, continue inside it |
 | On `main`/`master` (other caller) | STOP and ask before touching the working tree |
 | Uncommitted changes (pipeline caller) | Auto-recover: invoke `/commit`, then continue. Only stop if `/commit` itself fails |
 | Uncommitted changes (other caller) | STOP and ask whether to commit first |

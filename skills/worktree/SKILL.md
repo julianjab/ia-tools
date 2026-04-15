@@ -363,8 +363,8 @@ Rule: replace `/` with `-`.
    ```
 
 4. **Suggest next actions** based on state:
-   - Worktrees with uncommitted changes → suggest `/deliver commit`
-   - Worktrees ready for PR → suggest `/deliver pr`
+   - Worktrees with uncommitted changes → suggest `/commit`
+   - Worktrees ready for PR → suggest `/pr`
    - Review worktrees with no activity → suggest `/worktree cleanup`
    - Merged branches → suggest `/worktree cleanup --merged`
 

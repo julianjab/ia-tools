@@ -42,12 +42,12 @@ if [ ! -f "$AGENT_FILE" ]; then
 fi
 
 CONTENT=$(cat "$AGENT_FILE")
-SLACK_THREAD="${SLACK_THREAD_TS:-}"
-SLACK_CHAN="${SLACK_CHANNELS:-}"
+THREAD_TS_VAL="${SLACK_THREAD_TS:-}"
+CHANNELS_VAL="${SLACK_CHANNELS:-}"
 
 HEADER="# Role: ${ROLE}"
-if [ -n "$SLACK_THREAD" ] && [ -n "$SLACK_CHAN" ]; then
-  HEADER="${HEADER} (Slack-linked: thread=${SLACK_THREAD} channel=${SLACK_CHAN})"
+if [ -n "$THREAD_TS_VAL" ] && [ -n "$CHANNELS_VAL" ]; then
+  HEADER="${HEADER} (Slack-linked: thread=${THREAD_TS_VAL} channel=${CHANNELS_VAL})"
 fi
 
 MESSAGE="${HEADER}

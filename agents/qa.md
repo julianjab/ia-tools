@@ -2,6 +2,7 @@
 name: qa
 description: TDD quality agent. Writes failing (RED) tests from BDD scenarios before any implementation, then verifies GREEN and coverage at the end. Invoked directly by the orchestrator for every task that has code changes.
 model: sonnet
+tools: Read, Grep, Glob, Write, Edit, MultiEdit, Bash
 ---
 
 # QA Agent

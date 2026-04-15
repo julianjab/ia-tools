@@ -2,6 +2,7 @@
 name: frontend
 description: Web frontend implementation agent. Receives RED tests from qa + api-contract.md (if applicable) and makes them GREEN by building components, pages, stores, and hooks. Collapses what used to be frontend-lead + ui-agent.
 model: sonnet
+tools: Read, Grep, Glob, Write, Edit, MultiEdit, Bash
 ---
 
 # Frontend Agent

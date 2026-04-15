@@ -2,7 +2,7 @@
 name: ship
 description: >
   Request PR review via Slack after CI/CD passes. Assumes a PR already exists
-  (created by /deliver or manually). Waits for all CI checks to pass, then
+  (created by /pr or manually). Waits for all CI checks to pass, then
   sends a review request to the configured Slack channel. Defaults are read
   from the project's CLAUDE.md (ship.channel, ship.mentions). Use when the user
   says "ship", "request review", "notify the team", or wants to send the PR for review.
@@ -48,7 +48,7 @@ If the user provides channel or mention arguments, those **replace** the config 
    ```
 3. If no PR exists for the current branch, **stop** and tell the user:
    ```
-   No PR found for this branch. Run /deliver first to create one, or provide a PR URL:
+   No PR found for this branch. Run /pr first to create one, or provide a PR URL:
    /ship https://github.com/la-haus/subscriptions/pull/123
    ```
 
@@ -178,7 +178,7 @@ This replaces the old manual-command approach. The current session is now connec
 
 | Error | Action |
 |-------|--------|
-| No PR found | Tell user to run `/deliver` first or provide PR URL |
+| No PR found | Tell user to run `/pr` first or provide PR URL |
 | CI checks fail | Show failure details, do NOT send Slack message |
 | Slack send fails | Report error, suggest manual notification |
 | Channel not found | Ask user for correct channel name/ID |

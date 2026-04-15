@@ -29,3 +29,11 @@ repos:
         entry: bash -c 'pnpm exec biome check --write --no-errors-on-unmatched "$@" && git add "$@"' --
         types_or: [ts, tsx, js, jsx, json, jsonc]
         pass_filenames: true
+
+      - id: validate-agents
+        name: validate agents & skills (Level 1 static)
+        description: Frontmatter, tool whitelists, cross-refs, stale pointers, env var consistency.
+        language: system
+        entry: bash skills/validate-agents/scripts/validate.sh
+        pass_filenames: false
+        files: '^(agents/|skills/|hooks/|CLAUDE\.md|AGENTS\.md|README\.md)'

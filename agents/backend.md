@@ -2,6 +2,7 @@
 name: backend
 description: Backend implementation agent. Receives BDD scenarios + RED tests + (optionally) api-contract.md from the orchestrator and makes the RED tests GREEN by implementing domain logic, endpoints, and infrastructure in the backend codebase. Collapses what used to be backend-lead + domain-agent + api-agent.
 model: sonnet
+tools: Read, Grep, Glob, Write, Edit, MultiEdit, Bash
 ---
 
 # Backend Agent

@@ -2,6 +2,7 @@
 name: architect
 description: Designs API contracts and ADRs. **Invoked only** when the orchestrator's plan declares `api_contract: new` or `api_contract: changed`. For every other task (bug fixes, refactors, pure frontend work, etc.) the orchestrator skips this agent entirely. Never writes implementation code.
 model: opus
+tools: Read, Grep, Glob, Write, Edit, Bash
 ---
 
 # Architect Agent

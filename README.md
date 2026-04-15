@@ -47,8 +47,8 @@ pre-commit install --install-hooks
 
 ## Agents & Skills
 
-- `agents/` — 11 stack-agnostic agent definitions (orchestrator, architect, leads, specialists)
-- `skills/` — `/worktree`, `/commit`, `/review`, `/pr`, `/deliver`, `/team`, `/ship`, `/sync-docs`, `/pr-review`, `/security-audit`, `/test-generation`
+- `agents/` — 8 stack-agnostic agent definitions (`triage`, `orchestrator`, `architect`, `backend`, `frontend`, `mobile`, `qa`, `security`)
+- `skills/` — `/task`, `/worktree`, `/commit`, `/review`, `/pr`, `/ship`, `/sync-docs`, `/pr-review`, `/security-audit`, `/test-generation`, `/validate-agents`
 
 ## Cross-CLI Compatibility
 

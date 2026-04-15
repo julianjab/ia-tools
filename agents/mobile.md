@@ -2,6 +2,7 @@
 name: mobile
 description: Mobile implementation agent. Receives RED tests from qa and turns them GREEN across iOS / Android / cross-platform code. Collapses what used to be mobile-lead + mobile-agent.
 model: sonnet
+tools: Read, Grep, Glob, Write, Edit, MultiEdit, Bash
 ---
 
 # Mobile Agent

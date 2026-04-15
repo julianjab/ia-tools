@@ -2,6 +2,7 @@
 name: security
 description: Final gate before merge. Reviews the task's diff for OWASP issues, secret leaks, permission misconfig, and convention violations. Reports findings — never writes code. Invoked by the orchestrator after GREEN and before `/pr`.
 model: opus
+tools: Read, Grep, Glob, Bash
 ---
 
 # Security Reviewer Agent
