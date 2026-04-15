@@ -56,6 +56,17 @@ let socketStatus: 'connected' | 'disconnected' = 'disconnected';
 const entrypoint = fileURLToPath(import.meta.url);
 log(`[daemon] starting — pid=${process.pid} port=${port} entrypoint=${entrypoint} log=${logPath}`);
 
+// Trace who spawned us — env vars are set by ensure-daemon.ts in the MCP.
+// When the daemon is launched manually (pnpm daemon) these are absent.
+const spawnerSession = process.env.DAEMON_SPAWNER_SESSION;
+if (spawnerSession) {
+  log(
+    `[daemon] spawned by mcp — session=${spawnerSession} pid=${process.env.DAEMON_SPAWNER_PID ?? '?'} ppid=${process.env.DAEMON_SPAWNER_PPID ?? '?'} cwd=${process.env.DAEMON_SPAWNER_CWD ?? '?'} ts=${process.env.DAEMON_SPAWNER_TS ?? '?'}`,
+  );
+} else {
+  log('[daemon] spawned manually (no DAEMON_SPAWNER_* env)');
+}
+
 // ─── HTTP API ───────────────────────────────────────────────────────
 // Bind the port BEFORE starting Socket Mode so that if another daemon is
 // already running we exit immediately with EADDRINUSE instead of opening a

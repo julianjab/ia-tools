@@ -492,7 +492,16 @@ logger.log(`starting — session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLog
 
 let daemonReady = false;
 try {
-  await ensureDaemon(DAEMON_URL);
+  await ensureDaemon(
+    DAEMON_URL,
+    {
+      session: SESSION_ID,
+      pid: process.pid,
+      ppid: process.ppid,
+      cwd: process.cwd(),
+    },
+    logger,
+  );
   daemonReady = true;
   try {
     const res = await fetch(`${DAEMON_URL}/health`);

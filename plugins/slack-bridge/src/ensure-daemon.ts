@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Logger } from './logger.js';
 
 const HEALTH_TIMEOUT_MS = 10_000;
 const HEALTH_POLL_MS = 200;
@@ -55,7 +56,18 @@ function daemonEntrypoint(): string {
   return resolve(here, 'daemon/index.js');
 }
 
-function spawnDaemon(port: number): void {
+export interface Spawner {
+  /** Stable id of the MCP instance (e.g. `${Date.now()}-${pid}`). */
+  session: string;
+  /** PID of the MCP process requesting the spawn. */
+  pid: number;
+  /** PPID of the MCP process — typically the Claude Code host. */
+  ppid: number;
+  /** Working directory of the MCP process — identifies the workspace. */
+  cwd: string;
+}
+
+function spawnDaemon(port: number, spawner: Spawner): void {
   const logPath = process.env.DAEMON_LOG?.trim() || '/tmp/slack-bridge/daemon-logs.json';
   try {
     mkdirSync(dirname(logPath), { recursive: true });
@@ -66,7 +78,15 @@ function spawnDaemon(port: number): void {
   const child = spawn(process.execPath, [daemonEntrypoint()], {
     detached: true,
     stdio: ['ignore', 'ignore', logFd],
-    env: { ...process.env, DAEMON_PORT: String(port) },
+    env: {
+      ...process.env,
+      DAEMON_PORT: String(port),
+      DAEMON_SPAWNER_SESSION: spawner.session,
+      DAEMON_SPAWNER_PID: String(spawner.pid),
+      DAEMON_SPAWNER_PPID: String(spawner.ppid),
+      DAEMON_SPAWNER_CWD: spawner.cwd,
+      DAEMON_SPAWNER_TS: new Date().toISOString(),
+    },
   });
   closeSync(logFd);
   child.unref();
@@ -82,7 +102,11 @@ function spawnDaemon(port: number): void {
  * not already running, or if the daemon does not become healthy within
  * HEALTH_TIMEOUT_MS.
  */
-export async function ensureDaemon(daemonUrl: string): Promise<void> {
+export async function ensureDaemon(
+  daemonUrl: string,
+  spawner: Spawner,
+  logger?: Logger,
+): Promise<void> {
   if (await isHealthy(daemonUrl)) return;
 
   if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) {
@@ -93,7 +117,10 @@ export async function ensureDaemon(daemonUrl: string): Promise<void> {
   }
 
   const port = Number.parseInt(new URL(daemonUrl).port || '3800', 10);
-  spawnDaemon(port);
+  logger?.log(
+    `spawning daemon — session=${spawner.session} pid=${spawner.pid} ppid=${spawner.ppid} cwd=${spawner.cwd}`,
+  );
+  spawnDaemon(port, spawner);
 
   const ok = await waitHealthy(daemonUrl, HEALTH_TIMEOUT_MS);
   if (!ok) {

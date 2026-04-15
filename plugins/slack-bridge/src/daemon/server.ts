@@ -7,6 +7,7 @@
  *   GET    /subscribers        — List active subscribers
  *   POST   /claim/:message_ts  — Claim a message (first wins)
  *   GET    /health             — Health check
+ *   POST   /shutdown           — Graceful shutdown (exit 0 after response)
  */
 
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
@@ -125,6 +126,16 @@ export function createApiServer(
       } catch (err) {
         json(res, 400, { error: String(err) });
       }
+      return;
+    }
+
+    // POST /shutdown — reply, then exit so the caller sees 200 before we die.
+    if (req.method === 'POST' && path === '/shutdown') {
+      log('[api] /shutdown requested — exiting');
+      json(res, 200, { status: 'shutting-down', pid: process.pid });
+      res.on('finish', () => {
+        setImmediate(() => process.exit(0));
+      });
       return;
     }
 
