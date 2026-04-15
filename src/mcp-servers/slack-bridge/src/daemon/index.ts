@@ -28,7 +28,7 @@ import { addThinkingAck } from './ack.js';
 import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
 import { error, log, logPath, warn } from './logger.js';
 import { Registry } from './registry.js';
-import { createApiServer } from './server.js';
+import { createApiServer, rememberMessage } from './server.js';
 
 // ─── CLI args ───────────────────────────────────────────────────────
 function arg(name: string): string | undefined {
@@ -106,6 +106,10 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
     message_ts: event.message_ts,
     thread_ts: event.thread_ts,
   });
+
+  // Record the message so a later claim can resolve which thread it belongs
+  // to without requiring the caller to pass thread_ts.
+  rememberMessage(msg);
 
   const payload: MessagePayload = {
     message: msg,
