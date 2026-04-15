@@ -12,7 +12,7 @@ importers:
         specifier: 1.9.4
         version: 1.9.4
 
-  src/mcp-servers/slack-bridge:
+  plugins/slack-bridge:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.1

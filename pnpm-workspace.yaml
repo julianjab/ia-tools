@@ -1,2 +1,2 @@
 packages:
-  - src/mcp-servers/*
+  - plugins/slack-bridge

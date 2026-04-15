@@ -16,15 +16,17 @@ pre-commit install      # set up commit-msg + pre-commit hooks
 .
 ├── .claude-plugin/
 │   ├── plugin.json              # Root ia-tools plugin manifest
-│   └── plugins/
-│       └── slack-bridge/        # Nested Claude plugin
-│           ├── plugin.json
-│           └── .mcp.json        # Points at src/mcp-servers/slack-bridge/dist/mcp-server.js
+│   └── marketplace.json
 ├── agents/                      # Stack-agnostic agent definitions
 ├── skills/                      # Reusable Claude Code skills
-├── src/
-│   └── mcp-servers/             # pnpm workspace: standalone MCP servers
-│       └── slack-bridge/        # Slack daemon + MCP server (TypeScript)
+├── plugins/                     # Nested Claude plugins (workspace packages)
+│   ├── slack-bridge/            # Self-contained: src/, dist/, .mcp.json
+│   │   ├── .claude-plugin/plugin.json
+│   │   ├── .mcp.json            # Points at ${CLAUDE_PLUGIN_ROOT}/dist/mcp-server.js
+│   │   ├── package.json         # @ia-tools/slack-bridge
+│   │   ├── src/                 # Daemon + MCP server (TypeScript)
+│   │   └── dist/                # Committed build output (shipped to marketplace)
+│   └── team-workflow/
 ├── biome.json                   # Lint + format config (TS/JS/JSON)
 ├── .pre-commit-config.yaml
 ├── pnpm-workspace.yaml
@@ -33,7 +35,7 @@ pre-commit install      # set up commit-msg + pre-commit hooks
 
 ## Workspace
 
-TypeScript packages live under `src/mcp-servers/*` and are wired through `pnpm-workspace.yaml`. Today the only package is `src/mcp-servers/slack-bridge`. Its build output (`dist/mcp-server.js`) is referenced from `.claude-plugin/plugins/slack-bridge/.mcp.json`, which is how the nested Claude plugin exposes the server.
+TypeScript packages live under `plugins/*` and are wired through `pnpm-workspace.yaml`. Today the only workspace package is `plugins/slack-bridge` (`@ia-tools/slack-bridge`). Its build output (`plugins/slack-bridge/dist/mcp-server.js`) is referenced from the plugin's own `.mcp.json` via `${CLAUDE_PLUGIN_ROOT}`, so the plugin is fully self-contained and ships prebuilt. Staleness between `src/` and `dist/` is enforced by `scripts/check-slack-bridge-dist.sh`, which runs as a prebuild check and in CI.
 
 ## Linting & Formatting
 

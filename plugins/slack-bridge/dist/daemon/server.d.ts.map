@@ -1,0 +1,1 @@
+{"version":3,"file":"server.d.ts","sourceRoot":"","sources":["../../src/daemon/server.ts"],"names":[],"mappings":"AAAA;;;;;;;;;GASG;AAEH,OAAO,EAAE,KAAK,eAAe,EAAE,KAAK,cAAc,EAAgB,MAAM,WAAW,CAAC;AAQpF,OAAO,KAAK,EAAE,QAAQ,EAAE,MAAM,eAAe,CAAC;AAsB9C,wBAAgB,eAAe,CAC7B,QAAQ,EAAE,QAAQ,EAClB,SAAS,EAAE,MAAM,EACjB,eAAe,EAAE,MAAM,WAAW,GAAG,cAAc,wEAmGpD"}

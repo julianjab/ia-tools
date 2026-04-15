@@ -1,6 +1,6 @@
 # REQ-001 — DM replies + "thinking" ack UX
 
-**Package:** `@ia-tools/slack-bridge` (`src/mcp-servers/slack-bridge/`)
+**Package:** `@ia-tools/slack-bridge` (`plugins/slack-bridge/`)
 **Branch:** `feat/slack-bridge-dm-thinking`
 **Worktree:** `/Users/julianbuitrago/development/ia-tools/.worktrees/feat-slack-bridge-dm-thinking`
 
@@ -153,7 +153,7 @@ Feature: reply_slack clears the thinking ack on success
 Feature: README documents the new UX
 
   Scenario: README lists new env vars
-    When a developer reads src/mcp-servers/slack-bridge/README.md
+    When a developer reads plugins/slack-bridge/README.md
     Then it documents SLACK_ACK_EMOJI and SLACK_ACK_STATUS with defaults
     And it lists the required Slack scopes reactions:write and assistant:write
     And it explains the DM reply behavior (no thread_ts in DMs unless already threaded)
