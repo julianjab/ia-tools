@@ -1,0 +1,27 @@
+{
+  "name": "ia-tools",
+  "owner": {
+    "name": "Julian Buitrago",
+    "email": "julianbuitrago@lahaus.com"
+  },
+  "metadata": {
+    "description": "Centralized AI toolbox: shared agents, pipeline skills, enforcement hooks, and the Slack bridge MCP server for development teams.",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "team-workflow",
+      "source": "./plugins/team-workflow",
+      "description": "Triage + orchestrator agents, pipeline skills (/task, /worktree, /commit, /review, /pr, /ship, /sync-docs) and enforcement hooks.",
+      "category": "workflow",
+      "keywords": ["agents", "skills", "pipeline", "worktree", "tdd"]
+    },
+    {
+      "name": "slack-bridge",
+      "source": "./plugins/slack-bridge",
+      "description": "Slack bridge MCP server: subscribe to channels, claim and reply to messages, read threads via daemon + MCP architecture.",
+      "category": "integration",
+      "keywords": ["slack", "mcp", "messaging", "daemon"]
+    }
+  ]
+}

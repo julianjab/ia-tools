@@ -14,21 +14,39 @@
 #   5. Send the boot prompt to the new Claude instance
 #
 # Usage:
-#   bash start-task.sh <branch-name> <slack-thread-ts> <slack-channel-id> \
+#   bash start-task.sh <branch-name> <slack-thread-ts|""> <slack-channel-id|""> \
 #                      <description-or-review-flag>
+#
+# Mode detection (single source of truth: the Slack env vars):
+#   - thread + channel non-empty → SLACK_THREAD_TS / SLACK_CHANNELS exported
+#                                  → orchestrator runs in slack mode
+#   - both empty                 → SLACK_* NOT exported
+#                                  → orchestrator runs in local mode
 #
 # Examples:
 #   bash start-task.sh feat/google-login 1728591234.001 C07815S0XNX \
 #        "arregla el login de Google"
 #
 #   bash start-task.sh review/pr-42 1728591234.001 C07815S0XNX --review=42
+#
+#   bash start-task.sh feat/refactor-foo "" "" "refactorea el módulo foo"
 # =============================================================================
 set -euo pipefail
 
-BRANCH_NAME="${1:?Usage: start-task.sh <branch-name> <thread-ts> <channel-id> <description-or-review>}"
-SLACK_THREAD_TS="${2:?Missing --thread (required)}"
-SLACK_CHANNEL_ID="${3:?Missing --channel (required)}"
+BRANCH_NAME="${1:?Usage: start-task.sh <branch-name> <thread-ts|\"\"> <channel-id|\"\"> <description-or-review>}"
+SLACK_THREAD_TS="${2:-}"
+SLACK_CHANNEL_ID="${3:-}"
 DESCRIPTION_OR_REVIEW="${4:-}"
+
+# Mode: slack if both Slack coords are set, otherwise local.
+if [ -n "$SLACK_THREAD_TS" ] && [ -n "$SLACK_CHANNEL_ID" ]; then
+  TASK_MODE="slack"
+elif [ -z "$SLACK_THREAD_TS" ] && [ -z "$SLACK_CHANNEL_ID" ]; then
+  TASK_MODE="local"
+else
+  printf "ERROR: thread and channel must both be set or both be empty\n" >&2
+  exit 1
+fi
 
 # ── colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -41,8 +59,11 @@ die()  { printf "${RED}✗ ERROR:${RESET} %s\n" "$1" >&2; exit 1; }
 printf "\n${BOLD}/task — Opening sub-session${RESET}\n"
 printf "────────────────────────────────────────────────\n"
 printf "  Branch:  ${CYAN}%s${RESET}\n" "$BRANCH_NAME"
-printf "  Thread:  ${CYAN}%s${RESET}\n" "$SLACK_THREAD_TS"
-printf "  Channel: ${CYAN}%s${RESET}\n" "$SLACK_CHANNEL_ID"
+printf "  Mode:    ${CYAN}%s${RESET}\n" "$TASK_MODE"
+if [ "$TASK_MODE" = "slack" ]; then
+  printf "  Thread:  ${CYAN}%s${RESET}\n" "$SLACK_THREAD_TS"
+  printf "  Channel: ${CYAN}%s${RESET}\n" "$SLACK_CHANNEL_ID"
+fi
 printf "  Input:   ${CYAN}%s${RESET}\n\n" "$DESCRIPTION_OR_REVIEW"
 
 # ── 1. Validate dependencies ─────────────────────────────────────────────────
@@ -104,10 +125,17 @@ if [ ! -s "$TASKS_FILE" ]; then
   REQUEST_TEXT="$DESCRIPTION_OR_REVIEW"
   [[ "$REQUEST_TEXT" == --review=* ]] && REQUEST_TEXT="Review PR #${REQUEST_TEXT#--review=}"
 
+  if [ "$TASK_MODE" = "slack" ]; then
+    SOURCE_LINE="**Slack thread**: ${SLACK_CHANNEL_ID}/${SLACK_THREAD_TS}"
+  else
+    SOURCE_LINE="**Source**: local (no Slack)"
+  fi
+
   cat > "$TASKS_FILE" <<EOF
 # Task: ${BRANCH_NAME}
 
-**Slack thread**: ${SLACK_CHANNEL_ID}/${SLACK_THREAD_TS}
+**Mode**: ${TASK_MODE}
+${SOURCE_LINE}
 **Created**: ${CREATED_AT}
 **Status**: PENDING_PLAN
 
@@ -139,7 +167,12 @@ fi
 # IA_TOOLS_ROLE=orchestrator is read by hooks/scripts/session-start.sh to
 # inject the orchestrator system prompt. Without this env var, the SessionStart
 # hook defaults to triage (main session behavior).
-CLAUDE_ENV="IA_TOOLS_ROLE=orchestrator SLACK_THREAD_TS=${SLACK_THREAD_TS} SLACK_CHANNELS=${SLACK_CHANNEL_ID}"
+# The SessionStart hook derives task mode from the presence of SLACK_THREAD_TS
+# and SLACK_CHANNELS: both set → slack, otherwise → local.
+CLAUDE_ENV="IA_TOOLS_ROLE=orchestrator"
+if [ "$TASK_MODE" = "slack" ]; then
+  CLAUDE_ENV="${CLAUDE_ENV} SLACK_THREAD_TS=${SLACK_THREAD_TS} SLACK_CHANNELS=${SLACK_CHANNEL_ID}"
+fi
 if [ -n "$TOKEN_ENV" ]; then
   CLAUDE_ENV="${CLAUDE_ENV} ${TOKEN_ENV}"
 fi
@@ -168,7 +201,11 @@ tmux send-keys -t "${SESSION}:${WINDOW}" "$CLAUDE_CMD" Enter
 # ── 9. Send boot prompt ──────────────────────────────────────────────────────
 sleep 1
 
-BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Your Slack thread: ts=${SLACK_THREAD_TS} channel=${SLACK_CHANNEL_ID}. Your worktree: ${WORKTREE_PATH}. Read .sdlc/tasks.md first, then follow the pipeline in agents/orchestrator.md starting from the boot sequence. Phase 1 is your first action: build and publish the plan, then BLOCK on the approval gate until you see a ✅ reaction."
+if [ "$TASK_MODE" = "slack" ]; then
+  BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: slack. Your Slack thread: ts=${SLACK_THREAD_TS} channel=${SLACK_CHANNEL_ID}. Your worktree: ${WORKTREE_PATH}. Read .sdlc/tasks.md first, then follow the pipeline in agents/orchestrator.md starting from the boot sequence. Phase 1 is your first action: build and publish the plan, then BLOCK on the approval gate until you see a ✅ reaction in the thread."
+else
+  BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: local (no Slack). Your worktree: ${WORKTREE_PATH}. Read .sdlc/tasks.md first, then follow the pipeline in agents/orchestrator.md starting from the boot sequence. Phase 1 is your first action: build and print the plan to this session, then BLOCK on the approval gate using AskUserQuestion — do NOT call any slack-bridge MCP tool."
+fi
 
 tmux send-keys -t "${SESSION}:${WINDOW}" "$BOOT_PROMPT" Enter
 
@@ -177,7 +214,10 @@ printf "\n"
 ok "Sub-session started"
 printf "\n${BOLD}Sub-session summary:${RESET}\n"
 printf "  Branch:   ${CYAN}%s${RESET}\n" "$BRANCH_NAME"
+printf "  Mode:     ${CYAN}%s${RESET}\n" "$TASK_MODE"
 printf "  Worktree: ${CYAN}%s${RESET}\n" "$WORKTREE_PATH"
 printf "  tmux:     session=${CYAN}%s${RESET} window=${CYAN}%s${RESET}\n" "$SESSION" "$WINDOW"
-printf "  Slack:    thread=${CYAN}%s${RESET} channel=${CYAN}%s${RESET}\n" "$SLACK_THREAD_TS" "$SLACK_CHANNEL_ID"
+if [ "$TASK_MODE" = "slack" ]; then
+  printf "  Slack:    thread=${CYAN}%s${RESET} channel=${CYAN}%s${RESET}\n" "$SLACK_THREAD_TS" "$SLACK_CHANNEL_ID"
+fi
 printf "\nAttach with: ${BOLD}tmux attach -t %s${RESET}\n" "$SESSION"

@@ -1,9 +1,9 @@
 {
   "name": "ia-tools",
-  "version": "0.1.0",
-  "description": "Centralized AI toolbox: shared agents, skills (worktree, commit, review, pr, deliver, team, ship, sync-docs), and nested Claude plugins (slack-bridge) for development teams.",
+  "version": "0.2.0",
+  "description": "Root plugin manifest used when dogfooding this repo directly. Distribution happens via .claude-plugin/marketplace.json (team-workflow + slack-bridge).",
   "author": {
-    "name": "ia-tools"
-  },
-  "mcpServers": "./plugins/slack-bridge/.mcp.json"
+    "name": "Julian Buitrago",
+    "email": "julianbuitrago@lahaus.com"
+  }
 }

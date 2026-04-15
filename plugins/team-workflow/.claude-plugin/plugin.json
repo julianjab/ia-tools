@@ -1,0 +1,13 @@
+{
+  "name": "team-workflow",
+  "version": "0.2.0",
+  "description": "Triage + orchestrator agents, pipeline skills (/task, /worktree, /commit, /review, /pr, /ship, /sync-docs) and enforcement hooks.",
+  "author": {
+    "name": "Julian Buitrago",
+    "email": "julianbuitrago@lahaus.com"
+  },
+  "homepage": "https://github.com/julianjab/ia-tools",
+  "repository": "https://github.com/julianjab/ia-tools",
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json"
+}
