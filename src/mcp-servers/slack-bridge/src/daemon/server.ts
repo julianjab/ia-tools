@@ -14,6 +14,7 @@ import type {
   ClaimRequest,
   ClaimResponse,
   DaemonHealth,
+  SlackMessage,
   SubscribeRequest,
 } from '../shared/types.js';
 import { log } from './logger.js';
@@ -21,6 +22,21 @@ import type { Registry } from './registry.js';
 
 /** In-memory claim store: message_ts → subscriber port */
 const claims = new Map<string, number>();
+
+/**
+ * Recent-message index: message_ts → thread_ts. Populated by the daemon on
+ * every incoming Slack message so the claim endpoint can resolve which thread
+ * a claimed message belongs to without requiring the caller to pass it.
+ *
+ * Top-level messages (no thread_ts) map to their own message_ts so claiming a
+ * top-level message immediately assigns ownership of the thread it will root.
+ */
+const recentMessages = new Map<string, string>();
+
+/** Record a message the daemon just received so future claims can resolve its thread. */
+export function rememberMessage(msg: SlackMessage): void {
+  recentMessages.set(msg.message_ts, msg.thread_ts ?? msg.message_ts);
+}
 
 /** Auto-expire claims after 5 minutes */
 const CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -44,12 +60,16 @@ export function createApiServer(
   startedAt: number,
   getSocketStatus: () => 'connected' | 'disconnected',
 ) {
-  // Periodic cleanup of expired claims
+  // Periodic cleanup of expired claims + recent-message cache
   setInterval(() => {
     const now = Date.now();
     for (const [ts] of claims) {
       const claimTime = Number.parseFloat(ts) * 1000;
       if (now - claimTime > CLAIM_TTL_MS) claims.delete(ts);
+    }
+    for (const [ts] of recentMessages) {
+      const msgTime = Number.parseFloat(ts) * 1000;
+      if (now - msgTime > CLAIM_TTL_MS) recentMessages.delete(ts);
     }
   }, 60_000);
 
@@ -116,8 +136,18 @@ export function createApiServer(
         }
 
         claims.set(messageTs, body.subscriber_port);
+
+        // Resolve the thread anchor for this message and assign exclusive
+        // ownership to the claiming subscriber. Anchor precedence:
+        //   1. thread_ts cached from the incoming message
+        //   2. message_ts itself (top-level message → future thread root)
+        const anchor = recentMessages.get(messageTs) ?? messageTs;
+        registry.setThreadOwner(anchor, body.subscriber_port);
+
         const resp: ClaimResponse = { claimed: true };
-        log(`[claim] ${messageTs} → :${body.subscriber_port}`);
+        log(
+          `[claim] ${messageTs} → :${body.subscriber_port} (owns thread ${anchor})`,
+        );
         json(res, 200, resp);
       } catch (err) {
         json(res, 400, { error: String(err) });

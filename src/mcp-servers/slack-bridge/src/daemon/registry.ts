@@ -49,6 +49,12 @@ function tryMatch(pattern: string, value: string): boolean {
 
 export class Registry {
   private subscribers = new Map<number, Subscriber>();
+  /**
+   * Thread ownership map: thread_ts → port of the subscriber that claimed it.
+   * Populated by the daemon when a subscriber claims a message; consulted on
+   * every routing decision so the daemon can guarantee exclusivity.
+   */
+  private threadOwners = new Map<string, number>();
   private healthInterval: ReturnType<typeof setInterval> | undefined;
 
   constructor(private healthCheckMs = 30_000) {}
@@ -60,38 +66,107 @@ export class Registry {
     label?: string,
   ): Subscriber {
     const existing = this.subscribers.get(port);
-    if (existing) {
-      // Always merge into the existing subscription for this port
-      const sub: Subscriber = {
-        ...existing,
-        filters: {
-          channels: union(existing.filters.channels, filters.channels),
-          dms: union(existing.filters.dms, filters.dms),
-          users: union(existing.filters.users, filters.users),
-          threads: union(existing.filters.threads, filters.threads),
-        },
-        regexp: regexp ?? existing.regexp,
-        label: label ?? existing.label,
-        lastSeen: new Date().toISOString(),
-      };
-      this.subscribers.set(port, sub);
-      return sub;
-    }
+    const sub: Subscriber = existing
+      ? {
+          ...existing,
+          filters: {
+            channels: union(existing.filters.channels, filters.channels),
+            dms: union(existing.filters.dms, filters.dms),
+            users: union(existing.filters.users, filters.users),
+            threads: union(existing.filters.threads, filters.threads),
+          },
+          regexp: regexp ?? existing.regexp,
+          label: label ?? existing.label,
+          lastSeen: new Date().toISOString(),
+        }
+      : {
+          port,
+          filters,
+          regexp,
+          label,
+          registeredAt: new Date().toISOString(),
+          lastSeen: new Date().toISOString(),
+        };
 
-    const sub: Subscriber = {
-      port,
-      filters,
-      regexp,
-      label,
-      registeredAt: new Date().toISOString(),
-      lastSeen: new Date().toISOString(),
-    };
     this.subscribers.set(port, sub);
+
+    // Scope exclusivity: only one subscriber may own a given channel / dm /
+    // thread at any time. The newest subscription wins; any previous owner
+    // loses that specific scope item, and is removed entirely if it ends up
+    // with no channels / dms / threads left.
+    this.enforceExclusiveScope(port, sub.filters);
+
     return sub;
   }
 
+  /**
+   * Evict the given scope items from every other subscriber. The caller is
+   * the new exclusive owner; any other subscriber that still references one
+   * of these items has it stripped. A subscriber that is left with no
+   * channels / dms / threads at all is dropped from the registry.
+   */
+  private enforceExclusiveScope(newOwnerPort: number, filters: SubscriptionFilters): void {
+    const newChannels = new Set(filters.channels ?? []);
+    const newDms = new Set(filters.dms ?? []);
+    const newThreads = new Set(filters.threads ?? []);
+    if (newChannels.size === 0 && newDms.size === 0 && newThreads.size === 0) return;
+
+    for (const [otherPort, other] of this.subscribers) {
+      if (otherPort === newOwnerPort) continue;
+
+      const strippedChannels = (other.filters.channels ?? []).filter((c) => !newChannels.has(c));
+      const strippedDms = (other.filters.dms ?? []).filter((d) => !newDms.has(d));
+      const strippedThreads = (other.filters.threads ?? []).filter((t) => !newThreads.has(t));
+
+      const channelsChanged = strippedChannels.length !== (other.filters.channels?.length ?? 0);
+      const dmsChanged = strippedDms.length !== (other.filters.dms?.length ?? 0);
+      const threadsChanged = strippedThreads.length !== (other.filters.threads?.length ?? 0);
+      if (!channelsChanged && !dmsChanged && !threadsChanged) continue;
+
+      const hasAnyScope =
+        strippedChannels.length > 0 || strippedDms.length > 0 || strippedThreads.length > 0;
+
+      if (!hasAnyScope) {
+        log(
+          `[registry] evicting :${otherPort} (${other.label ?? '-'}) — all scope owned by :${newOwnerPort}`,
+        );
+        this.remove(otherPort);
+        continue;
+      }
+
+      log(
+        `[registry] stripping scope from :${otherPort} (${other.label ?? '-'}) in favor of :${newOwnerPort} — channels=-${newChannels.size ? [...newChannels].filter((c) => (other.filters.channels ?? []).includes(c)).length : 0} dms=-${newDms.size ? [...newDms].filter((d) => (other.filters.dms ?? []).includes(d)).length : 0} threads=-${newThreads.size ? [...newThreads].filter((t) => (other.filters.threads ?? []).includes(t)).length : 0}`,
+      );
+      this.subscribers.set(otherPort, {
+        ...other,
+        filters: {
+          ...other.filters,
+          channels: strippedChannels,
+          dms: strippedDms,
+          threads: strippedThreads,
+        },
+        lastSeen: new Date().toISOString(),
+      });
+    }
+  }
+
   remove(port: number): boolean {
+    // Release every thread this subscriber owned so future messages in those
+    // threads fall back to the general fan-out.
+    for (const [threadTs, ownerPort] of this.threadOwners) {
+      if (ownerPort === port) this.threadOwners.delete(threadTs);
+    }
     return this.subscribers.delete(port);
+  }
+
+  /** Assign exclusive ownership of a thread to a subscriber port. */
+  setThreadOwner(threadTs: string, port: number): void {
+    this.threadOwners.set(threadTs, port);
+  }
+
+  /** Current owner of a thread, if any. */
+  getThreadOwner(threadTs: string): number | undefined {
+    return this.threadOwners.get(threadTs);
   }
 
   get(port: number): Subscriber | undefined {
@@ -102,8 +177,34 @@ export class Registry {
     return [...this.subscribers.values()];
   }
 
-  /** Find subscribers whose filters match the given message. */
+  /**
+   * Find subscribers whose filters match the given message.
+   *
+   * Thread ownership is authoritative: if the message's thread_ts (or its
+   * own message_ts when the message is the thread root) has been claimed by
+   * a subscriber, that subscriber — and only that subscriber — receives the
+   * message. The daemon does NOT fan out owned-thread messages to other
+   * channel/dm/general subscribers, so a claimed task cannot be stolen by
+   * another session.
+   *
+   * When no owner is registered, routing falls back to the normal filter
+   * matching across all subscribers.
+   */
   match(msg: SlackMessage): Subscriber[] {
+    // Ownership lookup: check both the explicit thread_ts and the message_ts
+    // itself (a top-level message acts as the thread root once replied).
+    const anchors = [msg.thread_ts, msg.message_ts].filter(
+      (ts): ts is string => typeof ts === 'string' && ts.length > 0,
+    );
+    for (const anchor of anchors) {
+      const ownerPort = this.threadOwners.get(anchor);
+      if (ownerPort === undefined) continue;
+      const owner = this.subscribers.get(ownerPort);
+      if (owner) return [owner];
+      // Dangling owner (subscriber disappeared) — release and keep looking.
+      this.threadOwners.delete(anchor);
+    }
+
     return this.all().filter((sub) => this.matches(sub.filters, sub.regexp, msg));
   }
 

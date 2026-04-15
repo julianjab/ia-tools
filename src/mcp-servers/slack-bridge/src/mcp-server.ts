@@ -72,7 +72,8 @@ export class McpBridgeServer {
         },
         instructions: [
           'Slack messages arrive as channel notifications with source="slack-bridge".',
-          'When you want to respond to a message, FIRST call claim_message with the message_ts.',
+          'When you want to respond to a message, FIRST call claim_message with the message_ts AND the thread_ts + channel_id from the notification.',
+          'A successful claim auto-subscribes this session as the exclusive owner of that thread: from then on the daemon routes every message in the thread only to this session, not to other general channel/dm subscribers.',
           'If the claim succeeds, call reply_slack. If it fails, another session already claimed it — do nothing.',
           'Reply routing priority: (1) if thread_ts is present, always reply in the thread;',
           '(2) if is_dm=true and no thread_ts, reply directly to the DM — omit thread_ts;',
@@ -150,7 +151,11 @@ export class McpBridgeServer {
           name: 'claim_message',
           description:
             'Claim a Slack message before replying. First session to claim wins. ' +
-            'ALWAYS call this before reply_slack. If claimed=false, do NOT reply.',
+            'ALWAYS call this before reply_slack. If claimed=false, do NOT reply. ' +
+            'A successful claim atomically assigns the surrounding thread to this ' +
+            'session at the daemon level: from that point on the daemon routes ' +
+            'every message in that thread only to this session, not to other ' +
+            'channel/dm subscribers. No extra subscribe call is needed.',
           inputSchema: {
             type: 'object' as const,
             properties: {
@@ -334,7 +339,14 @@ export class McpBridgeServer {
       }
       const result = await this.daemonClient.claim(args.message_ts as string);
       if (result.claimed) {
-        return { content: [{ type: 'text' as const, text: 'Claimed — you may reply.' }] };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Claimed — you may reply. The daemon now routes this thread exclusively to you.',
+            },
+          ],
+        };
       }
       return {
         content: [

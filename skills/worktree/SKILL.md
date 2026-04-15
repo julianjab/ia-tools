@@ -157,7 +157,7 @@ Rule: replace `/` with `-`.
 
 ## Sub-command: `spawn`
 
-**Purpose**: Open a dedicated Claude Code session in a tmux window for a task that requires async human-AI collaboration via Slack. The worktree must already exist (created by `init`). Spawn is only called when the Orchestrator has a clear task definition AND a Slack thread to link it to.
+**Purpose**: Open a dedicated Claude Code session in a tmux window running the **Orchestrator agent**, anchored to a single Slack thread. This is how the main chat session hands off feature work: the dispatcher (main session) detects feature intent, seeds the worktree + `.sdlc/tasks.md`, then calls spawn and stops. The spawned Claude — not the main session — runs the Orchestrator pipeline from Phase 0 (clarifying questions) through `/pr`.
 
 **Arguments**: `/worktree spawn <branch-name> --slack-thread <ts> --channel <channel-id> [--session <tmux-session-name>]`
 
@@ -170,6 +170,13 @@ Rule: replace `/` with `-`.
 > **spawn requires both `--slack-thread` and `--channel`.** If either is missing, STOP and report the error. Do not spawn without a linked Slack thread — use `init` instead.
 
 > **The worktree must already exist.** If it doesn't, STOP and tell the caller to run `/worktree init` first.
+
+### What spawn guarantees inside the tmux session
+
+- **Scope boundary.** `spawn-claude.sh` exports `IA_TOOLS_WORKTREE_BOUNDARY=<worktree>` and seeds `.sdlc/scope.json` with the primary worktree. `hooks/scripts/enforce-worktree.sh` reads that file and rejects any `Edit`/`Write`/`MultiEdit` on a path outside the declared allow-list.
+- **Multi-repo expansion at runtime.** When the engineer declares extra repos, the Orchestrator runs `/worktree init feat/<same-slug>` in each, appends the resulting absolute paths to `.sdlc/scope.json`, and calls the native `/add-dir <path>` command to expose them to the session — without re-spawning.
+- **Minimal Slack surface.** A `settings.local.json` is written disabling the full `plugin_slack_slack` plugin. The session keeps only the `slack-bridge` MCP (claim/reply/subscribe) under `--dangerously-load-development-channels server:slack-bridge` — smaller prompt-injection surface, only what the Orchestrator actually needs.
+- **Orchestrator boot.** The boot prompt fed into the TUI explicitly instructs the spawned Claude to *"run as the Orchestrator agent defined in agents/orchestrator.md"*, subscribe to the thread, read the raw intake from `.sdlc/tasks.md`, and proceed through Phase 0 (clarifying questions) in the same thread.
 
 ### Pre-conditions (enforced before spawning)
 
