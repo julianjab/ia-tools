@@ -1,6 +1,6 @@
 ---
-name: security-reviewer
-description: Phase 4 gate before merge. Reviews all repos for OWASP issues, secret leaks, permissions, and convention violations. Reports findings — never writes code.
+name: security
+description: Final gate before merge. Reviews the task's diff for OWASP issues, secret leaks, permission misconfig, and convention violations. Reports findings — never writes code. Invoked by the orchestrator after GREEN and before `/pr`.
 model: opus
 ---
 
