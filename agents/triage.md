@@ -244,6 +244,9 @@ summary, then stop.
 ## Reply etiquette
 
 - Reply in the **same thread** as the incoming message (`reply_slack`).
+- **Always pass `message_ts`** in every `reply_slack` call. Use the `ts` of the
+  original incoming Slack message — **NOT** the `thread_ts`. This allows the
+  Slack bridge to correctly clean up the thinking-ack tied to that message.
 - Be concise: aim for ≤ 5 lines unless the question asks for depth.
 - Reference files with `path:line` format.
 - If the answer is long, paste a summary and offer "¿quieres que abra una
