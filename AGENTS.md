@@ -11,29 +11,34 @@ by the `IA_TOOLS_ROLE` env var and injected by the `SessionStart` hook:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ MAIN SESSION  (IA_TOOLS_ROLE unset → triage)            │
+│ MAIN SESSION  (IA_TOOLS_ROLE unset → session-manager)   │
 │ - Always alive, listens to Slack DMs + subscribed chans │
-│ - System prompt: agents/triage.md                       │
+│ - System prompt: agents/session-manager.md              │
 │ - Tool whitelist: read-only (Read/Grep/Glob/Bash-ro)    │
-│ - Classifies every message into 2 intents:              │
-│     read-only → reply inline in the thread              │
-│     change    → call /task → spawn sub-session          │
-│ - NEVER plans, NEVER edits, NEVER delegates via Agent   │
+│ - Classifies every message into 5 intents:              │
+│     read-only       → reply inline in the thread        │
+│     trivial-config  → Agent(orchestrator), no branch    │
+│     small-change    → branch + Agent(orchestrator)      │
+│     scope-check     → /scope-check → verdict → route    │
+│     change          → /task → spawn sub-session         │
+│ - NEVER plans, NEVER edits without delegating           │
 └─────────────────────────────────────────────────────────┘
-                         │ /task
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│ SUB-SESSION  (IA_TOOLS_ROLE=orchestrator)               │
-│ - One per Slack thread / task                           │
-│ - System prompt: agents/orchestrator.md                 │
-│ - Lives in a dedicated worktree + tmux window           │
-│ - Main-thread agent: can spawn subagents + create team  │
-│ - Runs as **agent-team lead**                           │
-│ - Subscribed to exactly one Slack thread (slack mode)   │
-└─────────────────────────────────────────────────────────┘
+         │ /scope-check (inline, no tmux)    │ /task
+         ▼                                   ▼
+┌──────────────────────┐     ┌───────────────────────────────────────────┐
+│ SCOPE-CHECK (inline) │     │ SUB-SESSION  (IA_TOOLS_ROLE=orchestrator) │
+│ orchestrator subagent│     │ - One per Slack thread / task             │
+│ mode=scope-check     │     │ - System prompt: agents/orchestrator.md   │
+│ Writes:              │     │ - Standard: dedicated worktree + tmux     │
+│   .claude/teams/     │     │ - Shared-workspace (--resume-from):       │
+│     scope.md         │     │   CWD = consumer repo root; N teammates   │
+│     plan-draft.md    │     │   each own their own worktree             │
+│     verdict.json     │     │ - Main-thread agent: team lead            │
+│ Returns verdict JSON │     │ - Subscribed to one Slack thread (slack)  │
+└──────────────────────┘     └───────────────────────────────────────────┘
 ```
 
-A Claude session is either a triage main session or a task sub-session.
+A Claude session is either a session-manager main session or a task sub-session.
 `IA_TOOLS_ROLE` is the only switch.
 
 ## Invariants — not negotiable
@@ -50,11 +55,16 @@ workflow rules that remain hardcoded are these four:
    `mobile`) leaves plan mode until `qa` reports `✅ RED confirmed` on
    the shared task list. Enforced via: (a) `blockedBy: qa:red` on every
    stack task, (b) spawning stack teammates with plan approval mode.
-3. **Security gate before `/pr`.** `security` must return `APPROVED`.
-   `HIGH`/`MEDIUM` findings are blocking and escalate to the user.
-   `LOW`-only findings pass through as a PR comment.
-4. **`/pr` is the only path to main.** No `git push origin main`, no
-   local merges, no amended commits on a remote-tracked branch.
+3. **Security APPROVED required per PR (once per touched consumer repo).**
+   `security` must return `APPROVED` for each PR before it is opened.
+   In multi-repo mode: security runs once per teammate worktree, BEFORE
+   that teammate runs `/pr`. `HIGH`/`MEDIUM` findings are blocking and
+   escalate to the user. `LOW`-only findings pass through as PR comments.
+4. **`/pr` is the only path to main — per repo.** No `git push origin main`,
+   no local merges, no amended commits on a remote-tracked branch.
+   In multi-repo tasks: N PRs (one per touched consumer repo). Each PR
+   goes through its own security gate. Single-repo tasks still produce
+   one PR.
 
 Everything outside these four rules — which teammates to spawn, whether
 to parallelize, whether `architect` is needed, whether `security` runs
@@ -66,29 +76,45 @@ on the approved plan.
 ```
 Slack message arrives
     ↓
-TRIAGE classifies (main session)
+SESSION-MANAGER classifies (main session)
     ├─ read-only → reply inline in the thread. DONE.
+    ├─ trivial-config → Agent(orchestrator) inline. DONE.
+    ├─ small-change → branch + Agent(orchestrator) inline. DONE.
+    │
+    ├─ scope-check → /scope-check (inline, no tmux)
+    │                    ↓
+    │               verdict = read-only  → reply inline. DONE.
+    │               verdict = inline     → downgrade to small-change/trivial-config.
+    │               verdict = new-session
+    │                    ↓
+    │               CONFIRMATION GATE (unless explicit session-open phrase)
+    │                    ↓
+    │               /task --resume-from <teams_dir>
     │
     └─ change → /task → worktree + tmux + orchestrator boot
                  ↓
-             PLAN (orchestrator) → .sdlc/tasks.md + publish
+             (both change and scope-check/new-session converge here)
+                 ↓
+             PLAN (orchestrator)
+               - shared-workspace: reads plan-draft.md from teams_dir as seed
+               - single-repo: writes .sdlc/tasks.md from scratch
+               both: publish plan + BLOCK on approval gate
                  ↓
              APPROVAL GATE ← ✅ / ❌ / text-edit / timeout
                  ↓
              SPEC (.sdlc/specs/REQ-NNN/requirement.md + research.md)
                  ↓
              DECIDE DELEGATIONS: orchestrator picks teammates, creates
-             the agent team, spawns + assigns tasks with dependencies:
+             the agent team. In multi-repo mode, passes teams_dir + target_repo
+             to each stack teammate. Task dependencies:
                qa:red BLOCKS every stack:* task
-               stack:* BLOCK security:audit
-               security:audit BLOCKS pr:open
+               stack:* GREEN (no PR yet) BLOCKS security:audit (per teammate)
+               security:audit APPROVED BLOCKS pr:open (per teammate)
                  ↓
-             TEAM RUNS (teammates work in parallel where possible,
-             serialized where dependencies force it)
+             TEAM RUNS (each stack teammate owns its worktree in its repo;
+             security runs per teammate before /pr; N PRs open in sequence)
                  ↓
-             SECURITY GATE ← APPROVED / HIGH|MEDIUM escalate / LOW pass
-                 ↓
-             /pr → push + PR + diagrams
+             DONE SUMMARY → all N PR URLs reported
                  ↓
              FOLLOW-UP (orchestrator stays alive; each fix re-enters
              the team via new tasks with the same dependency shape)
@@ -96,6 +122,85 @@ TRIAGE classifies (main session)
              CLEAN UP TEAM + exit (slack: auto after 2h idle + terminal
              PR; local: on user request)
 ```
+
+## End-to-end example — lahaus multi-repo task
+
+**Scenario**: "agrega tracking de pagos que se refleje en la app y el backend"
+touching `backend/python/subscriptions` (new endpoint) and `mobile/ai-mobile-app`
+(new UI screen).
+
+```
+User DM: "agrega tracking de pagos que se refleje en la app y el backend"
+    ↓
+session-manager: intent = scope-check
+    ↓
+/scope-check --description "agrega tracking..."
+    → orchestrator (inline, mode=scope-check)
+    → writes .claude/teams/feat-payment-tracking/{scope.md, plan-draft.md, verdict.json}
+    → returns verdict = new-session, touched_repos = [subscriptions, ai-mobile-app]
+    ↓
+session-manager: confirmation gate
+    reply: "El análisis detectó cambios en 2 repos:
+            - backend/python/subscriptions (POST /payments)
+            - mobile/ai-mobile-app (UI de tracking)
+            ¿Abro sesión? ✅ para continuar."
+    ↓
+User confirms (✅ reaction or text reply)
+    ↓
+/task feat-payment-tracking
+      --resume-from /lahaus/.claude/teams/feat-payment-tracking
+      --thread <ts-of-confirmation> --channel <channel>
+    ↓
+start-task.sh: shared-workspace mode
+  - skips worktree creation
+  - orchestrator CWD = /lahaus/
+  - writes /lahaus/.claude/settings.local.json
+    (IA_TOOLS_ORCHESTRATOR_MODE=full, IA_TOOLS_TEAMS_DIR=<teams_dir>)
+    ↓
+ORCHESTRATOR (full mode, shared-workspace)
+  reads plan-draft.md → expands → publishes plan → APPROVAL GATE
+    ↓
+APPROVAL (✅)
+    ↓
+SPEC → DELEGATE
+  orchestrator creates team: qa, backend, mobile
+  backend receives:
+    Parameters:
+    - teams_dir: /lahaus/.claude/teams/feat-payment-tracking/
+    - target_repo: /lahaus/backend/python/subscriptions
+    - task_label: feat-payment-tracking
+  mobile receives:
+    Parameters:
+    - teams_dir: /lahaus/.claude/teams/feat-payment-tracking/
+    - target_repo: /lahaus/mobile/ai-mobile-app
+    - task_label: feat-payment-tracking
+    ↓
+qa writes RED tests → ✅ RED confirmed
+    ↓
+backend + mobile (unblocked, parallel):
+  each /worktree init feat/payment-tracking --repo <target_repo>
+  each implement + tests GREEN (local, PR not yet opened)
+    ↓
+SECURITY (per teammate, before /pr):
+  orchestrator → Agent(security, worktree_path=backend-worktree) → APPROVED
+  orchestrator → tells backend to run /pr
+  backend opens PR #123 in subscriptions → appends to prs.md
+  orchestrator → Agent(security, worktree_path=mobile-worktree) → APPROVED
+  orchestrator → tells mobile to run /pr
+  mobile opens PR #456 in ai-mobile-app → appends to prs.md
+    ↓
+DONE SUMMARY:
+  ✅ 2 PRs opened:
+    - https://github.com/lahaus/subscriptions/pull/123 (backend)
+    - https://github.com/lahaus/ai-mobile-app/pull/456 (mobile)
+```
+
+Key points:
+- **Two PRs** opened (one per touched consumer repo)
+- **Two security passes** (one per teammate worktree, before each `/pr`)
+- `backend` and `mobile` each owned their own worktree in their own repo
+- Single-repo consumers (ia-tools, flutter-expenses-app, etc.) are unaffected —
+  their `session-manager` routes to `change` directly; no scope-check, no teams_dir
 
 ## Team Structure — 8 agents
 
@@ -153,7 +258,13 @@ teammate).
 
 ## Parallel development with git worktrees
 
-Every task sub-session lives in its own worktree under `.worktrees/<dir-name>`.
+Single-repo tasks: the sub-session orchestrator lives in its own worktree under
+`.worktrees/<dir-name>`.
+
+Multi-repo tasks: the orchestrator runs in the consumer repo root (shared-workspace
+mode, no dedicated worktree). Each stack teammate creates its own worktree in its
+target repo via `/worktree init <branch> --repo <target_repo>`.
+
 Worktrees are created by `/worktree init` (local-only) or `/task` (Slack-linked).
 
 - **Committing**: `/commit` works identically inside worktrees.
@@ -168,6 +279,26 @@ Each sub-session's worktree has its own `.claude/settings.local.json` generated 
 so agent teams are available, and disables
 `slack@claude-plugins-official` (which conflicts with `slack-bridge`). The
 worktree does NOT inherit the repo root's `.claude/` directory.
+
+## Consumer `.gitignore` guidance
+
+Consumer repos should add the following to their root `.gitignore`:
+
+```
+.worktrees/
+.claude/teams/
+```
+
+- **`.worktrees/`** — git worktrees created by `/worktree init` and `/task`. These
+  are ephemeral per-task isolation; never committed.
+- **`.claude/teams/`** — per-task coordination state created by `/scope-check` and
+  `/task --resume-from`. Contains `scope.md`, `plan-draft.md`, `verdict.json`,
+  `prs.md`, and optional security reports. Never committed; retained after `/pr`
+  for audit; cleaned up by `/worktree cleanup` or manually.
+
+`start-task.sh` automatically adds `.worktrees/` to `.gitignore` if missing.
+`.claude/teams/` must be added manually by the consumer repo admin (or done once
+per consumer via a setup script).
 
 ## Rules — all agents
 
@@ -197,10 +328,17 @@ worktree does NOT inherit the repo root's `.claude/` directory.
 11. **Plugin is repo-agnostic.** Agents detect the consumer repo's stack
     via `skills/shared/stack-detection.md` rather than hardcoding paths.
     The only paths hardcoded in this plugin are its own (`.sdlc/`,
-    `.worktrees/`).
+    `.worktrees/`, `.claude/teams/`).
 12. **Only the team lead cleans up the team.** Teammates never run
     cleanup (per the agent-teams docs, teammate cleanup can leave
     resources in an inconsistent state).
+13. **`.claude/teams/<label>/` is orchestrator-directed.** Teammates and
+    one-shot subagents only read/write under that path when the orchestrator
+    passes `teams_dir` in the delegation prompt. Standalone invocations
+    (no `Parameters:` block) never touch `.claude/teams/`.
+14. **N PRs per task.** Multi-repo tasks produce one PR per touched
+    consumer repo. Security APPROVED is required per PR before `/pr` runs.
+    Single-repo tasks still produce one PR (AC14 — no regressions).
 
 ## Autonomy boundaries
 
@@ -216,8 +354,9 @@ autonomous across:
 Within those boundaries, the orchestrator decides team composition,
 parallelism, and dependency ordering without prompting the user.
 
-Triage is autonomous on classification, never on execution — it only
-replies or calls `/task`. It never delegates via `Agent`.
+Session-manager is autonomous on classification, never on execution — it only
+replies, calls `/scope-check`, or calls `/task`. It only delegates via `Agent`
+to `orchestrator` (for `trivial-config` and `small-change` paths).
 
 ## Branch & merge rules
 

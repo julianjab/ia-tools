@@ -5,18 +5,22 @@
 > **Every change flows through four hard invariants.** Everything else is up
 > to the orchestrator (acting as agent-team lead) to decide at runtime.
 >
-> 1. **Approval gate.** Triage classifies Slack messages; `change` intents
->    call `/task`, which spawns a sub-session. The orchestrator writes the
->    plan to `.sdlc/tasks.md` and **BLOCKS on ✅** (slack) or the `Aprobar`
->    option (local) before touching any code.
+> 1. **Approval gate.** `session-manager` classifies Slack messages; `change`
+>    and `scope-check/new-session` intents call `/task`, which spawns a
+>    sub-session. The orchestrator writes the plan (or expands `plan-draft.md`)
+>    and **BLOCKS on ✅** (slack) or the `Aprobar` option (local) before
+>    touching any code.
 > 2. **QA writes tests first.** No stack teammate leaves plan mode until
 >    `qa` reports `✅ RED confirmed`. Enforced via shared task dependencies
 >    (`stack:* blockedBy qa:red`) and plan-approval-mode on stack teammates.
-> 3. **Security gate.** `security` must return `APPROVED` before `/pr`.
->    `HIGH`/`MEDIUM` findings are blocking and escalate to the user.
+> 3. **Security APPROVED required per PR (once per touched consumer repo).**
+>    `security` must return `APPROVED` before each PR is opened. In multi-repo
+>    mode: security runs once per teammate worktree, BEFORE that teammate runs
+>    `/pr`. `HIGH`/`MEDIUM` findings are blocking and escalate to the user.
 >    `LOW`-only findings pass through as PR comments.
-> 4. **`/pr` is the only path to main.** Never `git push origin main`, never
->    local merges into main.
+> 4. **`/pr` is the only path to main — per repo.** Never `git push origin main`,
+>    never local merges into main. Multi-repo tasks produce N PRs (one per
+>    touched consumer repo); each goes through its own security gate.
 >
 > Outside those four rules, the orchestrator decides at runtime what team
 > to spawn, in what order, and with what parallelism — see
@@ -24,17 +28,26 @@
 > we deleted the fixed `Phase 2..11` pipeline.
 >
 > **Two hooks enforce the rules:**
-> - `SessionStart` (`hooks/scripts/session-start.sh`) — injects the triage or
->   orchestrator system prompt based on `IA_TOOLS_ROLE`.
+> - `SessionStart` (`hooks/scripts/session-start.sh`) — injects the session-manager
+>   or orchestrator system prompt based on `IA_TOOLS_ROLE`.
 > - `PreToolUse` (`hooks/scripts/enforce-worktree.sh`) — blocks
 >   `Edit`/`Write`/`MultiEdit` on protected paths when the current branch is
 >   `main`/`master`. If you see `Pipeline violation: you are on main`, run
 >   `/worktree init feat/<name>` — the block is intentional.
 >
+> **Consumer `.gitignore` guidance.** Add these to your consumer repo's root
+> `.gitignore`:
+> ```
+> .worktrees/
+> .claude/teams/
+> ```
+> `.claude/teams/` is ephemeral per-task coordination state (scope.md,
+> plan-draft.md, prs.md). Never committed. Same category as `.worktrees/`.
+>
 > **Prerequisite: Claude Code ≥ v2.1.32 with agent teams enabled.** Every
 > sub-session spawned by `/task` gets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-> written to its `<worktree>/.claude/settings.local.json` by `start-task.sh`, so
-> the orchestrator can create and coordinate teams. The same `settings.local.json`
+> written to `.claude/settings.local.json` by `start-task.sh`, so the
+> orchestrator can create and coordinate teams. The same `settings.local.json`
 > disables `slack@claude-plugins-official` to avoid conflict with the
 > `slack-bridge` MCP shipped by this plugin.
 

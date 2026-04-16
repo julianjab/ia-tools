@@ -104,7 +104,51 @@ Severity definitions:
 - **MEDIUM**: blocks the merge — must be fixed or explicitly accepted by the team
 - **LOW**: does not block — should be addressed before production
 
+## Per-PR invocation protocol (opt-in — only when orchestrator passes parameters)
+
+When the orchestrator invokes you for a multi-repo task it includes a
+`Parameters:` block in the delegation prompt. Parse it by key:
+
+```
+Parameters:
+- pr_url: https://github.com/<org>/<repo>/pull/123
+- worktree_path: <absolute path to teammate's worktree>
+- teams_dir: <absolute path to .claude/teams/<label>/>
+- task_label: <kebab-case slug>
+```
+
+**Grammar rules** (api-contract §3.1): one parameter per line, `- <key>: <value>`
+(dash + space, no YAML nesting). Absent key ≡ parameter not passed.
+
+### When ALL parameters are absent (standalone / single-repo mode)
+
+Audit the current worktree diff vs `origin/main` (today's behavior). This is
+unchanged from the current behavior — no regressions.
+
+### When `worktree_path` is present (per-PR mode, pre-push)
+
+Audit the diff at `worktree_path` vs `origin/main` (or the configured base
+branch). The `pr_url` may be absent when the orchestrator calls you before the
+PR is opened (security gates BEFORE `/pr` in multi-repo mode).
+
+When `pr_url` is absent, the review file name (if you write one to `teams_dir`)
+falls back to `<task_label>-<short-worktree-hash>.md`.
+
+### When `teams_dir` is present (optional report write)
+
+You MAY write your review report to `<teams_dir>/security/<pr-number-or-hash>.md`.
+This is optional — the in-memory reply to the orchestrator is always authoritative.
+
+### Sequencing in multi-repo mode
+
+You are invoked **once per teammate worktree, before that teammate opens its PR**.
+The orchestrator coordinates this. You do not read `prs.md` to discover URLs —
+the orchestrator passes `pr_url` (or `worktree_path`) to you explicitly. You
+never self-gate; always wait for the orchestrator to invoke you.
+
 ## Contract
 
-- Input: PRs from all involved repos + api-contract.md
-- Output: security review report with final verdict
+- **Input**: current worktree (standalone) or explicit `worktree_path` + optional
+  `pr_url` (per-PR mode) + optional `teams_dir` + `api-contract.md`
+- **Output**: security review report with final verdict (`APPROVED` / `BLOCKED`)
+- **Mode**: default one-shot subagent; may also run as a teammate

@@ -39,7 +39,8 @@ open a new one.
       [--thread <slack-ts> --channel <slack-channel-id>]
       [--description "<raw user message>"]
       [--review <pr-number>]
-      [--base main]
+      [--base <branch>]
+      [--resume-from <path-to-.claude/teams/<label>/>]
 ```
 
 | Flag | Required? | Purpose |
@@ -49,7 +50,8 @@ open a new one.
 | `--channel <id>` | Slack mode only | Slack channel containing the thread. Must be paired with `--thread`. |
 | `--description "<text>"` | Either this or `--review` | Free-text description of what to do (passed into the boot prompt as context). |
 | `--review <pr>` | Either this or `--description` | PR number to review. Creates branch `review/pr-<N>` tracking that PR. |
-| `--base <branch>` | ❌ | Base branch for the worktree. Defaults to `main`, falls back to `master`. |
+| `--base <branch>` | ❌ | Base branch for the worktree. Defaults to `main`, falls back to `master`. Passed to `/worktree init`. |
+| `--resume-from <path>` | ❌ | Activates **orchestrator-shared-workspace mode**. `start-task.sh` SKIPS worktree creation and launches the orchestrator with CWD = consumer repo root (derived from `<path>`, which is `<consumer-repo-root>/.claude/teams/<label>/`). The orchestrator reads `<path>/plan-draft.md` as the Phase 1 seed. The approval gate still runs. |
 
 **Rules:**
 
@@ -58,11 +60,34 @@ open a new one.
 - If neither is set, `/task` runs in local mode and skips every slack-bridge
   call.
 
+## Operating modes
+
+| Mode | How triggered | Worktree | CWD of orchestrator |
+|------|--------------|----------|---------------------|
+| Standard (single-repo) | No `--resume-from` | Created via `/worktree init` | The new worktree |
+| Shared-workspace | `--resume-from <path>` + `<path>/plan-draft.md` exists | NOT created (skipped) | Consumer repo root |
+
+In **shared-workspace mode**, the orchestrator runs in the consumer repo root
+(e.g. `/Users/julianbuitrago/development/lahaus/`) and coordinates N stack
+teammates, each of which creates its own worktree in its target repo. The
+orchestrator owns no worktree of its own.
+
 ## What /task does, in order
 
 1. **Validate inputs** (see contract above). Reject mixed Slack flags.
 
-2. **Create the worktree** via `/worktree init <branch-name> --base <base>`.
+2. **If `--resume-from <path>` is set** (shared-workspace mode):
+   - Verify `<path>/plan-draft.md` exists. If not, reject.
+   - Derive `<consumer-repo-root>` = `git -C <path>/../../.. rev-parse --show-toplevel`
+     (the file lives at `<root>/.claude/teams/<label>/`, three parent levels up).
+   - SKIP worktree creation. SKIP `.sdlc/tasks.md` seeding.
+   - Set `TMUX_CWD = <consumer-repo-root>`.
+   - Set `IA_TOOLS_TEAMS_DIR = <path>`.
+   - Continue from step 3b (write `.claude/settings.local.json`).
+
+   **If `--resume-from` is NOT set** (standard single-repo mode):
+
+2b. **Create the worktree** via `/worktree init <branch-name> --base <base>`.
    - If `--review <pr>` was passed, use `--review` mode instead.
    - Reuse the existing `/worktree` skill — do NOT duplicate its logic.
 
@@ -176,11 +201,14 @@ MCP tool.
 ```bash
 bash "$(git rev-parse --show-toplevel)/skills/task/scripts/start-task.sh" \
   "<branch-name>" "<slack-thread-ts-or-empty>" "<slack-channel-id-or-empty>" \
-  "<description-or-review-arg>"
+  "<description-or-review-arg>" "<base-branch-or-empty>" "<resume-from-path-or-empty>"
 ```
 
-Pass empty strings for thread/channel in local mode. The script returns the
-worktree path, tmux session/window, mode, and exit code.
+Pass empty strings for thread/channel in local mode. Pass empty string for
+`--base` to use the default (`main` → `master` fallback). Pass empty string for
+`--resume-from` to use standard single-repo mode. The script returns the
+worktree path (or consumer repo root in shared-workspace mode), tmux
+session/window, mode, and exit code.
 
 ## Errors and recovery
 
