@@ -8,8 +8,8 @@
  *     - Constructor registers ListToolsRequestSchema and CallToolRequestSchema handlers
  *     - connect(transport) delegates to mcp.connect(transport)
  *     - server getter exposes the underlying MCP Server instance
- *     - Tool handlers: subscribe_slack, unsubscribe_slack, claim_message, reply_slack,
- *       read_thread, read_channel, list_slack_channels
+ *     - Tool handlers: subscribe_slack, unsubscribe_slack, claim_message, reply,
+ *       read_thread, read_channel, list_channels
  *     - oninitialized: auto-subscribes from .claude/.channels.json when daemonClient present
  *     - ensureDaemon is NOT imported or called in mcp-server.ts
  *
@@ -232,10 +232,10 @@ describe('McpBridgeServer — ListTools returns all 7 tools', () => {
     'subscribe_slack',
     'unsubscribe_slack',
     'claim_message',
-    'reply_slack',
+    'reply',
     'read_thread',
     'read_channel',
-    'list_slack_channels',
+    'list_channels',
   ];
 
   it('listTools_called_returnsExactly7Tools', async () => {
@@ -503,9 +503,9 @@ describe('McpBridgeServer — claim_message tool', () => {
   });
 });
 
-// ─── Tests: reply_slack ───────────────────────────────────────────────────────
+// ─── Tests: reply ───────────────────────────────────────────────────────
 
-describe('McpBridgeServer — reply_slack tool', () => {
+describe('McpBridgeServer — reply tool', () => {
   it('replySlack_withChannelAndText_callsWebChatPostMessage', async () => {
     // Arrange
     const stub_web = makeWebClientMock();
@@ -516,7 +516,7 @@ describe('McpBridgeServer — reply_slack tool', () => {
     });
 
     // Act
-    await invokeTool(bridge, 'reply_slack', {
+    await invokeTool(bridge, 'reply', {
       channel_id: CHANNEL_ID,
       text: MESSAGE_TEXT,
       message_ts: MESSAGE_TS,
@@ -538,7 +538,7 @@ describe('McpBridgeServer — reply_slack tool', () => {
     });
 
     // Act
-    const result = await invokeTool(bridge, 'reply_slack', {
+    const result = await invokeTool(bridge, 'reply', {
       channel_id: CHANNEL_ID,
       text: MESSAGE_TEXT,
       message_ts: MESSAGE_TS,
@@ -560,7 +560,7 @@ describe('McpBridgeServer — reply_slack tool', () => {
     });
 
     // Act
-    const result = await invokeTool(bridge, 'reply_slack', {
+    const result = await invokeTool(bridge, 'reply', {
       channel_id: CHANNEL_ID,
       text: MESSAGE_TEXT,
       // message_ts intentionally omitted
@@ -652,9 +652,9 @@ describe('McpBridgeServer — read_channel tool', () => {
   });
 });
 
-// ─── Tests: list_slack_channels ───────────────────────────────────────────────
+// ─── Tests: list_channels ───────────────────────────────────────────────
 
-describe('McpBridgeServer — list_slack_channels tool', () => {
+describe('McpBridgeServer — list_channels tool', () => {
   it('listSlackChannels_called_callsUsersConversations', async () => {
     // Arrange
     const stub_web = makeWebClientMock();
@@ -665,7 +665,7 @@ describe('McpBridgeServer — list_slack_channels tool', () => {
     });
 
     // Act
-    await invokeTool(bridge, 'list_slack_channels');
+    await invokeTool(bridge, 'list_channels');
 
     // Assert
     expect(stub_web.users.conversations).toHaveBeenCalledWith(
@@ -683,7 +683,7 @@ describe('McpBridgeServer — list_slack_channels tool', () => {
     });
 
     // Act
-    const result = await invokeTool(bridge, 'list_slack_channels');
+    const result = await invokeTool(bridge, 'list_channels');
 
     // Assert
     expect(result.content[0].text).toContain('#general (C1)');

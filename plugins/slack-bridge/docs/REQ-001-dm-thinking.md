@@ -6,7 +6,7 @@
 
 ## Context
 
-Today the slack-bridge forwards every Slack message to its subscribers and Claude replies via `reply_slack`. Two UX problems:
+Today the slack-bridge forwards every Slack message to its subscribers and Claude replies via `reply`. Two UX problems:
 
 1. **DMs look broken.** Claude always passes `thread_ts = message_ts` to keep replies in-thread. In a DM with no pre-existing thread, Slack interprets that as a brand-new reply thread, which is not how humans expect DMs to work. DM replies should go top-level; only preserve a thread when the source message was already threaded.
 2. **No "thinking" feedback.** When Claude is working on a reply there is no visible ack in Slack. The user does not know whether the bot is alive. We want an emoji reaction + assistant thread status "thinking..." as soon as the daemon routes the message to a subscriber, and we want both cleared once Claude successfully posts a reply.
@@ -15,9 +15,9 @@ This requirement is scoped to 4 internal sub-tasks against the slack-bridge pack
 
 ## Acceptance Criteria
 
-- **AC1 — DM routing awareness.** Every `SlackMessage` forwarded by the daemon carries `is_dm: boolean` derived from the channel id prefix (`D*` → true; `C*` / `G*` → false). The MCP server forwards `is_dm` in `notifications/claude/channel` meta. Claude's `reply_slack` description instructs it to omit `thread_ts` in DMs unless the source message was already threaded.
+- **AC1 — DM routing awareness.** Every `SlackMessage` forwarded by the daemon carries `is_dm: boolean` derived from the channel id prefix (`D*` → true; `C*` / `G*` → false). The MCP server forwards `is_dm` in `notifications/claude/channel` meta. Claude's `reply` description instructs it to omit `thread_ts` in DMs unless the source message was already threaded.
 - **AC2 — Thinking ack on route.** When the daemon finds at least one subscriber for an incoming message, it adds an emoji reaction (`reactions.add`) and sets the assistant thread status (`assistant.threads.setStatus`) before fanning out the webhook. Both calls are best-effort and wrapped in `.catch(warn)` — they never block or fail routing. When no subscribers match, neither call is made. Emoji and status strings are read from env at startup: `SLACK_ACK_EMOJI` (default `eyes`), `SLACK_ACK_STATUS` (default `thinking...`).
-- **AC3 — Ack cleanup on successful reply.** `reply_slack` now requires `message_ts` in its input schema. On successful `chat.postMessage`, it calls `clearThinkingAck`, which removes the reaction and clears the assistant thread status (empty string). On postMessage failure it does NOT run cleanup. Cleanup failures are swallowed (`.catch(warn)`); the tool still returns success content.
+- **AC3 — Ack cleanup on successful reply.** `reply` now requires `message_ts` in its input schema. On successful `chat.postMessage`, it calls `clearThinkingAck`, which removes the reaction and clears the assistant thread status (empty string). On postMessage failure it does NOT run cleanup. Cleanup failures are swallowed (`.catch(warn)`); the tool still returns success content.
 - **AC4 — DM thread status target.** Both set and clear status calls use `thread_ts = message_ts` when the source message has no `thread_ts`, and the existing `thread_ts` otherwise. This mirrors Slack's Assistant thread model where DMs use the message ts as their virtual thread root.
 - **AC5 — Documentation.** README documents the new env vars (`SLACK_ACK_EMOJI`, `SLACK_ACK_STATUS`), the required Slack scopes (`reactions:write`, `assistant:write`), and the DM reply behavior. The `instructions` string on the MCP server walks Claude through the new flow (claim → reply with `message_ts` → DM threading rule).
 
@@ -117,32 +117,32 @@ Feature: Daemon acks incoming messages so users see Claude is working
 ### Sub-task 3 — Cleanup on successful reply
 
 ```gherkin
-Feature: reply_slack clears the thinking ack on success
+Feature: reply clears the thinking ack on success
 
   Scenario: Successful reply removes the reaction
-    Given reply_slack is called with channel_id="C1", text="hi", message_ts="111.222"
+    Given reply is called with channel_id="C1", text="hi", message_ts="111.222"
     And chat.postMessage resolves
     Then reactions.remove is called with name="eyes", channel="C1", timestamp="111.222"
 
   Scenario: Successful DM reply clears status on message_ts
-    Given reply_slack is called with channel_id="D1", text="hi", message_ts="333.444" (no thread_ts)
+    Given reply is called with channel_id="D1", text="hi", message_ts="333.444" (no thread_ts)
     And chat.postMessage resolves
     Then assistant.threads.setStatus is called with channel_id="D1", thread_ts="333.444", status=""
 
   Scenario: Successful threaded reply clears status on existing thread_ts
-    Given reply_slack is called with channel_id="C1", text="hi", message_ts="111.222", thread_ts="999.000"
+    Given reply is called with channel_id="C1", text="hi", message_ts="111.222", thread_ts="999.000"
     And chat.postMessage resolves
     Then assistant.threads.setStatus is called with thread_ts="999.000", status=""
 
   Scenario: reactions.remove rejects — tool still returns success
     Given chat.postMessage resolves
     And reactions.remove will reject with "no_reaction"
-    When reply_slack is called
+    When reply is called
     Then the tool result has no isError flag
     And the warning is logged
 
   Scenario: message_ts missing
-    Given reply_slack is called without message_ts
+    Given reply is called without message_ts
     Then the tool returns isError=true
     And the content explains message_ts is required
 ```

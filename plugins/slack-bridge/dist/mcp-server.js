@@ -41094,7 +41094,7 @@ var McpBridgeServer = class {
         instructions: [
           'Slack messages arrive as channel notifications with source="slack-bridge".',
           "When you want to respond to a message, FIRST call claim_message with the message_ts.",
-          "If the claim succeeds, call reply_slack. If it fails, another session already claimed it \u2014 do nothing.",
+          "If the claim succeeds, call reply. If it fails, another session already claimed it \u2014 do nothing.",
           "Reply routing priority: (1) if thread_ts is present, always reply in the thread;",
           "(2) if is_dm=true and no thread_ts, reply directly to the DM \u2014 omit thread_ts;",
           "(3) otherwise reply to the channel.",
@@ -41174,7 +41174,7 @@ var McpBridgeServer = class {
           }
         },
         {
-          name: "reply_slack",
+          name: "reply",
           description: "Reply to a Slack message. Only call after a successful claim. Reply routing: (1) thread_ts present \u2192 always reply in thread; (2) is_dm=true and no thread_ts \u2192 reply to DM, omit thread_ts; (3) channel with no thread_ts \u2192 reply to channel.",
           inputSchema: {
             type: "object",
@@ -41219,7 +41219,7 @@ var McpBridgeServer = class {
           }
         },
         {
-          name: "list_slack_channels",
+          name: "list_channels",
           description: "List Slack channels the bot is a member of.",
           inputSchema: { type: "object", properties: {} }
         }
@@ -41233,16 +41233,16 @@ var McpBridgeServer = class {
   }
   async dispatchTool(name, args) {
     if (name === "subscribe_slack") {
-      return this.handleSubscribeSlack(args);
+      return this.handleSubscribe(args);
     }
     if (name === "unsubscribe_slack") {
-      return this.handleUnsubscribeSlack();
+      return this.handleUnsubscribe();
     }
     if (name === "claim_message") {
       return this.handleClaimMessage(args);
     }
-    if (name === "reply_slack") {
-      return this.handleReplySlack(args);
+    if (name === "reply") {
+      return this.handleReply(args);
     }
     if (name === "read_thread") {
       return this.handleReadThread(args);
@@ -41250,12 +41250,12 @@ var McpBridgeServer = class {
     if (name === "read_channel") {
       return this.handleReadChannel(args);
     }
-    if (name === "list_slack_channels") {
-      return this.handleListSlackChannels();
+    if (name === "list_channels") {
+      return this.handleListChannels();
     }
     throw new Error(`Unknown tool: ${name}`);
   }
-  async handleSubscribeSlack(args) {
+  async handleSubscribe(args) {
     try {
       const filters = {
         channels: args.channels ?? [],
@@ -41298,7 +41298,7 @@ var McpBridgeServer = class {
       return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
     }
   }
-  async handleUnsubscribeSlack() {
+  async handleUnsubscribe() {
     if (this.daemonClient) {
       await this.daemonClient.unsubscribe();
     }
@@ -41325,7 +41325,7 @@ var McpBridgeServer = class {
       return { content: [{ type: "text", text: `Claim error: ${err}` }], isError: true };
     }
   }
-  async handleReplySlack(args) {
+  async handleReply(args) {
     const { channel_id, text, message_ts, thread_ts } = args;
     try {
       const result = await this.web.chat.postMessage({ channel: channel_id, text, thread_ts });
@@ -41364,7 +41364,7 @@ var McpBridgeServer = class {
       return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
     }
   }
-  async handleListSlackChannels() {
+  async handleListChannels() {
     try {
       const result = await this.web.users.conversations({
         types: "public_channel,private_channel",

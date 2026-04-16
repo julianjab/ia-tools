@@ -100,11 +100,11 @@ Semantics:
 3. `web.assistant.threads.setStatus({ channel_id: args.channel_id, thread_ts: args.thread_ts ?? args.message_ts, status: '' })` — `.catch(warn)`.
 4. Always resolves. Never throws.
 
-## 5. MCP tool — reply_slack (BREAKING)
+## 5. MCP tool — reply (BREAKING)
 
 ```json
 {
-  "name": "reply_slack",
+  "name": "reply",
   "description": "Reply to a Slack message. Pass message_ts (the ts of the user message you are replying to) so the bridge can clear the thinking ack. In DMs omit thread_ts unless the source message already had one — passing thread_ts in a top-level DM message creates a new reply thread.",
   "inputSchema": {
     "type": "object",

@@ -46,7 +46,7 @@ When a message matches at least one subscriber, the daemon fires two best-effort
 
 Both calls are fire-and-forget; failures are logged and ignored so they never block routing.
 
-When `reply_slack` sends a successful response, the MCP server clears both indicators:
+When `reply` sends a successful response, the MCP server clears both indicators:
 
 1. `reactions.remove` — removes the emoji.
 2. `assistant.threads.setStatus` — sets status to `""` (cleared).
@@ -64,7 +64,7 @@ When `reply_slack` sends a successful response, the MCP server clears both indic
 | `reactions:read` | (optional) Checking existing reactions |
 | `reactions:write` | Adding / removing the thinking-ack emoji |
 | `assistant:write` | Setting assistant thread status (best-effort — silently no-ops if app is not an Assistant) |
-| `chat:write` | Posting replies via `reply_slack` |
+| `chat:write` | Posting replies via `reply` |
 | `users:read` | Resolving user display names |
 | `channels:read` | Resolving channel names |
 
@@ -75,7 +75,7 @@ Messages from DM channels (`channel_id` starts with `D`) are tagged `is_dm: true
 When replying to a DM:
 
 - **Omit `thread_ts`** unless the source message notification already included a `thread_ts`. DMs do not use threads by default — passing a `thread_ts` in a plain DM creates an unexpected thread.
-- **Always pass `message_ts`** — it is required by `reply_slack` to clear the thinking indicator.
+- **Always pass `message_ts`** — it is required by `reply` to clear the thinking indicator.
 
 Example notification meta for a DM:
 ```json
@@ -95,7 +95,7 @@ Example notification meta for a DM:
 | `subscribe_slack` | Subscribe to channels/DMs/threads; persisted to `.claude/.channels.json` |
 | `unsubscribe_slack` | Stop receiving messages |
 | `claim_message` | Claim a message before replying (first session wins) |
-| `reply_slack` | Post a reply; requires `message_ts` |
+| `reply` | Post a reply; requires `message_ts` |
 | `read_thread` | Fetch thread history |
 | `read_channel` | Fetch channel history |
-| `list_slack_channels` | List channels the bot belongs to |
+| `list_channels` | List channels the bot belongs to |

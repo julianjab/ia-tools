@@ -91,7 +91,7 @@ open a new one.
 4. **Post a Slack announcement** (slack mode only, via slack-bridge MCP):
 
    ```
-   reply_slack(
+   reply(
      thread_ts="<slack-ts>",
      channel="<slack-channel>",
      text="🚀 Abriendo sub-sesión para `<branch-name>`.\n\nWorktree: `.worktrees/<dir-name>`\nEspera el plan en este hilo."
