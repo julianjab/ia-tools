@@ -112,9 +112,9 @@ else
   ok "Worktree created: $WORKTREE_PATH"
 fi
 
-# ── 3b. Write a clean .claude/settings.json for the worktree ────────────────
+# ── 3b. Write a clean .claude/settings.local.json for the worktree ─────────
 # The worktree does NOT inherit ${REPO_ROOT}/.claude. Instead we write a
-# minimal settings.json with a fixed, explicit env block. Every key is
+# minimal settings.local.json with a fixed, explicit env block. Every key is
 # always present; missing values default to an empty string so the shape of
 # the file never changes between modes. Any Claude session that boots in
 # this worktree (the initial tmux launch, /resume, a manual `claude`
@@ -123,7 +123,7 @@ fi
 # OAuth tokens are deliberately NOT persisted here — they stay in the user's
 # global Claude config and are inherited at runtime.
 mkdir -p "${WORKTREE_PATH}/.claude"
-SETTINGS_FILE="${WORKTREE_PATH}/.claude/settings.json"
+SETTINGS_FILE="${WORKTREE_PATH}/.claude/settings.local.json"
 
 cat > "$SETTINGS_FILE" <<EOF
 {
@@ -185,7 +185,7 @@ fi
 
 # ── 5. Build the Claude launch command ───────────────────────────────────────
 # IA_TOOLS_ROLE, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS and SLACK_* are already
-# in ${WORKTREE_PATH}/.claude/settings.json (step 3b) and load automatically
+# in ${WORKTREE_PATH}/.claude/settings.local.json (step 3b) and load automatically
 # when Claude boots in the worktree CWD. The OAuth token, when available,
 # still travels via the tmux command line — it is NOT persisted on disk.
 if [ -n "$AGENT_TOKEN" ]; then

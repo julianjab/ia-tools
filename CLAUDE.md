@@ -33,8 +33,8 @@
 >
 > **Prerequisite: Claude Code ≥ v2.1.32 with agent teams enabled.** Every
 > sub-session spawned by `/task` gets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-> written to its `<worktree>/.claude/settings.json` by `start-task.sh`, so
-> the orchestrator can create and coordinate teams. The same `settings.json`
+> written to its `<worktree>/.claude/settings.local.json` by `start-task.sh`, so
+> the orchestrator can create and coordinate teams. The same `settings.local.json`
 > disables `slack@claude-plugins-official` to avoid conflict with the
 > `slack-bridge` MCP shipped by this plugin.
 
