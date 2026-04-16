@@ -189,9 +189,9 @@ fi
 # when Claude boots in the worktree CWD. The OAuth token, when available,
 # still travels via the tmux command line — it is NOT persisted on disk.
 if [ -n "$AGENT_TOKEN" ]; then
-  CLAUDE_CMD="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN} claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
+  CLAUDE_CMD="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN} claude --dangerously-skip-permissions"
 else
-  CLAUDE_CMD="claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
+  CLAUDE_CMD="claude --dangerously-skip-permissions"
 fi
 
 # ── 7. tmux session / window ─────────────────────────────────────────────────
