@@ -1,8 +1,8 @@
 # Agent Team — ia-tools
 
-This file defines the agent roster and the pipeline for the ia-tools ecosystem.
-It is read natively by Cursor, Windsurf, Copilot, Codex, Amp, and Devin.
-Claude Code imports it via `@AGENTS.md` in `CLAUDE.md`.
+This file defines the agent roster and the invariants for the ia-tools
+ecosystem. It is read natively by Cursor, Windsurf, Copilot, Codex, Amp, and
+Devin. Claude Code imports it via `@AGENTS.md` in `CLAUDE.md`.
 
 ## Session model — main vs sub
 
@@ -27,171 +27,203 @@ by the `IA_TOOLS_ROLE` env var and injected by the `SessionStart` hook:
 │ - One per Slack thread / task                           │
 │ - System prompt: agents/orchestrator.md                 │
 │ - Lives in a dedicated worktree + tmux window           │
-│ - Subscribed to exactly one Slack thread                │
-│ - Owns the plan → approval → pipeline → PR lifecycle    │
-│ - Stays alive after /pr for follow-ups (2h idle timeout)│
+│ - Main-thread agent: can spawn subagents + create team  │
+│ - Runs as **agent-team lead**                           │
+│ - Subscribed to exactly one Slack thread (slack mode)   │
 └─────────────────────────────────────────────────────────┘
 ```
 
-There is no third mode. A Claude session is either a triage main session or a
-task sub-session. The `IA_TOOLS_ROLE` env var is the only switch.
+A Claude session is either a triage main session or a task sub-session.
+`IA_TOOLS_ROLE` is the only switch.
 
-## Pipeline — deterministic, no shortcuts
+## Invariants — not negotiable
 
-Every change-intent message flows through the same fixed pipeline, in order.
-No phase skipping, no phase merging, no phase reordering. The only exception
-is the architect phase, which is conditional on the plan's `API contract`
-field (`none` → skip, `new` / `changed` → invoke).
+The orchestrator used to execute a fixed 11-phase pipeline. As of the
+agent-teams refactor, it is a **team lead** that decides at runtime which
+teammates to spawn, in what order, and with what parallelism. The only
+workflow rules that remain hardcoded are these four:
+
+1. **Approval gate.** Every change-intent message goes through plan →
+   approval (✅ in slack, `Aprobar` in local) before any code changes.
+   No autonomous execution of the plan.
+2. **QA writes tests first.** No stack teammate (`backend`, `frontend`,
+   `mobile`) leaves plan mode until `qa` reports `✅ RED confirmed` on
+   the shared task list. Enforced via: (a) `blockedBy: qa:red` on every
+   stack task, (b) spawning stack teammates with plan approval mode.
+3. **Security gate before `/pr`.** `security` must return `APPROVED`.
+   `HIGH`/`MEDIUM` findings are blocking and escalate to the user.
+   `LOW`-only findings pass through as a PR comment.
+4. **`/pr` is the only path to main.** No `git push origin main`, no
+   local merges, no amended commits on a remote-tracked branch.
+
+Everything outside these four rules — which teammates to spawn, whether
+to parallelize, whether `architect` is needed, whether `security` runs
+as a teammate or a one-shot — the orchestrator decides in runtime based
+on the approved plan.
+
+## Workflow shape
 
 ```
 Slack message arrives
     ↓
-PHASE 0 — TRIAGE             (triage, main session)
-  Input:  raw Slack message (text, URL, DM, etc.)
-  Output: classified intent — read-only OR change
-
+TRIAGE classifies (main session)
     ├─ read-only → reply inline in the thread. DONE.
     │
-    └─ change → call /task and forget:
-         ↓
-PHASE 1 — TASK BOOTSTRAP     (/task skill, run by triage)
-  Output: worktree created + .sdlc/tasks.md seeded +
-          Slack announcement posted + tmux sub-session
-          spawned + boot prompt delivered to orchestrator
-    ↓
-PHASE 2 — PLAN               (orchestrator, sub-session)
-  Output: plan written to .sdlc/tasks.md +
-          published to the Slack thread
-    ↓
-PHASE 3 — APPROVAL GATE      (orchestrator, BLOCKING)
-  Wait for ONE of:
-    ✅ reaction on the plan message → proceed
-    ❌ reaction                      → cancel + exit
-    text reply                       → edits, loop back to Phase 2
-    2h timeout                       → cancel + exit
-    ↓
-PHASE 4 — SPEC               (orchestrator)
-  Output: .sdlc/specs/REQ-<NNN>/requirement.md
-          with acceptance criteria + BDD scenarios
-    ↓
-PHASE 5 — CONTRACT           (architect, CONDITIONAL)
-  Runs only if plan says `api_contract: new` or `changed`.
-  Output: api-contract.md in the same REQ folder.
-    ↓
-PHASE 6 — RED TESTS          (qa)
-  Output: failing tests in the repo, confirmed failing
-          for the right reason.
-    ↓
-PHASE 7 — GREEN              (backend / frontend / mobile)
-  Output: tests pass, lint clean, typecheck clean.
-    ↓
-PHASE 8 — SECURITY GATE      (security)
-  Output: APPROVED, or HIGH/MEDIUM findings → escalate to user.
-    ↓
-PHASE 9 — PR                 (/pr skill)
-  Output: PR open + URL posted to the Slack thread.
-    ↓
-PHASE 10 — FOLLOW-UP         (orchestrator, sub-session still alive)
-  Handle review comments, CI failures, re-runs.
-  Any fix re-enters Phase 6 → 7 → 8 → push.
-    ↓
-PHASE 11 — SELF-KILL         (orchestrator)
-  Triggered by 2 hours of thread inactivity AND PR in
-  terminal state. Closes tmux window cleanly.
+    └─ change → /task → worktree + tmux + orchestrator boot
+                 ↓
+             PLAN (orchestrator) → .sdlc/tasks.md + publish
+                 ↓
+             APPROVAL GATE ← ✅ / ❌ / text-edit / timeout
+                 ↓
+             SPEC (.sdlc/specs/REQ-NNN/requirement.md + research.md)
+                 ↓
+             DECIDE DELEGATIONS: orchestrator picks teammates, creates
+             the agent team, spawns + assigns tasks with dependencies:
+               qa:red BLOCKS every stack:* task
+               stack:* BLOCK security:audit
+               security:audit BLOCKS pr:open
+                 ↓
+             TEAM RUNS (teammates work in parallel where possible,
+             serialized where dependencies force it)
+                 ↓
+             SECURITY GATE ← APPROVED / HIGH|MEDIUM escalate / LOW pass
+                 ↓
+             /pr → push + PR + diagrams
+                 ↓
+             FOLLOW-UP (orchestrator stays alive; each fix re-enters
+             the team via new tasks with the same dependency shape)
+                 ↓
+             CLEAN UP TEAM + exit (slack: auto after 2h idle + terminal
+             PR; local: on user request)
 ```
 
 ## Team Structure — 8 agents
 
-| Agent | File | Role | Model | Invoked by |
-|-------|------|------|-------|------------|
-| `triage` | `agents/triage.md` | Main session router. Classifies Slack messages, answers read-only, spawns sub-sessions via `/task`. | sonnet | SessionStart hook (default) |
-| `orchestrator` | `agents/orchestrator.md` | Sub-session brain. Plan → approval → pipeline → PR → follow-up → self-kill. | opus | SessionStart hook (when `IA_TOOLS_ROLE=orchestrator`) |
-| `architect` | `agents/architect.md` | API contracts + ADRs. Conditional on plan. | opus | orchestrator Phase 5 |
-| `qa` | `agents/qa.md` | TDD RED tests + GREEN verification. | sonnet | orchestrator Phases 6 and 7 |
-| `backend` | `agents/backend.md` | Backend implementation (DDD layers collapsed). | sonnet | orchestrator Phase 7 |
-| `frontend` | `agents/frontend.md` | Web frontend implementation. | sonnet | orchestrator Phase 7 |
-| `mobile` | `agents/mobile.md` | Mobile implementation (iOS/Android/cross-platform). | sonnet | orchestrator Phase 7 |
-| `security` | `agents/security.md` | Security gate before PR. | opus | orchestrator Phase 8 |
+| Agent          | File                    | Primary mode                              | Model  | Color  | Why that mode                                                                 |
+|----------------|-------------------------|-------------------------------------------|--------|--------|-------------------------------------------------------------------------------|
+| `triage`       | `agents/triage.md`      | main-thread subagent                      | sonnet | cyan   | Router, single session, no parallelism needed.                                |
+| `orchestrator` | `agents/orchestrator.md`| main-thread subagent + **team lead**      | opus   | purple | Only session allowed to spawn specialists + create the team.                  |
+| `architect`    | `agents/architect.md`   | one-shot subagent (optional teammate)     | opus   | orange | Produces a single `api-contract.md` and exits.                                |
+| `qa`           | `agents/qa.md`          | **teammate**                              | sonnet | yellow | Persistent context across RED → verify GREEN → re-test follow-ups.            |
+| `backend`      | `agents/backend.md`     | **teammate**                              | sonnet | green  | Own slice of files; iterative GREEN cycles benefit from persistent context.   |
+| `frontend`     | `agents/frontend.md`    | **teammate**                              | sonnet | blue   | Same.                                                                         |
+| `mobile`       | `agents/mobile.md`      | **teammate**                              | sonnet | pink   | Same.                                                                         |
+| `security`     | `agents/security.md`    | one-shot subagent (optional teammate)     | opus   | red    | Gate before `/pr`. Fresh context per invocation reduces anchoring bias.       |
+
+All 6 non-main agents carry `memory: project` so they accumulate project
+patterns across tasks in `.claude/agent-memory/<agent>/`.
 
 **Removed in the April 2026 reorganization:** `issue-refiner`, `backend-lead`,
 `frontend-lead`, `mobile-lead`, `api-agent`, `domain-agent`, `ui-agent`,
-`mobile-agent`. Their responsibilities were collapsed into the 8 agents above.
+`mobile-agent`. Their responsibilities were collapsed into the 8 above.
 
-## Parallel Development with Git Worktrees
+**Removed in the agent-teams refactor (this PR):** the fixed `Phase 2..11`
+pipeline in `orchestrator.md`. Replaced by the four invariants listed above
+plus runtime team-lead decisions.
 
-Every task sub-session lives in its own git worktree under `.worktrees/<dir-name>`.
+## Plugin frontmatter limitations
+
+`ia-tools` ships as a Claude Code plugin (`.claude-plugin/plugin.json`).
+Two documented limitations affect every agent file in this repo:
+
+1. **Plugin subagents ignore `hooks`, `mcpServers`, and `permissionMode`.**
+   These three frontmatter fields are silently dropped when an agent is
+   loaded from a plugin. We do not set them in any agent file. Enforcement
+   that would normally use them has been moved to:
+   - **Tool allowlists** (`tools:` field) — the only plugin-enforceable
+     capability restriction.
+   - **Body instructions** — the agent is told what not to do; compliance
+     is convention, not enforcement.
+   - **`settings.json` at the plugin / consumer level** — hooks that need
+     to fire go here (out of scope for this PR).
+   Consumers who need `PreToolUse` hooks or `permissionMode: plan` must
+   copy the relevant agent file into their own `.claude/agents/`.
+
+2. **Teammates ignore `skills:` and `mcpServers:`.** When a subagent
+   definition runs as a teammate (agent teams), those two fields are
+   dropped. Skill preload that would happen via frontmatter is done
+   instead by instructing the agent body to invoke the skill on boot
+   (see `qa.md` and `security.md`). MCP servers must be configured at
+   the session level.
+
+Fields that DO work in plugin agents: `name`, `description`, `tools`,
+`disallowedTools`, `model`, `maxTurns`, `memory`, `background`, `effort`,
+`isolation`, `color`, `initialPrompt`, `skills` (as subagent, not as
+teammate).
+
+## Parallel development with git worktrees
+
+Every task sub-session lives in its own worktree under `.worktrees/<dir-name>`.
 Worktrees are created by `/worktree init` (local-only) or `/task` (Slack-linked).
 
 - **Committing**: `/commit` works identically inside worktrees.
 - **Quality checks**: `/review` validates formatting, tests, coverage, standards.
 - **PRs**: `/pr` runs `/review --fix` before pushing, then opens the PR.
-- **Reviews**: `/worktree init --review 42` or `/task review/pr-42 --review 42 ...`.
+- **Reviews**: `/worktree init --review 42` or `/task review/pr-42 --review 42 …`.
 - **Cleanup**: `/worktree cleanup --merged` removes merged worktrees.
 - **Overview**: `/worktree status` for all active worktrees.
 
-### Workflow cadence
+Each sub-session's worktree has its own `.claude/settings.json` generated by
+`start-task.sh`. That file forces `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+so agent teams are available, and disables
+`slack@claude-plugins-official` (which conflicts with `slack-bridge`). The
+worktree does NOT inherit the repo root's `.claude/` directory.
 
-```
-Slack message  → triage classifies
-              ├─ read-only: reply inline
-              └─ change: /task → worktree init + tmux + orchestrator boot
-                         → plan → ✅ approval → spec → [architect?] → qa RED →
-                           stack GREEN → security → /pr → follow-up → self-kill
-
-Multiple tasks → N sub-sessions in parallel, each in its own worktree + tmux
-                 window, each subscribed to its own Slack thread.
-```
-
-## Rules
-
-All agents must:
+## Rules — all agents
 
 1. **Triage is the only main session.** No other agent listens to DMs or
    classifies incoming messages. No other agent edits code from the main
    session.
-2. **Every change runs the full pipeline.** No shortcuts, no "trivial" edits
-   bypassing `/task`. A one-line doc fix goes through plan → approval → PR.
-3. **The plan must be approved before execution.** Orchestrator blocks on the
-   Slack approval gate with a ✅ reaction. No autonomous execution of the plan.
-4. **Architect is conditional.** It runs only when the plan explicitly declares
-   a new or changed API contract. Do not invoke it for refactors or bug fixes.
-5. **QA writes tests first.** No stack agent (`backend`, `frontend`, `mobile`)
-   starts until `qa` reports `✅ RED confirmed`.
-6. **Stack agents never touch each other's code.** `backend` does not touch
-   `frontend/`, `frontend` does not touch `mobile/`, etc. Cross-stack coordination
-   happens through `api-contract.md`.
-7. **Security gate is blocking for HIGH/MEDIUM findings.** LOW-only findings
-   pass through as PR comments.
-8. **Branch rule.** Nothing merges directly to main. The only path to main is
-   via PR. Use `/pr`, never `git push origin main`.
+2. **Every change runs through approval.** A one-line doc fix still goes
+   through plan → approval → PR. Shortcuts are prohibited.
+3. **The plan must be approved before execution.** Orchestrator blocks on
+   the approval gate. No autonomous execution of the plan.
+4. **Architect is conditional.** It runs only when the plan explicitly
+   declares a new or changed API contract. Not for refactors or bug fixes.
+5. **QA writes tests first.** No stack teammate leaves plan mode until
+   `qa` reports `✅ RED confirmed`. Enforced via task dependencies + plan
+   approval mode.
+6. **Stack agents never touch each other's code.** `backend` does not
+   touch `frontend/`, `frontend` does not touch `mobile/`, etc.
+   Cross-stack coordination happens through `api-contract.md`.
+7. **Security gate is blocking** for HIGH/MEDIUM findings. LOW-only
+   findings pass through as PR comments.
+8. **Branch rule.** Nothing merges directly to main. The only path to
+   main is via PR. Use `/pr`, never `git push origin main`.
 9. **Worktree commands use `-C`.** Always `git -C <worktree-path>` and
    `pnpm --dir <worktree-path>`. Never `cd` into a worktree.
-10. **Logs never reach the repo.** `.gitignore` already covers `*.log`. If a log
+10. **Logs never reach the repo.** `.gitignore` covers `*.log`. If a log
     file appears as untracked, extend `.gitignore` — never stage it.
-11. **Plugin is repo-agnostic.** Agents must detect the consumer repo's stack
-    via `skills/shared/stack-detection.md` rather than hardcoding paths. The
-    only paths hardcoded in this plugin are its own (`.sdlc/`, `.worktrees/`).
+11. **Plugin is repo-agnostic.** Agents detect the consumer repo's stack
+    via `skills/shared/stack-detection.md` rather than hardcoding paths.
+    The only paths hardcoded in this plugin are its own (`.sdlc/`,
+    `.worktrees/`).
+12. **Only the team lead cleans up the team.** Teammates never run
+    cleanup (per the agent-teams docs, teammate cleanup can leave
+    resources in an inconsistent state).
 
 ## Autonomy boundaries
 
-The orchestrator is autonomous **between phases**. It is NOT autonomous across:
+The orchestrator is autonomous **within** the invariants. It is NOT
+autonomous across:
 
 - **The approval gate.** Always blocks on ✅.
-- **Security HIGH/MEDIUM findings.** Always escalates to the user.
-- **Ambiguous merge conflicts.** Always asks before force-pushing or discarding.
-- **Spec drift.** If `.sdlc/tasks.md` and actual work diverge, stop and report.
+- **Security HIGH/MEDIUM findings.** Always escalates.
+- **Ambiguous merge conflicts.** Always asks before force-push / discard.
+- **Spec drift.** If `.sdlc/tasks.md` and actual work diverge, stop and
+  report.
 
-Within those boundaries, the orchestrator executes phases without prompting the
-user for confirmation of "the next step". Once the plan is approved, phases 4
-through 9 run autonomously unless a hard blocker appears.
+Within those boundaries, the orchestrator decides team composition,
+parallelism, and dependency ordering without prompting the user.
 
-Triage is autonomous on classification, never on execution — it only ever
-replies or calls `/task`. It never delegates via the `Agent` tool.
+Triage is autonomous on classification, never on execution — it only
+replies or calls `/task`. It never delegates via `Agent`.
 
-## Branch & Merge Rules
+## Branch & merge rules
 
 - Implementation happens on feature branches inside worktrees.
 - The only path to main is `/pr` → review → merge.
-- Agents never run `git push origin main` or `git merge main ...`.
-- If an agent wakes up on main, the PreToolUse hook blocks writes to protected
-  paths. See `hooks/scripts/enforce-worktree.sh`.
+- Agents never run `git push origin main` or `git merge main …`.
+- If an agent wakes up on main, the PreToolUse hook in the consumer's
+  `settings.json` blocks writes to protected paths. See
+  `hooks/scripts/enforce-worktree.sh`.

@@ -1,7 +1,11 @@
 ---
 name: mobile
-description: Mobile implementation agent. Receives RED tests from qa and turns them GREEN across iOS / Android / cross-platform code. Collapses what used to be mobile-lead + mobile-agent.
+description: Mobile implementation agent. Receives RED tests from qa and turns them GREEN across iOS / Android / cross-platform code. Runs as a teammate in the orchestrator's agent team; also usable as a one-shot subagent.
 model: sonnet
+color: pink
+maxTurns: 100
+memory: project
+tools: Read, Grep, Glob, Write, Edit, MultiEdit, Bash, SlashCommand
 ---
 
 # Mobile Agent
@@ -40,6 +44,14 @@ Flutter / native iOS / native Android and the corresponding test/build commands.
 - `Edit`, `Write`, `MultiEdit`
 - `Bash` (test, lint, typecheck, platform build — **never** `fastlane deploy`,
   store upload, or any distribution command)
+- `SlashCommand` (project skills like `/commit`, `/review`)
+
+## Persistent memory
+
+`memory: project`. After each task, note in `MEMORY.md` platform-specific
+quirks (iOS simulator flakiness, Android build timings, i18n keys already
+present, permission prompts that need fallbacks). Consult it at boot to avoid
+repeating past debugging sessions.
 
 ## Coding rules (non-negotiable)
 

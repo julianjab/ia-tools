@@ -55834,6 +55834,14 @@ function createApiServer(registry2, startedAt2, getSocketStatus) {
       }
       return;
     }
+    if (req.method === "POST" && path === "/shutdown") {
+      log("[api] /shutdown requested \u2014 exiting");
+      json(res, 200, { status: "shutting-down", pid: process.pid });
+      res.on("finish", () => {
+        setImmediate(() => process.exit(0));
+      });
+      return;
+    }
     if (req.method === "GET" && path === "/health") {
       const health = {
         status: "ok",
@@ -55871,6 +55879,14 @@ var startedAt = Date.now();
 var socketStatus = "disconnected";
 var entrypoint = fileURLToPath2(import.meta.url);
 log(`[daemon] starting \u2014 pid=${process.pid} port=${port} entrypoint=${entrypoint} log=${resolvedPath}`);
+var spawnerSession = process.env.DAEMON_SPAWNER_SESSION;
+if (spawnerSession) {
+  log(
+    `[daemon] spawned by mcp \u2014 session=${spawnerSession} pid=${process.env.DAEMON_SPAWNER_PID ?? "?"} ppid=${process.env.DAEMON_SPAWNER_PPID ?? "?"} cwd=${process.env.DAEMON_SPAWNER_CWD ?? "?"} ts=${process.env.DAEMON_SPAWNER_TS ?? "?"}`
+  );
+} else {
+  log("[daemon] spawned manually (no DAEMON_SPAWNER_* env)");
+}
 var api = createApiServer(registry, startedAt, () => socketStatus);
 await new Promise((resolveListen, rejectListen) => {
   const onError = (err) => {

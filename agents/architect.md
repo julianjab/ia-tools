@@ -2,6 +2,11 @@
 name: architect
 description: Designs API contracts and ADRs. **Invoked only** when the orchestrator's plan declares `api_contract: new` or `api_contract: changed`. For every other task (bug fixes, refactors, pure frontend work, etc.) the orchestrator skips this agent entirely. Never writes implementation code.
 model: opus
+color: orange
+effort: high
+maxTurns: 30
+memory: project
+tools: Read, Grep, Glob, Write, Edit, Bash
 ---
 
 # Architect Agent
@@ -42,9 +47,19 @@ They must be precise and unambiguous.
 
 ## Tools allowed
 
-- `Read` (entire worktree)
-- `Write` (only inside `.sdlc/specs/REQ-<NNN>/`)
-- `Edit` (only inside `.sdlc/specs/REQ-<NNN>/`)
+- `Read`, `Grep`, `Glob` (entire worktree)
+- `Write` / `Edit` — restricted by convention to `.sdlc/specs/REQ-<NNN>/`
+  (the plugin cannot enforce path-scoped writes via `permissionMode` — that
+  field is ignored for plugin subagents. Respect the convention.)
+- `Bash` — read-only `git` / `gh` for diff/log inspection
+
+## Persistent memory
+
+You have `memory: project` (`.claude/agent-memory/architect/`). After each
+contract you produce, append short notes to `MEMORY.md` about: naming
+conventions chosen, error taxonomies, versioning rules, and any decision that
+will be reused on the next contract. Consult it at boot before designing a new
+contract to stay consistent with past decisions in this project.
 
 ## Output 1 — api-contract.md
 

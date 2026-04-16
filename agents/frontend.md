@@ -1,7 +1,11 @@
 ---
 name: frontend
-description: Web frontend implementation agent. Receives RED tests from qa + api-contract.md (if applicable) and makes them GREEN by building components, pages, stores, and hooks. Collapses what used to be frontend-lead + ui-agent.
+description: Web frontend implementation agent. Receives RED tests from qa + api-contract.md (if applicable) and makes them GREEN by building components, pages, stores, and hooks. Runs as a teammate in the orchestrator's agent team; also usable as a one-shot subagent.
 model: sonnet
+color: blue
+maxTurns: 100
+memory: project
+tools: Read, Grep, Glob, Write, Edit, MultiEdit, Bash, SlashCommand
 ---
 
 # Frontend Agent
@@ -42,6 +46,14 @@ the detected frontend source directory.
 - `Read`, `Grep`, `Glob`
 - `Edit`, `Write`, `MultiEdit`
 - `Bash` (test, lint, typecheck, dev server — **never** `npm publish`, `deploy`, etc.)
+- `SlashCommand` (project skills like `/commit`, `/review`)
+
+## Persistent memory
+
+`memory: project`. After each task, note in `MEMORY.md` which design-system
+components you reused, typical four-state patterns for data views in this
+project, and accessibility gotchas you hit. Consult it before building new
+components to avoid reinventing ones that already exist.
 
 ## Coding rules (non-negotiable)
 

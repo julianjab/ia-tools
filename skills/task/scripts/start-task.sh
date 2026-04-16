@@ -109,12 +109,42 @@ else
     git -C "$REPO_ROOT" worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "origin/${BASE_BRANCH}"
   fi
 
-  # Copy .claude/ so the sub-session has the same hooks/skills/config
-  if [ -d "${REPO_ROOT}/.claude" ] && [ ! -d "${WORKTREE_PATH}/.claude" ]; then
-    cp -r "${REPO_ROOT}/.claude" "${WORKTREE_PATH}/.claude"
-  fi
-
   ok "Worktree created: $WORKTREE_PATH"
+fi
+
+# ── 3b. Write a clean .claude/settings.json for the worktree ────────────────
+# The worktree does NOT inherit ${REPO_ROOT}/.claude. Instead we write a
+# minimal settings.json with a fixed, explicit env block. Every key is
+# always present; missing values default to an empty string so the shape of
+# the file never changes between modes. Any Claude session that boots in
+# this worktree (the initial tmux launch, /resume, a manual `claude`
+# relaunch) reads these from the file.
+#
+# OAuth tokens are deliberately NOT persisted here — they stay in the user's
+# global Claude config and are inherited at runtime.
+mkdir -p "${WORKTREE_PATH}/.claude"
+SETTINGS_FILE="${WORKTREE_PATH}/.claude/settings.json"
+
+cat > "$SETTINGS_FILE" <<EOF
+{
+  "env": {
+    "IA_TOOLS_ROLE": "orchestrator",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "SLACK_THREAD_TS": "${SLACK_THREAD_TS}",
+    "SLACK_CHANNEL_ID": "${SLACK_CHANNEL_ID}",
+    "SLACK_CHANNELS": "${SLACK_CHANNEL_ID}"
+  },
+  "disabledPlugins": ["slack@claude-plugins-official"]
+}
+EOF
+ok "Wrote ${SETTINGS_FILE}"
+
+# ── 3c. Resolve OAuth token for the tmux launch command (not persisted) ────
+AGENT_TOKEN="${CLAUDE_TEAM_OAUTH_TOKEN:-${CLAUDE_CODE_OAUTH_TOKEN:-}}"
+if [ -n "$AGENT_TOKEN" ]; then
+  ok "OAuth token resolved"
+else
+  warn "No CLAUDE_TEAM_OAUTH_TOKEN — using default auth"
 fi
 
 # ── 4. Seed .sdlc/tasks.md ───────────────────────────────────────────────────
@@ -153,30 +183,16 @@ else
   ok ".sdlc/tasks.md already exists"
 fi
 
-# ── 5. Resolve OAuth token ───────────────────────────────────────────────────
-AGENT_TOKEN="${CLAUDE_TEAM_OAUTH_TOKEN:-${CLAUDE_CODE_OAUTH_TOKEN:-}}"
+# ── 5. Build the Claude launch command ───────────────────────────────────────
+# IA_TOOLS_ROLE, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS and SLACK_* are already
+# in ${WORKTREE_PATH}/.claude/settings.json (step 3b) and load automatically
+# when Claude boots in the worktree CWD. The OAuth token, when available,
+# still travels via the tmux command line — it is NOT persisted on disk.
 if [ -n "$AGENT_TOKEN" ]; then
-  TOKEN_ENV="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN}"
-  ok "OAuth token resolved"
+  CLAUDE_CMD="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN} claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
 else
-  TOKEN_ENV=""
-  warn "No CLAUDE_TEAM_OAUTH_TOKEN — using default auth"
+  CLAUDE_CMD="claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
 fi
-
-# ── 6. Build the Claude launch command ───────────────────────────────────────
-# IA_TOOLS_ROLE=orchestrator is read by hooks/scripts/session-start.sh to
-# inject the orchestrator system prompt. Without this env var, the SessionStart
-# hook defaults to triage (main session behavior).
-# The SessionStart hook derives task mode from the presence of SLACK_THREAD_TS
-# and SLACK_CHANNELS: both set → slack, otherwise → local.
-CLAUDE_ENV="IA_TOOLS_ROLE=orchestrator"
-if [ "$TASK_MODE" = "slack" ]; then
-  CLAUDE_ENV="${CLAUDE_ENV} SLACK_THREAD_TS=${SLACK_THREAD_TS} SLACK_CHANNELS=${SLACK_CHANNEL_ID}"
-fi
-if [ -n "$TOKEN_ENV" ]; then
-  CLAUDE_ENV="${CLAUDE_ENV} ${TOKEN_ENV}"
-fi
-CLAUDE_CMD="${CLAUDE_ENV} claude --dangerously-skip-permissions"
 
 # ── 7. tmux session / window ─────────────────────────────────────────────────
 SESSION="${TMUX_SESSION_NAME:-ia-tools}"

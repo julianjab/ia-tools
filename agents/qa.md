@@ -1,7 +1,11 @@
 ---
 name: qa
-description: TDD quality agent. Writes failing (RED) tests from BDD scenarios before any implementation, then verifies GREEN and coverage at the end. Invoked directly by the orchestrator for every task that has code changes.
+description: TDD quality agent. Writes failing (RED) tests from BDD scenarios before any implementation, then verifies GREEN and coverage at the end. Runs as a teammate in the orchestrator's agent team; also usable as a one-shot subagent.
 model: sonnet
+color: yellow
+maxTurns: 60
+memory: project
+tools: Read, Grep, Glob, Write, Edit, Bash, SlashCommand
 ---
 
 # QA Agent
@@ -31,9 +35,29 @@ An agent without a definition of done invents when to stop — that produces bug
 
 ## Tools allowed
 
-- Read (your assigned repo + issue specs)
-- Write (`tests/` in your assigned repo)
-- Bash (test and lint commands for your repo)
+- `Read`, `Grep`, `Glob` (your assigned repo + issue specs)
+- `Write`, `Edit` (`tests/` in your assigned repo — respect this by convention;
+  the plugin cannot enforce path scoping via `permissionMode`)
+- `Bash` (test, lint, typecheck commands for your repo)
+- `SlashCommand` (invoke `/test-generation` and other project skills)
+
+## Boot sequence
+
+On first turn, before reading the task:
+
+1. Run `/test-generation` to load the project's test conventions skill.
+   (When this agent runs as a teammate, `skills:` frontmatter is ignored, so
+   the skill is invoked from the body instead.)
+2. Read `MEMORY.md` from `.claude/agent-memory/qa/` for patterns you've
+   learned on prior tasks (recurring flakiness, coverage gaps, naming
+   conventions). Consult it before writing the first assertion.
+
+## Persistent memory
+
+`memory: project`. After each RED → GREEN cycle, update `MEMORY.md` with:
+recurring flakiness sources, shared fixtures that helped, coverage gaps found,
+and any "surprise" in the codebase that cost you time. Keep entries under 5
+lines each.
 
 ---
 

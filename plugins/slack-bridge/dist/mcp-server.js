@@ -40875,7 +40875,7 @@ function daemonEntrypoint() {
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, "daemon/index.js");
 }
-function spawnDaemon(port) {
+function spawnDaemon(port, spawner) {
   const logPath = process.env.DAEMON_LOG?.trim() || "/tmp/slack-bridge/daemon-logs.json";
   try {
     mkdirSync2(dirname(logPath), { recursive: true });
@@ -40885,12 +40885,20 @@ function spawnDaemon(port) {
   const child = spawn(process.execPath, [daemonEntrypoint()], {
     detached: true,
     stdio: ["ignore", "ignore", logFd],
-    env: { ...process.env, DAEMON_PORT: String(port) }
+    env: {
+      ...process.env,
+      DAEMON_PORT: String(port),
+      DAEMON_SPAWNER_SESSION: spawner.session,
+      DAEMON_SPAWNER_PID: String(spawner.pid),
+      DAEMON_SPAWNER_PPID: String(spawner.ppid),
+      DAEMON_SPAWNER_CWD: spawner.cwd,
+      DAEMON_SPAWNER_TS: (/* @__PURE__ */ new Date()).toISOString()
+    }
   });
   closeSync(logFd);
   child.unref();
 }
-async function ensureDaemon(daemonUrl) {
+async function ensureDaemon(daemonUrl, spawner, logger2) {
   if (await isHealthy(daemonUrl)) return;
   if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) {
     throw new Error(
@@ -40898,7 +40906,10 @@ async function ensureDaemon(daemonUrl) {
     );
   }
   const port = Number.parseInt(new URL(daemonUrl).port || "3800", 10);
-  spawnDaemon(port);
+  logger2?.log(
+    `spawning daemon \u2014 session=${spawner.session} pid=${spawner.pid} ppid=${spawner.ppid} cwd=${spawner.cwd}`
+  );
+  spawnDaemon(port, spawner);
   const ok = await waitHealthy(daemonUrl, HEALTH_TIMEOUT_MS);
   if (!ok) {
     throw new Error(
@@ -41420,7 +41431,16 @@ var DAEMON_URL = resolveDaemonUrl();
 logger.log(`starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath}`);
 var daemonReady = false;
 try {
-  await ensureDaemon(DAEMON_URL);
+  await ensureDaemon(
+    DAEMON_URL,
+    {
+      session: SESSION_ID,
+      pid: process.pid,
+      ppid: process.ppid,
+      cwd: process.cwd()
+    },
+    logger
+  );
   daemonReady = true;
   try {
     const res = await fetch(`${DAEMON_URL}/health`);
