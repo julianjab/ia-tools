@@ -112,40 +112,65 @@ else
   ok "Worktree created: $WORKTREE_PATH"
 fi
 
-# ── 3b. Write a clean .claude/settings.json for the worktree ────────────────
+# ── 3b. Resolve OAuth token (needed before writing settings.json) ───────────
+AGENT_TOKEN="${CLAUDE_TEAM_OAUTH_TOKEN:-${CLAUDE_CODE_OAUTH_TOKEN:-}}"
+if [ -n "$AGENT_TOKEN" ]; then
+  ok "OAuth token resolved"
+else
+  warn "No CLAUDE_TEAM_OAUTH_TOKEN — using default auth"
+fi
+
+# ── 3c. Write a clean .claude/settings.json for the worktree ────────────────
 # The worktree does NOT inherit ${REPO_ROOT}/.claude — we used to copy it but
 # that coupled every sub-session to whatever was in the repo root at spawn
-# time. Instead we write a minimal settings.json that:
-#   (a) forces CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 so the orchestrator can
-#       create and coordinate teams
-#   (b) disables slack@claude-plugins-official (conflicts with slack-bridge)
-#   (c) in slack mode, persists SLACK_THREAD_TS / SLACK_CHANNEL_ID /
-#       SLACK_CHANNELS so they survive /resume, tmux restarts, and manual
-#       `claude` relaunches inside the worktree
+# time. Instead we write a minimal settings.json that holds every env var the
+# sub-session needs. Any Claude session that boots in this worktree (the
+# initial tmux launch, /resume, a manual `claude` relaunch) reads these from
+# the file instead of relying on the tmux command line.
+#
+# Envs persisted:
+#   IA_TOOLS_ROLE=orchestrator                — read by session-start.sh to
+#                                               inject the orchestrator prompt
+#   CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1    — enables agent teams
+#   SLACK_THREAD_TS / SLACK_CHANNEL_ID /      — slack mode only
+#     SLACK_CHANNELS
+#   CLAUDE_CODE_OAUTH_TOKEN                   — only if resolved in 3b
+#
+# Also disables slack@claude-plugins-official (conflicts with slack-bridge).
 mkdir -p "${WORKTREE_PATH}/.claude"
 SETTINGS_FILE="${WORKTREE_PATH}/.claude/settings.json"
+
+# Build the env block line by line, then emit the final JSON. Keeping it in
+# bash (instead of jq) avoids an extra dependency.
+ENV_LINES=()
+ENV_LINES+=("    \"IA_TOOLS_ROLE\": \"orchestrator\"")
+ENV_LINES+=("    \"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS\": \"1\"")
 if [ "$TASK_MODE" = "slack" ]; then
-  cat > "$SETTINGS_FILE" <<EOF
-{
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "SLACK_THREAD_TS": "${SLACK_THREAD_TS}",
-    "SLACK_CHANNEL_ID": "${SLACK_CHANNEL_ID}",
-    "SLACK_CHANNELS": "${SLACK_CHANNEL_ID}"
-  },
-  "disabledPlugins": ["slack@claude-plugins-official"]
-}
-EOF
-else
-  cat > "$SETTINGS_FILE" <<EOF
-{
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
-  "disabledPlugins": ["slack@claude-plugins-official"]
-}
-EOF
+  ENV_LINES+=("    \"SLACK_THREAD_TS\": \"${SLACK_THREAD_TS}\"")
+  ENV_LINES+=("    \"SLACK_CHANNEL_ID\": \"${SLACK_CHANNEL_ID}\"")
+  ENV_LINES+=("    \"SLACK_CHANNELS\": \"${SLACK_CHANNEL_ID}\"")
 fi
+if [ -n "$AGENT_TOKEN" ]; then
+  ENV_LINES+=("    \"CLAUDE_CODE_OAUTH_TOKEN\": \"${AGENT_TOKEN}\"")
+fi
+
+# Join with ",\n"
+ENV_BLOCK=""
+for i in "${!ENV_LINES[@]}"; do
+  if [ "$i" -gt 0 ]; then
+    ENV_BLOCK+=$',\n'
+  fi
+  ENV_BLOCK+="${ENV_LINES[$i]}"
+done
+
+cat > "$SETTINGS_FILE" <<EOF
+{
+  "env": {
+${ENV_BLOCK}
+  },
+  "disabledPlugins": ["slack@claude-plugins-official"]
+}
+EOF
 ok "Wrote ${SETTINGS_FILE}"
 
 # ── 4. Seed .sdlc/tasks.md ───────────────────────────────────────────────────
@@ -184,30 +209,12 @@ else
   ok ".sdlc/tasks.md already exists"
 fi
 
-# ── 5. Resolve OAuth token ───────────────────────────────────────────────────
-AGENT_TOKEN="${CLAUDE_TEAM_OAUTH_TOKEN:-${CLAUDE_CODE_OAUTH_TOKEN:-}}"
-if [ -n "$AGENT_TOKEN" ]; then
-  TOKEN_ENV="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN}"
-  ok "OAuth token resolved"
-else
-  TOKEN_ENV=""
-  warn "No CLAUDE_TEAM_OAUTH_TOKEN — using default auth"
-fi
-
-# ── 6. Build the Claude launch command ───────────────────────────────────────
-# IA_TOOLS_ROLE=orchestrator is read by hooks/scripts/session-start.sh to
-# inject the orchestrator system prompt. Without this env var, the SessionStart
-# hook defaults to triage (main session behavior).
-# The SessionStart hook derives task mode from the presence of SLACK_THREAD_TS
-# and SLACK_CHANNELS: both set → slack, otherwise → local.
-CLAUDE_ENV="IA_TOOLS_ROLE=orchestrator"
-if [ "$TASK_MODE" = "slack" ]; then
-  CLAUDE_ENV="${CLAUDE_ENV} SLACK_THREAD_TS=${SLACK_THREAD_TS} SLACK_CHANNELS=${SLACK_CHANNEL_ID}"
-fi
-if [ -n "$TOKEN_ENV" ]; then
-  CLAUDE_ENV="${CLAUDE_ENV} ${TOKEN_ENV}"
-fi
-CLAUDE_CMD="${CLAUDE_ENV} claude --dangerously-skip-permissions"
+# ── 5. Build the Claude launch command ───────────────────────────────────────
+# All env vars (IA_TOOLS_ROLE, SLACK_*, CLAUDE_CODE_*, OAuth token) are
+# persisted in ${WORKTREE_PATH}/.claude/settings.json (see step 3c). They are
+# loaded automatically when Claude boots in the worktree CWD, so the launch
+# command is just `claude`.
+CLAUDE_CMD="claude --dangerously-skip-permissions"
 
 # ── 7. tmux session / window ─────────────────────────────────────────────────
 SESSION="${TMUX_SESSION_NAME:-ia-tools}"
