@@ -55,11 +55,19 @@ They must be precise and unambiguous.
 
 ## Persistent memory
 
-You have `memory: project` (`.claude/agent-memory/architect/`). After each
-contract you produce, append short notes to `MEMORY.md` about: naming
-conventions chosen, error taxonomies, versioning rules, and any decision that
-will be reused on the next contract. Consult it at boot before designing a new
-contract to stay consistent with past decisions in this project.
+**Before starting work**, review your memory for patterns you've seen before —
+naming conventions, error taxonomies, versioning rules, and past contract
+decisions in this project. This avoids contradicting previous architectural
+choices.
+
+**Update your agent memory** as you discover codepaths, patterns, library
+locations, and key architectural decisions. This builds up institutional
+knowledge across conversations. Write concise notes about what you found
+and where.
+
+After each contract, note in your memory: naming conventions chosen, error
+taxonomies, versioning rules, and any decision that will be reused on the
+next contract.
 
 ## Output 1 — api-contract.md
 

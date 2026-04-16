@@ -44,7 +44,7 @@ prompt, so you already know it; this section spells out the rule:
 
 ## Prerequisites
 
-You are running inside a worktree whose `.claude/settings.json` sets
+You are running inside a worktree whose `.claude/settings.local.json` sets
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (written by `start-task.sh`). If
 that flag is missing, agent teams will be unavailable and you must fall
 back to invoking specialists via the `Agent` tool as one-shot subagents.
@@ -330,7 +330,7 @@ encountered. Consult it at boot to reuse past composition decisions.
   set by `/task` (`IA_TOOLS_ROLE=orchestrator`, plus `SLACK_THREAD_TS` /
   `SLACK_CHANNELS` in slack mode — their presence is the mode switch;
   plus `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` from the generated
-  `.claude/settings.json`)
+  `.claude/settings.local.json`)
 - **Output**: a PR in the consumer repo, GREEN tests + security APPROVED.
   Slack mode additionally leaves a thread documenting the entire flow.
 - **Side effect**: one worktree, one tmux window, one agent team (created

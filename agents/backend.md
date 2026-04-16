@@ -53,11 +53,18 @@ this plugin is installed in many repos. You MUST:
 
 ## Persistent memory
 
-`memory: project`. After each task, append to `MEMORY.md` in
-`.claude/agent-memory/backend/`: stack quirks you discovered, test command
+**Before starting work**, review your memory for patterns you've seen before —
+stack quirks, test commands, folder layout conventions, and non-obvious details
+from past tasks in this project.
+
+**Update your agent memory** as you discover codepaths, patterns, library
+locations, and key architectural decisions. This builds up institutional
+knowledge across conversations. Write concise notes about what you found
+and where.
+
+After each task, note in your memory: stack quirks you discovered, test command
 invocations that work, folder layout conventions for this project, and any
-"non-obvious" detail that saved you time. Consult it before starting a new
-task on the same project.
+"non-obvious" detail that saved you time.
 
 ## DDD layering (non-negotiable — enforces testability)
 

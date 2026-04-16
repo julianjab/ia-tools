@@ -48,10 +48,18 @@ Flutter / native iOS / native Android and the corresponding test/build commands.
 
 ## Persistent memory
 
-`memory: project`. After each task, note in `MEMORY.md` platform-specific
-quirks (iOS simulator flakiness, Android build timings, i18n keys already
-present, permission prompts that need fallbacks). Consult it at boot to avoid
-repeating past debugging sessions.
+**Before starting work**, review your memory for patterns you've seen before —
+platform quirks, build timings, i18n keys, and permission prompt fallbacks
+from past tasks in this project.
+
+**Update your agent memory** as you discover codepaths, patterns, library
+locations, and key architectural decisions. This builds up institutional
+knowledge across conversations. Write concise notes about what you found
+and where.
+
+After each task, note in your memory: platform-specific quirks (iOS simulator
+flakiness, Android build timings, i18n keys already present, permission prompts
+that need fallbacks).
 
 ## Coding rules (non-negotiable)
 

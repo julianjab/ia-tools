@@ -50,10 +50,18 @@ the detected frontend source directory.
 
 ## Persistent memory
 
-`memory: project`. After each task, note in `MEMORY.md` which design-system
-components you reused, typical four-state patterns for data views in this
-project, and accessibility gotchas you hit. Consult it before building new
-components to avoid reinventing ones that already exist.
+**Before starting work**, review your memory for patterns you've seen before —
+existing design-system components, data-view state patterns, and accessibility
+gotchas in this project. This avoids reinventing components that already exist.
+
+**Update your agent memory** as you discover codepaths, patterns, library
+locations, and key architectural decisions. This builds up institutional
+knowledge across conversations. Write concise notes about what you found
+and where.
+
+After each task, note in your memory: which design-system components you
+reused, typical four-state patterns for data views in this project, and
+accessibility gotchas you hit.
 
 ## Coding rules (non-negotiable)
 

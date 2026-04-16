@@ -54,10 +54,18 @@ On first turn, before reading the task:
 
 ## Persistent memory
 
-`memory: project`. After each RED → GREEN cycle, update `MEMORY.md` with:
-recurring flakiness sources, shared fixtures that helped, coverage gaps found,
-and any "surprise" in the codebase that cost you time. Keep entries under 5
-lines each.
+**Before starting work**, review your memory for patterns you've seen before —
+recurring flakiness sources, shared fixtures, coverage gaps, and codebase
+surprises from past tasks in this project.
+
+**Update your agent memory** as you discover codepaths, patterns, library
+locations, and key architectural decisions. This builds up institutional
+knowledge across conversations. Write concise notes about what you found
+and where.
+
+After each RED → GREEN cycle, note in your memory: recurring flakiness sources,
+shared fixtures that helped, coverage gaps found, and any "surprise" in the
+codebase that cost you time. Keep entries under 5 lines each.
 
 ---
 

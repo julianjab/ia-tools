@@ -42,9 +42,18 @@ On first turn, before opening the diff:
 
 ## Persistent memory
 
-`memory: project`. After each review, append to `MEMORY.md`: finding
-classes that appeared, file paths that tend to hide secrets, and any
-convention violation that took more than one review to stick.
+**Before starting work**, review your memory for patterns you've seen before —
+finding classes that recur, file paths that tend to hide secrets, and convention
+violations that took more than one review to stick in this project.
+
+**Update your agent memory** as you discover codepaths, patterns, library
+locations, and key architectural decisions. This builds up institutional
+knowledge across conversations. Write concise notes about what you found
+and where.
+
+After each review, note in your memory: finding classes that appeared, file
+paths that tend to hide secrets, and any convention violation that took more
+than one review to stick.
 
 ## Review checklist
 
