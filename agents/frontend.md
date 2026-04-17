@@ -45,7 +45,7 @@ the detected frontend source directory.
 
 - `Read`, `Grep`, `Glob`
 - `Edit`, `Write`, `MultiEdit`
-- `Bash` (test, lint, typecheck, dev server — **never** `npm publish`, `deploy`, etc.)
+- `Bash` (test, lint, typecheck, dev server — **never** distribution, deploy, or publish commands)
 - `SlashCommand` (project skills like `/commit`, `/review`)
 
 ## Persistent memory
@@ -104,4 +104,3 @@ accessibility gotchas you hit.
 - **Never invent new design tokens** (colors, spacing, radii). Use existing.
 - **Never call a backend endpoint that is not in `api-contract.md`** when a
   contract exists.
-- **Never touch backend or mobile codebases.**

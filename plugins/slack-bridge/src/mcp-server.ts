@@ -6,8 +6,8 @@
  * Lightweight MCP server that:
  * 1. Subscribes to the slack-daemon for message routing
  * 2. Receives webhooks and pushes notifications to Claude
- * 3. Exposes tools: subscribe_slack, unsubscribe_slack, claim_message, reply_slack,
- *    read_thread, read_channel, list_slack_channels
+ * 3. Exposes tools: subscribe_slack, unsubscribe_slack, claim_message, reply,
+ *    read_thread, read_channel, list_channels
  *
  * The daemon must be started separately:
  *   SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... pnpm --filter @ia-tools/slack-bridge daemon
@@ -74,7 +74,7 @@ export class McpBridgeServer {
         instructions: [
           'Slack messages arrive as channel notifications with source="slack-bridge".',
           'When you want to respond to a message, FIRST call claim_message with the message_ts.',
-          'If the claim succeeds, call reply_slack. If it fails, another session already claimed it — do nothing.',
+          'If the claim succeeds, call reply. If it fails, another session already claimed it — do nothing.',
           'Reply routing priority: (1) if thread_ts is present, always reply in the thread;',
           '(2) if is_dm=true and no thread_ts, reply directly to the DM — omit thread_ts;',
           '(3) otherwise reply to the channel.',
@@ -164,7 +164,7 @@ export class McpBridgeServer {
           },
         },
         {
-          name: 'reply_slack',
+          name: 'reply',
           description:
             'Reply to a Slack message. Only call after a successful claim. ' +
             'Reply routing: (1) thread_ts present → always reply in thread; ' +
@@ -215,7 +215,7 @@ export class McpBridgeServer {
           },
         },
         {
-          name: 'list_slack_channels',
+          name: 'list_channels',
           description: 'List Slack channels the bot is a member of.',
           inputSchema: { type: 'object' as const, properties: {} },
         },
@@ -234,19 +234,19 @@ export class McpBridgeServer {
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     if (name === 'subscribe_slack') {
-      return this.handleSubscribeSlack(args);
+      return this.handleSubscribe(args);
     }
 
     if (name === 'unsubscribe_slack') {
-      return this.handleUnsubscribeSlack();
+      return this.handleUnsubscribe();
     }
 
     if (name === 'claim_message') {
       return this.handleClaimMessage(args);
     }
 
-    if (name === 'reply_slack') {
-      return this.handleReplySlack(args);
+    if (name === 'reply') {
+      return this.handleReply(args);
     }
 
     if (name === 'read_thread') {
@@ -257,14 +257,14 @@ export class McpBridgeServer {
       return this.handleReadChannel(args);
     }
 
-    if (name === 'list_slack_channels') {
-      return this.handleListSlackChannels();
+    if (name === 'list_channels') {
+      return this.handleListChannels();
     }
 
     throw new Error(`Unknown tool: ${name}`);
   }
 
-  private async handleSubscribeSlack(
+  private async handleSubscribe(
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     try {
@@ -316,7 +316,7 @@ export class McpBridgeServer {
     }
   }
 
-  private async handleUnsubscribeSlack(): Promise<{
+  private async handleUnsubscribe(): Promise<{
     content: Array<{ type: 'text'; text: string }>;
   }> {
     if (this.daemonClient) {
@@ -350,7 +350,7 @@ export class McpBridgeServer {
     }
   }
 
-  private async handleReplySlack(args: Record<string, unknown>): Promise<{
+  private async handleReply(args: Record<string, unknown>): Promise<{
     content: Array<{ type: 'text'; text: string }>;
     isError?: boolean;
   }> {
@@ -411,7 +411,7 @@ export class McpBridgeServer {
     }
   }
 
-  private async handleListSlackChannels(): Promise<{
+  private async handleListChannels(): Promise<{
     content: Array<{ type: 'text'; text: string }>;
     isError?: boolean;
   }> {

@@ -1,30 +1,30 @@
 ---
-name: task
+name: session
 description: >
   Open a dedicated sub-session for a single task. Creates a git worktree,
   seeds `.sdlc/tasks.md`, opens a Claude Code instance in a tmux window
   booted with the `orchestrator` system prompt. Supports two modes:
-  **slack** (subscribed to a Slack thread — used by `triage`) and
-  **local** (no Slack — used when a human runs `/task` directly from a
+  **slack** (subscribed to a Slack thread — used by `session-manager`) and
+  **local** (no Slack — used when a human runs `/session` directly from a
   main session). The mode is determined by whether `--thread`/`--channel`
   are passed.
   Examples:
-    `/task feat/google-login --thread 1728591234.001 --channel C07815S0XNX --description "arregla el login de Google"`
-    `/task feat/refactor-foo --description "refactorea el módulo foo"`
-    `/task review/pr-42 --review 42`
+    `/session feat/google-login --thread 1728591234.001 --channel C07815S0XNX --description "arregla el login de Google"`
+    `/session feat/refactor-foo --description "refactorea el módulo foo"`
+    `/session review/pr-42 --review 42`
 argument-hint: "<branch-name> [--thread <ts> --channel <id>] [--description <text>] [--review <pr>] [--base main]"
 disable-model-invocation: false
 ---
 
-## /task — Open a Task Sub-session
+## /session — Open a Sub-session
 
-`/task` opens a worktree + tmux window + Claude Code sub-session booted with the
+`/session` opens a worktree + tmux window + Claude Code sub-session booted with the
 orchestrator system prompt. It runs in one of two modes:
 
-| Mode    | How it is triggered                                                                                              | Communication                                                     |
-|---------|------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| `slack` | `triage` calls `/task` after classifying an incoming Slack message as `change`, passing `--thread` + `--channel` | Orchestrator publishes plan, approvals, and PR links in the thread |
-| `local` | A human runs `/task` directly from a Claude Code main session, without Slack flags                              | Orchestrator prints the plan in the sub-session and blocks on `AskUserQuestion` |
+| Mode    | How it is triggered                                                                                                    | Communication                                                     |
+|---------|------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| `slack` | `session-manager` calls `/session` after classifying a Slack message as `change`, passing `--thread` + `--channel` | Orchestrator publishes plan, approvals, and PR links in the thread |
+| `local` | A human runs `/session` directly from a Claude Code main session, without Slack flags                              | Orchestrator prints the plan in the sub-session and blocks on `AskUserQuestion` |
 
 The mode is detected by the presence of `--thread` AND `--channel`. Both must
 be set (slack mode), or both omitted (local mode). Mixing is rejected.
@@ -35,21 +35,23 @@ open a new one.
 ## Contract
 
 ```
-/task <branch-name>
-      [--thread <slack-ts> --channel <slack-channel-id>]
-      [--description "<raw user message>"]
-      [--review <pr-number>]
-      [--base main]
+/session <branch-name>
+         [--thread <slack-ts> --channel <slack-channel-id>]
+         [--description "<raw user message>"]
+         [--review <pr-number>]
+         [--base <branch>]
+         [--resume-from <path-to-.sessions/<label>/>]
 ```
 
 | Flag | Required? | Purpose |
 |------|-----------|---------|
-| `<branch-name>` | ✅ | The branch to create (e.g., `feat/google-login`). In slack mode triage derived it; in local mode the user or caller provides it. |
+| `<branch-name>` | ✅ | The branch to create (e.g., `feat/google-login`). In slack mode session-manager derived it; in local mode the user or caller provides it. |
 | `--thread <ts>` | Slack mode only | Slack thread timestamp. Must be paired with `--channel`. |
 | `--channel <id>` | Slack mode only | Slack channel containing the thread. Must be paired with `--thread`. |
 | `--description "<text>"` | Either this or `--review` | Free-text description of what to do (passed into the boot prompt as context). |
 | `--review <pr>` | Either this or `--description` | PR number to review. Creates branch `review/pr-<N>` tracking that PR. |
-| `--base <branch>` | ❌ | Base branch for the worktree. Defaults to `main`, falls back to `master`. |
+| `--base <branch>` | ❌ | Base branch for the worktree. Defaults to `main`, falls back to `master`. Passed to `/worktree init`. |
+| `--resume-from <path>` | ❌ | Activates **resume-from mode**. `start-session.sh` SKIPS worktree creation and launches the orchestrator with CWD = consumer repo root (derived from `<path>`, which is `<consumer-repo-root>/.sessions/<label>/`). The orchestrator reads `<path>/plan-draft.md` as the Phase 1 seed. The approval gate still runs. |
 
 **Rules:**
 
@@ -58,11 +60,34 @@ open a new one.
 - If neither is set, `/task` runs in local mode and skips every slack-bridge
   call.
 
-## What /task does, in order
+## Operating modes
+
+| Mode | How triggered | Worktree | CWD of orchestrator |
+|------|--------------|----------|---------------------|
+| Standard (single-repo) | No `--resume-from` | Created via `/worktree init` | The new worktree |
+| Resume-from (multi-repo) | `--resume-from <path>` + `<path>/plan-draft.md` exists | NOT created (skipped) | Consumer repo root |
+
+In **resume-from mode**, the orchestrator runs in the consumer repo root
+(e.g. `/Users/julianbuitrago/development/lahaus/`) and creates N worktrees
+(one per target repo) via `/worktree init --repo <path>`. It coordinates
+stack teammates, each assigned to one worktree.
+
+## What /session does, in order
 
 1. **Validate inputs** (see contract above). Reject mixed Slack flags.
 
-2. **Create the worktree** via `/worktree init <branch-name> --base <base>`.
+2. **If `--resume-from <path>` is set** (resume-from mode):
+   - Verify `<path>/plan-draft.md` exists. If not, reject.
+   - Derive `<consumer-repo-root>` = `git -C <path>/../.. rev-parse --show-toplevel`
+     (the file lives at `<root>/.sessions/<label>/`, two parent levels up).
+   - SKIP worktree creation. SKIP `.sdlc/tasks.md` seeding.
+   - Set `TMUX_CWD = <consumer-repo-root>`.
+   - Set `IA_TOOLS_SESSION_DIR = <path>`.
+   - Continue from step 3b (write `.claude/settings.local.json`).
+
+   **If `--resume-from` is NOT set** (standard single-repo mode):
+
+2b. **Create the worktree** via `/worktree init <branch-name> --base <base>`.
    - If `--review <pr>` was passed, use `--review` mode instead.
    - Reuse the existing `/worktree` skill — do NOT duplicate its logic.
 
@@ -70,7 +95,7 @@ open a new one.
    on mode:
 
    ```markdown
-   # Task: <branch-name>
+   # Session: <branch-name>
 
    **Mode**: <slack|local>
    **Slack thread**: <channel>/<thread-ts>     ← slack mode
@@ -84,23 +109,23 @@ open a new one.
 
    ## Plan
 
-   _(The orchestrator will fill this in during Phase 1 and either publish it to
-   Slack (slack mode) or print it in the sub-session (local mode).)_
+   _(The orchestrator fills this in during Phase 1 and either publishes it to
+   Slack (slack mode) or prints it in the sub-session (local mode).)_
    ```
 
 4. **Post a Slack announcement** (slack mode only, via slack-bridge MCP):
 
    ```
-   reply_slack(
+   reply(
      thread_ts="<slack-ts>",
      channel="<slack-channel>",
-     text="🚀 Abriendo sub-sesión para `<branch-name>`.\n\nWorktree: `.worktrees/<dir-name>`\nEspera el plan en este hilo."
+     text="🚀 Abriendo sesión para `<branch-name>`.\n\nWorktree: `.worktrees/<dir-name>`\nEspera el plan en este hilo."
    )
    ```
 
    In local mode this step is skipped entirely — no MCP call.
 
-5. **Delegate to `skills/task/scripts/start-task.sh`**, which:
+5. **Delegate to `skills/session/scripts/start-session.sh`**, which:
    - Opens (or reuses) a tmux session
    - Creates a new window named after the branch, CWD = worktree path
    - Launches `claude --dangerously-skip-permissions` inside, with env vars:
@@ -111,7 +136,7 @@ open a new one.
 6. **Report** back to the caller:
 
    ```
-   ✅ Sub-session started
+   ✅ Session started
      Branch:   <branch-name>
      Mode:     <slack|local>
      Worktree: .worktrees/<dir-name>
@@ -119,15 +144,15 @@ open a new one.
      Slack:    thread=<ts> channel=<id>       ← slack mode only
    ```
 
-   In slack mode `triage` posts a brief confirmation in the thread and forgets
-   the task. In local mode the user attaches to the tmux window to interact
-   with the orchestrator.
+   In slack mode `session-manager` posts a brief confirmation in the thread and
+   forgets the session. In local mode the user attaches to the tmux window to
+   interact with the orchestrator.
 
 ## Boot prompt (injected into the sub-session)
 
 Slack mode:
 ```
-You are the orchestrator of task <branch-name>. Mode: slack.
+You are the orchestrator of session <branch-name>. Mode: slack.
 Your Slack thread: ts=<thread-ts> channel=<channel-id>.
 Your worktree:     <absolute-path>.
 Your task file:    .sdlc/tasks.md (read it first).
@@ -140,7 +165,7 @@ BLOCK on the approval gate until you see a ✅ reaction.
 
 Local mode:
 ```
-You are the orchestrator of task <branch-name>. Mode: local (no Slack).
+You are the orchestrator of session <branch-name>. Mode: local (no Slack).
 Your worktree:     <absolute-path>.
 Your task file:    .sdlc/tasks.md (read it first).
 The user's raw request: <description or "Review PR #N">
@@ -162,7 +187,7 @@ MCP tool.
 | Worktree directory not already in use | If `/worktree init` says "already exists", reuse it and just spawn |
 | `.sdlc/tasks.md` writable inside the worktree | STOP |
 
-## What /task does NOT do
+## What /session does NOT do
 
 - **Does not plan.** Planning is the orchestrator's first phase inside the sub-session.
 - **Does not write specs.** Same — the orchestrator owns `.sdlc/specs/`.
@@ -174,13 +199,16 @@ MCP tool.
 ## Delegate script
 
 ```bash
-bash "$(git rev-parse --show-toplevel)/skills/task/scripts/start-task.sh" \
+bash "$(git rev-parse --show-toplevel)/skills/task/scripts/start-session.sh" \
   "<branch-name>" "<slack-thread-ts-or-empty>" "<slack-channel-id-or-empty>" \
-  "<description-or-review-arg>"
+  "<description-or-review-arg>" "<base-branch-or-empty>" "<resume-from-path-or-empty>"
 ```
 
-Pass empty strings for thread/channel in local mode. The script returns the
-worktree path, tmux session/window, mode, and exit code.
+Pass empty strings for thread/channel in local mode. Pass empty string for
+`--base` to use the default (`main` → `master` fallback). Pass empty string for
+`--resume-from` to use standard single-repo mode. The script returns the
+worktree path (or consumer repo root in resume-from mode), tmux
+session/window, mode, and exit code.
 
 ## Errors and recovery
 
@@ -188,7 +216,7 @@ worktree path, tmux session/window, mode, and exit code.
 |-------|--------|
 | `/worktree init` fails | Abort, do not spawn tmux, do not post to Slack |
 | tmux launch fails | Clean up the worktree (`/worktree cleanup <branch-name>`), report |
-| Slack announcement fails (slack mode) | Still spawn (the thread exists), but warn caller so it can retry the announce |
+| Slack announcement fails (slack mode) | Still spawn (the thread exists), warn caller so it can retry the announce |
 | Boot prompt fails to inject | Kill the tmux window, clean up the worktree, report |
 | Branch already exists as an open worktree | Reuse it — jump straight to step 4 (announce) and step 5 (spawn) without recreating |
 | Only one of `--thread`/`--channel` provided | Reject with clear error — either both or neither |

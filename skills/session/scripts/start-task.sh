@@ -1,0 +1,372 @@
+#!/usr/bin/env bash
+# =============================================================================
+# start-task.sh — Open a full task sub-session.
+#
+# Called by the /task skill, which is called by the session-manager main session
+# when it classifies a Slack message as a `change` intent, or after scope-check
+# returns a `new-session` verdict.
+#
+# Responsibilities:
+#   1. Ensure the git worktree exists (delegates to /worktree init)
+#      — SKIPPED in shared-workspace mode (--resume-from set).
+#   2. Seed .sdlc/tasks.md with a minimal stub
+#      — SKIPPED in shared-workspace mode.
+#   3. Open (or reuse) a tmux session and create a window in the worktree
+#      (or consumer repo root in shared-workspace mode)
+#   4. Launch `claude` inside the window with SLACK_* env vars + orchestrator
+#      role hint, so the SessionStart hook injects the orchestrator system prompt
+#   5. Send the boot prompt to the new Claude instance
+#
+# Usage:
+#   bash start-task.sh <branch-name> <slack-thread-ts|""> <slack-channel-id|""> \
+#                      <description-or-review-flag> [<base-branch|"">] \
+#                      [<resume-from-path|"">]
+#
+# New flags (args 5 and 6):
+#   --base <branch>       Base branch for worktree creation. Defaults to main → master.
+#   --resume-from <path>  Activates shared-workspace mode. <path> must be an
+#                         absolute path to .claude/teams/<label>/. Skips worktree
+#                         creation; orchestrator CWD = consumer repo root.
+#                         Sets IA_TOOLS_TEAMS_DIR=<path> and
+#                         IA_TOOLS_ORCHESTRATOR_MODE=full in settings.local.json.
+#
+# Mode detection (single source of truth: the Slack env vars):
+#   - thread + channel non-empty → SLACK_THREAD_TS / SLACK_CHANNELS exported
+#                                  → orchestrator runs in slack mode
+#   - both empty                 → SLACK_* NOT exported
+#                                  → orchestrator runs in local mode
+#
+# Orchestrator mode detection:
+#   - --resume-from set AND <path>/plan-draft.md exists → shared-workspace mode
+#   - otherwise                                         → standard single-repo mode
+#
+# Examples:
+#   bash start-task.sh feat/google-login 1728591234.001 C07815S0XNX \
+#        "arregla el login de Google"
+#
+#   bash start-task.sh review/pr-42 1728591234.001 C07815S0XNX --review=42
+#
+#   bash start-task.sh feat/refactor-foo "" "" "refactorea el módulo foo"
+#
+#   bash start-task.sh feat/payment-tracking "" "" \
+#        "payment tracking across repos" "main" \
+#        "/Users/julian/development/lahaus/.claude/teams/feat-payment-tracking"
+# =============================================================================
+set -euo pipefail
+
+# ── colors ────────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+log()  { printf "${CYAN}▶${RESET} %s\n" "$1"; }
+ok()   { printf "${GREEN}✓${RESET} %s\n" "$1"; }
+warn() { printf "${YELLOW}⚠${RESET} %s\n" "$1"; }
+die()  { printf "${RED}✗ ERROR:${RESET} %s\n" "$1" >&2; exit 1; }
+
+# JSON-escape helper (inline; no jq dep): escapes \ and " (covers the realistic inputs —
+# paths, Slack TS like "1728591234.001", Slack channel IDs like "C07815S0XNX").
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+BRANCH_NAME="${1:?Usage: start-task.sh <branch-name> <thread-ts|\"\"> <channel-id|\"\"> <description-or-review> [<base-branch|\"\">] [<resume-from-path|\"\">]}"
+SLACK_THREAD_TS="${2:-}"
+SLACK_CHANNEL_ID="${3:-}"
+DESCRIPTION_OR_REVIEW="${4:-}"
+BASE_BRANCH_ARG="${5:-}"
+RESUME_FROM_PATH="${6:-}"
+
+# ── Input validation: reject unsafe characters in user-controlled args ────────
+reject_unsafe_chars() {
+  # $1 = name, $2 = value
+  case "$2" in
+    *$'\n'*|*$'\r'*) die "invalid character (newline/CR) in ${1}";;
+  esac
+  case "$2" in
+    *[$'\0']*) die "invalid character (NUL) in ${1}";;
+  esac
+}
+
+reject_unsafe_chars "branch-name"     "$BRANCH_NAME"
+reject_unsafe_chars "thread-ts"       "$SLACK_THREAD_TS"
+reject_unsafe_chars "channel-id"      "$SLACK_CHANNEL_ID"
+reject_unsafe_chars "description"     "$DESCRIPTION_OR_REVIEW"
+reject_unsafe_chars "resume-from"     "${RESUME_FROM_PATH:-}"
+reject_unsafe_chars "base"            "${BASE_BRANCH_ARG:-}"
+
+# Validate branch name is a valid git ref
+git check-ref-format --branch "$BRANCH_NAME" \
+  >/dev/null 2>&1 \
+  || die "invalid branch name: $BRANCH_NAME"
+
+# Mode: slack if both Slack coords are set, otherwise local.
+if [ -n "$SLACK_THREAD_TS" ] && [ -n "$SLACK_CHANNEL_ID" ]; then
+  TASK_MODE="slack"
+elif [ -z "$SLACK_THREAD_TS" ] && [ -z "$SLACK_CHANNEL_ID" ]; then
+  TASK_MODE="local"
+else
+  printf "ERROR: thread and channel must both be set or both be empty\n" >&2
+  exit 1
+fi
+
+printf "\n${BOLD}/task — Opening sub-session${RESET}\n"
+printf "────────────────────────────────────────────────\n"
+printf "  Branch:  ${CYAN}%s${RESET}\n" "$BRANCH_NAME"
+printf "  Mode:    ${CYAN}%s${RESET}\n" "$TASK_MODE"
+if [ "$TASK_MODE" = "slack" ]; then
+  printf "  Thread:  ${CYAN}%s${RESET}\n" "$SLACK_THREAD_TS"
+  printf "  Channel: ${CYAN}%s${RESET}\n" "$SLACK_CHANNEL_ID"
+fi
+printf "  Input:   ${CYAN}%s${RESET}\n\n" "$DESCRIPTION_OR_REVIEW"
+
+# ── 1. Validate dependencies ─────────────────────────────────────────────────
+log "Checking dependencies..."
+command -v tmux >/dev/null 2>&1 || die "tmux not installed — install via your package manager"
+command -v git  >/dev/null 2>&1 || die "git not available"
+
+if ! command -v claude >/dev/null 2>&1; then
+  for p in "$HOME/.claude/local/claude" "$HOME/.local/bin/claude" "/usr/local/bin/claude"; do
+    if [ -x "$p" ]; then export PATH="$(dirname "$p"):$PATH"; break; fi
+  done
+fi
+command -v claude >/dev/null 2>&1 || die "claude CLI not found (checked PATH and ~/.claude/local/)"
+ok "tmux + git + claude OK"
+
+# ── 2. Resolve repo root ─────────────────────────────────────────────────────
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+DIR_NAME="$(printf '%s' "$BRANCH_NAME" | tr '/' '-')"
+WORKTREE_PATH="${REPO_ROOT}/.worktrees/${DIR_NAME}"
+
+# Determine base branch (arg 5 overrides, then main → master fallback)
+if [ -n "$BASE_BRANCH_ARG" ]; then
+  BASE_BRANCH="$BASE_BRANCH_ARG"
+else
+  BASE_BRANCH="main"
+  git -C "$REPO_ROOT" rev-parse --verify "origin/${BASE_BRANCH}" >/dev/null 2>&1 \
+    || BASE_BRANCH="master"
+fi
+
+# ── 3. Shared-workspace mode vs standard mode ────────────────────────────────
+# Shared-workspace mode: --resume-from set and <path>/plan-draft.md exists.
+# In this mode we skip worktree creation and use the consumer repo root as CWD.
+SHARED_WORKSPACE_MODE="false"
+CONSUMER_REPO_ROOT="$REPO_ROOT"
+TEAMS_DIR=""
+
+if [ -n "$RESUME_FROM_PATH" ]; then
+  # M4: Canonicalise and enforce that the path is under <consumer-repo-root>/.claude/teams/
+  RESUME_FROM_REAL=$(realpath "$RESUME_FROM_PATH" 2>/dev/null \
+    || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$RESUME_FROM_PATH")
+  [ -n "$RESUME_FROM_REAL" ] || die "cannot resolve --resume-from path: $RESUME_FROM_PATH"
+  RESUME_FROM_PATH="$RESUME_FROM_REAL"
+
+  case "$RESUME_FROM_PATH" in
+    */.claude/teams/*) : ;;
+    *) die "--resume-from must be inside a '.claude/teams/' directory (got: $RESUME_FROM_PATH)";;
+  esac
+
+  if [ ! -f "${RESUME_FROM_PATH}/plan-draft.md" ]; then
+    die "--resume-from path does not contain plan-draft.md: ${RESUME_FROM_PATH}/plan-draft.md"
+  fi
+  # Derive consumer repo root: <root>/.claude/teams/<label>/ → three levels up (L3 fix)
+  CONSUMER_REPO_ROOT="$(git -C "${RESUME_FROM_PATH}" rev-parse --show-toplevel 2>/dev/null \
+    || dirname "$(dirname "$(dirname "$RESUME_FROM_PATH")")")"
+  TEAMS_DIR="$RESUME_FROM_PATH"
+  WORKTREE_PATH="$CONSUMER_REPO_ROOT"  # orchestrator CWD = consumer repo root
+  SHARED_WORKSPACE_MODE="true"
+  ok "Shared-workspace mode: orchestrator CWD = ${CONSUMER_REPO_ROOT}"
+  ok "teams_dir = ${TEAMS_DIR}"
+else
+  # Standard single-repo mode: create worktree as before
+  if git -C "$REPO_ROOT" worktree list --porcelain | grep -q "^worktree ${WORKTREE_PATH}$"; then
+    ok "Worktree already exists: $WORKTREE_PATH"
+  else
+    log "Creating worktree..."
+    git -C "$REPO_ROOT" fetch origin >/dev/null 2>&1 || warn "fetch failed (continuing)"
+
+    mkdir -p "${REPO_ROOT}/.worktrees"
+    grep -qxF '.worktrees/' "${REPO_ROOT}/.gitignore" 2>/dev/null \
+      || echo '.worktrees/' >> "${REPO_ROOT}/.gitignore"
+
+    # --review mode creates the branch from the PR ref
+    if [ "${DESCRIPTION_OR_REVIEW#--review=}" != "$DESCRIPTION_OR_REVIEW" ]; then
+      PR_NUMBER="${DESCRIPTION_OR_REVIEW#--review=}"
+      git -C "$REPO_ROOT" fetch origin "pull/${PR_NUMBER}/head:${BRANCH_NAME}" >/dev/null 2>&1 \
+        || die "failed to fetch PR #${PR_NUMBER}"
+      git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" "$BRANCH_NAME"
+    else
+      git -C "$REPO_ROOT" worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "origin/${BASE_BRANCH}"
+    fi
+
+    ok "Worktree created: $WORKTREE_PATH"
+  fi
+fi
+
+# ── 3b. Write settings.local.json ────────────────────────────────────────────
+# In shared-workspace mode: written to <consumer-repo-root>/.claude/ (gitignored).
+# In standard mode: written to the worktree's .claude/ directory.
+#
+# Keys:
+#   IA_TOOLS_ORCHESTRATOR_MODE  — always "full" (scope-check runs inline, not here)
+#   IA_TOOLS_TEAMS_DIR          — set only in shared-workspace mode; empty otherwise
+#   IA_TOOLS_ROLE               — always "orchestrator"
+#   CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS — always "1"
+#   SLACK_*                     — slack mode only; empty string in local mode
+#
+# OAuth tokens are deliberately NOT persisted here — they stay in the user's
+# global Claude config and are inherited at runtime.
+if [ "$SHARED_WORKSPACE_MODE" = "true" ]; then
+  SETTINGS_DIR="${CONSUMER_REPO_ROOT}/.claude"
+else
+  SETTINGS_DIR="${WORKTREE_PATH}/.claude"
+fi
+mkdir -p "$SETTINGS_DIR"
+SETTINGS_FILE="${SETTINGS_DIR}/settings.local.json"
+
+# M1: JSON-escape values that will be interpolated into the JSON heredoc
+TEAMS_DIR_JSON=$(json_escape "$TEAMS_DIR")
+SLACK_THREAD_TS_JSON=$(json_escape "$SLACK_THREAD_TS")
+SLACK_CHANNEL_ID_JSON=$(json_escape "$SLACK_CHANNEL_ID")
+
+cat > "$SETTINGS_FILE" <<EOF
+{
+  "env": {
+    "IA_TOOLS_ROLE": "orchestrator",
+    "IA_TOOLS_ORCHESTRATOR_MODE": "full",
+    "IA_TOOLS_TEAMS_DIR": "${TEAMS_DIR_JSON}",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "SLACK_THREAD_TS": "${SLACK_THREAD_TS_JSON}",
+    "SLACK_CHANNEL_ID": "${SLACK_CHANNEL_ID_JSON}",
+    "SLACK_CHANNELS": "${SLACK_CHANNEL_ID_JSON}"
+  },
+  "disabledPlugins": ["slack@claude-plugins-official"]
+}
+EOF
+ok "Wrote ${SETTINGS_FILE}"
+
+# ── 3c. Resolve OAuth token for the tmux launch command (not persisted) ────
+AGENT_TOKEN="${CLAUDE_TEAM_OAUTH_TOKEN:-${CLAUDE_CODE_OAUTH_TOKEN:-}}"
+if [ -n "$AGENT_TOKEN" ]; then
+  ok "OAuth token resolved"
+else
+  warn "No CLAUDE_TEAM_OAUTH_TOKEN — using default auth"
+fi
+
+# ── 4. Seed .sdlc/tasks.md (skipped in shared-workspace mode) ───────────────
+# In shared-workspace mode the seed is already in <teams_dir>/plan-draft.md.
+if [ "$SHARED_WORKSPACE_MODE" = "true" ]; then
+  ok "Shared-workspace mode: skipping .sdlc/tasks.md seed (plan-draft.md is the seed)"
+else
+  TASKS_FILE="${WORKTREE_PATH}/.sdlc/tasks.md"
+  if [ ! -s "$TASKS_FILE" ]; then
+    mkdir -p "${WORKTREE_PATH}/.sdlc"
+    CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    REQUEST_TEXT="$DESCRIPTION_OR_REVIEW"
+    if [ "${REQUEST_TEXT#--review=}" != "$REQUEST_TEXT" ]; then
+      REQUEST_TEXT="Review PR #${REQUEST_TEXT#--review=}"
+    fi
+
+    if [ "$TASK_MODE" = "slack" ]; then
+      SOURCE_LINE="**Slack thread**: ${SLACK_CHANNEL_ID}/${SLACK_THREAD_TS}"
+    else
+      SOURCE_LINE="**Source**: local (no Slack)"
+    fi
+
+    cat > "$TASKS_FILE" <<EOF
+# Task: ${BRANCH_NAME}
+
+**Mode**: ${TASK_MODE}
+${SOURCE_LINE}
+**Created**: ${CREATED_AT}
+**Status**: PENDING_PLAN
+
+## Request
+
+${REQUEST_TEXT}
+
+## Plan
+
+_(The orchestrator fills this in during Phase 1 and publishes it to
+the Slack thread for approval.)_
+EOF
+    ok "Seeded .sdlc/tasks.md"
+  else
+    ok ".sdlc/tasks.md already exists"
+  fi
+fi
+
+# ── 5. Build the Claude launch command ───────────────────────────────────────
+# IA_TOOLS_ROLE, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS and SLACK_* are already
+# in ${WORKTREE_PATH}/.claude/settings.local.json (step 3b) and load automatically
+# when Claude boots in the worktree CWD. The OAuth token, when available,
+# still travels via the tmux command line — it is NOT persisted on disk.
+if [ -n "$AGENT_TOKEN" ]; then
+  CLAUDE_CMD="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN} claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
+else
+  CLAUDE_CMD="claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
+fi
+
+# ── 7. tmux session / window ─────────────────────────────────────────────────
+SESSION="${TMUX_SESSION_NAME:-ia-tools}"
+WINDOW="$DIR_NAME"
+
+# In shared-workspace mode: orchestrator CWD = consumer repo root.
+# In standard mode: orchestrator CWD = the dedicated worktree.
+if [ "$SHARED_WORKSPACE_MODE" = "true" ]; then
+  TMUX_CWD="$CONSUMER_REPO_ROOT"
+else
+  TMUX_CWD="$WORKTREE_PATH"
+fi
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  if tmux list-windows -t "$SESSION" -F '#W' | grep -qx "$WINDOW"; then
+    warn "Window '$WINDOW' already exists in session '$SESSION' — reusing"
+  else
+    tmux new-window -t "$SESSION" -n "$WINDOW" -c "$TMUX_CWD"
+    ok "Window '$WINDOW' created in existing session '$SESSION'"
+  fi
+else
+  tmux new-session -d -s "$SESSION" -n "$WINDOW" -c "$TMUX_CWD"
+  ok "Session '$SESSION' + window '$WINDOW' created"
+fi
+
+# ── 8. Launch Claude ─────────────────────────────────────────────────────────
+log "Launching Claude in the window..."
+tmux send-keys -t "${SESSION}:${WINDOW}" "$CLAUDE_CMD" Enter
+
+# ── 9. Send boot prompt ──────────────────────────────────────────────────────
+sleep 2
+
+if [ "$SHARED_WORKSPACE_MODE" = "true" ]; then
+  # Shared-workspace boot prompt: orchestrator reads plan-draft.md, approval gate still runs
+  if [ "$TASK_MODE" = "slack" ]; then
+    BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: slack. IA_TOOLS_ORCHESTRATOR_MODE=full. Your Slack thread: ts=${SLACK_THREAD_TS} channel=${SLACK_CHANNEL_ID}. Your CWD is the consumer repo root: ${CONSUMER_REPO_ROOT}. IA_TOOLS_TEAMS_DIR=${TEAMS_DIR}. Read ${TEAMS_DIR}/plan-draft.md as your Phase 1 seed (do NOT start from scratch). Expand the draft into a full plan, publish it to the Slack thread, then BLOCK on the approval gate until you see a ✅ reaction. Approval gate still runs — resume-from seeds the plan, it does NOT skip approval."
+  else
+    BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: local (no Slack). IA_TOOLS_ORCHESTRATOR_MODE=full. Your CWD is the consumer repo root: ${CONSUMER_REPO_ROOT}. IA_TOOLS_TEAMS_DIR=${TEAMS_DIR}. Read ${TEAMS_DIR}/plan-draft.md as your Phase 1 seed (do NOT start from scratch). Expand the draft into a full plan, print it to this session, then BLOCK on the approval gate using AskUserQuestion. Approval gate still runs — resume-from seeds the plan, it does NOT skip approval. Do NOT call any slack-bridge MCP tool."
+  fi
+elif [ "$TASK_MODE" = "slack" ]; then
+  BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: slack. IA_TOOLS_ORCHESTRATOR_MODE=full. Your Slack thread: ts=${SLACK_THREAD_TS} channel=${SLACK_CHANNEL_ID}. Your worktree: ${WORKTREE_PATH}. Read .sdlc/tasks.md first, then follow the pipeline in agents/orchestrator.md starting from the boot sequence. Phase 1 is your first action: build and publish the plan, then BLOCK on the approval gate until you see a ✅ reaction in the thread."
+else
+  BOOT_PROMPT="You are the orchestrator of task ${BRANCH_NAME}. Mode: local (no Slack). IA_TOOLS_ORCHESTRATOR_MODE=full. Your worktree: ${WORKTREE_PATH}. Read .sdlc/tasks.md first, then follow the pipeline in agents/orchestrator.md starting from the boot sequence. Phase 1 is your first action: build and print the plan to this session, then BLOCK on the approval gate using AskUserQuestion — do NOT call any slack-bridge MCP tool."
+fi
+
+tmux send-keys -t "${SESSION}:${WINDOW}" "$BOOT_PROMPT"
+sleep 2
+tmux send-keys -t "${SESSION}:${WINDOW}" Enter
+
+# ── 10. Report ───────────────────────────────────────────────────────────────
+printf "\n"
+ok "Sub-session started"
+printf "\n${BOLD}Sub-session summary:${RESET}\n"
+printf "  Branch:   ${CYAN}%s${RESET}\n" "$BRANCH_NAME"
+printf "  Mode:     ${CYAN}%s${RESET}\n" "$TASK_MODE"
+if [ "$SHARED_WORKSPACE_MODE" = "true" ]; then
+  printf "  Orch CWD: ${CYAN}%s${RESET} (shared-workspace, no dedicated worktree)\n" "$CONSUMER_REPO_ROOT"
+  printf "  Teams dir:${CYAN}%s${RESET}\n" "$TEAMS_DIR"
+else
+  printf "  Worktree: ${CYAN}%s${RESET}\n" "$WORKTREE_PATH"
+fi
+printf "  tmux:     session=${CYAN}%s${RESET} window=${CYAN}%s${RESET}\n" "$SESSION" "$WINDOW"
+if [ "$TASK_MODE" = "slack" ]; then
+  printf "  Slack:    thread=${CYAN}%s${RESET} channel=${CYAN}%s${RESET}\n" "$SLACK_THREAD_TS" "$SLACK_CHANNEL_ID"
+fi
+printf "\nAttach with: ${BOLD}tmux attach -t %s${RESET}\n" "$SESSION"

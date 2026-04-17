@@ -5,36 +5,48 @@
 > **Every change flows through four hard invariants.** Everything else is up
 > to the orchestrator (acting as agent-team lead) to decide at runtime.
 >
-> 1. **Approval gate.** Triage classifies Slack messages; `change` intents
->    call `/task`, which spawns a sub-session. The orchestrator writes the
->    plan to `.sdlc/tasks.md` and **BLOCKS on ✅** (slack) or the `Aprobar`
->    option (local) before touching any code.
+> 1. **Approval gate.** `session-manager` classifies Slack messages; `change`
+>    and `scope-check/new-session` intents call `/session`, which spawns a
+>    sub-session. The orchestrator writes the plan (or expands `plan-draft.md`)
+>    and **BLOCKS on ✅** (slack) or the `Aprobar` option (local) before
+>    touching any code.
 > 2. **QA writes tests first.** No stack teammate leaves plan mode until
 >    `qa` reports `✅ RED confirmed`. Enforced via shared task dependencies
 >    (`stack:* blockedBy qa:red`) and plan-approval-mode on stack teammates.
-> 3. **Security gate.** `security` must return `APPROVED` before `/pr`.
->    `HIGH`/`MEDIUM` findings are blocking and escalate to the user.
->    `LOW`-only findings pass through as PR comments.
-> 4. **`/pr` is the only path to main.** Never `git push origin main`, never
->    local merges into main.
+> 3. **Security APPROVED required per PR (once per touched consumer repo).**
+>    `security` must return `APPROVED` before each PR is opened. The
+>    orchestrator runs security once per worktree, BEFORE telling the teammate
+>    to run `/pr`. `HIGH`/`MEDIUM` findings are blocking and escalate to the
+>    user. `LOW`-only findings pass through as PR comments.
+> 4. **`/pr` is the only path to main — per repo.** Never `git push origin main`,
+>    never local merges into main. Multi-repo sessions produce N PRs (one per
+>    touched consumer repo); each goes through its own security gate.
 >
 > Outside those four rules, the orchestrator decides at runtime what team
 > to spawn, in what order, and with what parallelism — see
-> `agents/orchestrator.md`. This is the April 2026 agent-teams refactor:
-> we deleted the fixed `Phase 2..11` pipeline.
+> `agents/orchestrator.md`.
 >
 > **Two hooks enforce the rules:**
-> - `SessionStart` (`hooks/scripts/session-start.sh`) — injects the triage or
->   orchestrator system prompt based on `IA_TOOLS_ROLE`.
+> - `SessionStart` (`hooks/scripts/session-start.sh`) — injects the session-manager
+>   or orchestrator system prompt based on `IA_TOOLS_ROLE`.
 > - `PreToolUse` (`hooks/scripts/enforce-worktree.sh`) — blocks
 >   `Edit`/`Write`/`MultiEdit` on protected paths when the current branch is
 >   `main`/`master`. If you see `Pipeline violation: you are on main`, run
 >   `/worktree init feat/<name>` — the block is intentional.
 >
+> **Consumer `.gitignore` guidance.** Add these to your consumer repo's root
+> `.gitignore`:
+> ```
+> .worktrees/
+> .sessions/
+> ```
+> `.sessions/` is ephemeral per-session coordination state (scope.md,
+> plan-draft.md, prs.md). Never committed. Same category as `.worktrees/`.
+>
 > **Prerequisite: Claude Code ≥ v2.1.32 with agent teams enabled.** Every
-> sub-session spawned by `/task` gets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-> written to its `<worktree>/.claude/settings.local.json` by `start-task.sh`, so
-> the orchestrator can create and coordinate teams. The same `settings.local.json`
+> sub-session spawned by `/session` gets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+> written to `.claude/settings.local.json` by `start-session.sh`, so the
+> orchestrator can create and coordinate teams. The same `settings.local.json`
 > disables `slack@claude-plugins-official` to avoid conflict with the
 > `slack-bridge` MCP shipped by this plugin.
 
@@ -44,7 +56,7 @@
 
 Centralized AI ecosystem. Ships shared Claude Code agents, skills, hooks, and
 the Slack bridge MCP server as a single plugin. Installed in consumer repos
-where it runs the main triage session and spawns task sub-sessions on demand.
+where it runs the main session-manager session and spawns sub-sessions on demand.
 
 ## Plugin frontmatter limitations (read before editing `agents/*.md`)
 
@@ -69,11 +81,11 @@ as a one-shot subagent, not as a teammate).
 
 ## Structure
 
-- `agents/` — 8 stack-agnostic agent definitions (triage, orchestrator, architect,
-  backend, frontend, mobile, qa, security). `orchestrator` is a main-thread
-  agent that acts as an **agent-team lead**; qa/backend/frontend/mobile are
-  its default teammates; architect/security are one-shot subagents by
-  default. Triage is the only main session in the plugin.
+- `agents/` — 8 stack-agnostic agent definitions (session-manager, orchestrator,
+  architect, backend, frontend, mobile, qa, security). `orchestrator` is a
+  main-thread agent that acts as an **agent-team lead**; qa/backend/frontend/mobile
+  are its default teammates; architect/security are one-shot subagents by
+  default. `session-manager` is the only main session in the plugin.
 - `skills/` — Reusable Claude Code skills (task, worktree, commit, review, pr,
   ship, sync-docs, pr-review, security-audit, test-generation)
 - `hooks/` — SessionStart + PreToolUse enforcement scripts
@@ -85,16 +97,16 @@ as a one-shot subagent, not as a teammate).
 
 ## Session model
 
-Every Claude session in this plugin is **either** a triage main session **or**
-a task sub-session. The switch is one env var:
+Every Claude session in this plugin is **either** a `session-manager` main
+session **or** a sub-session. The switch is one env var:
 
 | `IA_TOOLS_ROLE` | Role | System prompt injected by SessionStart hook |
 |-----------------|------|---------------------------------------------|
-| unset           | triage | `agents/triage.md` |
-| `orchestrator`  | orchestrator | `agents/orchestrator.md` |
+| unset           | session-manager | `agents/session-manager.md` |
+| `orchestrator`  | orchestrator    | `agents/orchestrator.md` |
 
-The main session starts with no env var → triage. `/task` spawns tmux with
-`IA_TOOLS_ROLE=orchestrator` → orchestrator. No other roles exist.
+The main session starts with no env var → session-manager. `/session` spawns
+tmux with `IA_TOOLS_ROLE=orchestrator` → orchestrator. No other roles exist.
 
 ## Development
 
@@ -118,10 +130,10 @@ sync with the sources. Running the bridge requires the daemon
 
 ## Skills
 
-- `/task` — Open a task sub-session linked to a Slack thread. Called exclusively
-  by triage when it classifies a message as `change`. Creates the worktree,
-  seeds `.sdlc/tasks.md`, spawns tmux + Claude with the orchestrator system
-  prompt. **Replaces the old `/worktree spawn`.**
+- `/session` — Open a sub-session linked to a Slack thread. Called by
+  `session-manager` when it classifies a message as `change` or after a
+  `scope-check` returns `new-session`. Creates the worktree, seeds
+  `.sdlc/tasks.md`, spawns tmux + Claude with the orchestrator system prompt.
 - `/worktree` — Git worktree management only (`init`, `list`, `switch`,
   `cleanup`, `status`). No Claude spawning, no Slack subscription.
 - `/commit` — Conventional commits: format, stage, commit with soft test
@@ -137,6 +149,6 @@ sync with the sources. Running the bridge requires the daemon
 
 ## Parallel Development
 
-Uses `git worktree` to maintain multiple active tasks simultaneously. Each
-task sub-session has its own worktree under `.worktrees/` (gitignored) and its
+Uses `git worktree` to maintain multiple active sessions simultaneously. Each
+sub-session has its own worktree under `.worktrees/` (gitignored) and its
 own tmux window. See `/worktree` skill and `AGENTS.md` for workflow details.

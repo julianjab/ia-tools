@@ -104,7 +104,24 @@ Severity definitions:
 - **MEDIUM**: blocks the merge — must be fixed or explicitly accepted by the team
 - **LOW**: does not block — should be addressed before production
 
+## Invocation
+
+The orchestrator specifies what to audit in the delegation prompt. Two forms:
+
+**Current worktree** (no explicit path):
+> "Review the diff vs `origin/main`."
+Audit `git diff origin/main..HEAD` from the current CWD.
+
+**Explicit worktree path**:
+> "Review the diff at `<absolute-path>` vs `origin/main`."
+Audit `git -C <path> diff origin/main..HEAD`.
+
+The orchestrator invokes you once per worktree being PR'd, before the PR is
+opened. You never self-invoke — the orchestrator coordinates the sequence.
+
 ## Contract
 
-- Input: PRs from all involved repos + api-contract.md
-- Output: security review report with final verdict
+- **Input**: the orchestrator's delegation prompt specifying what worktree to audit,
+  plus any `api-contract.md` relevant to the diff
+- **Output**: security review report with final verdict (`APPROVED` / `BLOCKED`)
+- **Mode**: one-shot subagent

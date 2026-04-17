@@ -6,11 +6,14 @@ description: >
   Supports: `init` (create worktree), `list` (show active worktrees), `switch`
   (change context), `cleanup` (remove merged/stale worktrees), `status`
   (overview of all worktrees).
+  `init` accepts `--repo <path>` so teammates can create worktrees in sibling repos
+  (multi-repo mode). All other flags are unchanged.
   **Note**: For spawning a Claude sub-session linked to a Slack thread, use
-  `/task` instead — that is the only way `triage` hands off work.
+  `/task` instead — that is the only way `session-manager` hands off work.
   Examples: `/worktree init feat/notification-service`,
+  `/worktree init feat/payment-tracking --repo /Users/julian/lahaus/backend/python/subscriptions`,
   `/worktree list`, `/worktree cleanup --merged`, `/worktree status`.
-argument-hint: "[init|list|switch|cleanup|status] [branch-name] [--base main] [--review <pr>]"
+argument-hint: "[init|list|switch|cleanup|status] [branch-name] [--base main] [--review <pr>] [--repo <path>]"
 disable-model-invocation: false
 ---
 
@@ -18,7 +21,7 @@ disable-model-invocation: false
 
 **This skill manages git worktrees only.** It does NOT open Claude sessions, does
 NOT touch Slack, and does NOT inject any system prompt. For task sub-sessions
-linked to a Slack thread, use `/task` — see `skills/task/SKILL.md`.
+linked to a Slack thread, use `/session` — see `skills/session/SKILL.md`.
 
 Parse `$ARGUMENTS` to determine which sub-command to execute:
 
@@ -67,72 +70,86 @@ Rule: replace `/` with `-`.
 
 **Purpose**: Create an isolated worktree for a new task, keeping `main` clean in the primary repo.
 
-**Arguments**: `/worktree init <branch-name> [--base main] [--review <pr-number>]`
+**Arguments**: `/worktree init <branch-name> [--base main] [--review <pr-number>] [--repo <path>]`
+
+| Flag | Required? | Effect |
+|------|-----------|--------|
+| `--repo <path>` | ❌ | Run as if CWD were `<path>` (the target repo root). Repo root resolution, `.worktrees/` creation, and `.gitignore` handling all happen relative to `<path>`. The created worktree lives at `<path>/.worktrees/<dir-name>`. Composes with `--base` and `--review` unchanged. |
+
+When `--repo <path>` is provided:
+- `<path>` MUST be an existing git repo root — assert via `git -C <path> rev-parse --git-dir`.
+- All subsequent git operations use `git -C <path>` instead of the current working directory.
+- The worktree lives at `<path>/.worktrees/<dir-name>` (inside the **target** repo, not the invoking CWD).
+- Single-repo usage (no `--repo`) continues to work identically — the flag is purely additive.
 
 ### Steps
 
-1. **Determine repo root and validate**:
-   ```bash
-   git rev-parse --show-toplevel
-   git rev-parse --is-inside-work-tree
-   ```
-   - If inside an existing worktree, navigate to the main repo root first:
+1. **Determine target repo root**:
+   - If `--repo <path>` is provided: assert `git -C <path> rev-parse --git-dir` succeeds.
+     Use `<path>` as the target repo root for all subsequent steps.
+   - Otherwise: use the current CWD's repo root:
+     ```bash
+     git rev-parse --show-toplevel
+     git rev-parse --is-inside-work-tree
+     ```
+   - If inside an existing worktree (and no `--repo`), navigate to the main repo root first:
      ```bash
      git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel
      ```
 
-2. **Fetch latest from origin**:
+   All subsequent steps use `TARGET_REPO` (either `--repo <path>` or the detected repo root).
+
+2. **Fetch latest from origin** (using target repo root):
    ```bash
-   git fetch origin
+   git -C "${TARGET_REPO}" fetch origin
    ```
 
-3. **Ensure `.worktrees/` directory exists and is gitignored**:
+3. **Ensure `.worktrees/` directory exists and is gitignored** (relative to target repo root):
    ```bash
-   mkdir -p _worktrees
+   mkdir -p "${TARGET_REPO}/.worktrees"
    ```
-   - Check if `.worktrees/` is in `.gitignore`. If not, append it:
+   - Check if `.worktrees/` is in the target repo's `.gitignore`. If not, append it:
      ```bash
-     grep -qxF '.worktrees/' .gitignore || echo '.worktrees/' >> .gitignore
+     grep -qxF '.worktrees/' "${TARGET_REPO}/.gitignore" \
+       || echo '.worktrees/' >> "${TARGET_REPO}/.gitignore"
      ```
 
-4. **Determine base branch**: Use `--base` if provided, default to `main`. Fall back to `master` if `main` doesn't exist.
+4. **Determine base branch**: Use `--base` if provided, default to `main`. Fall back to `master` if `main` doesn't exist. Resolve against `TARGET_REPO`.
 
 5. **Convert branch name to directory name**:
    ```bash
    DIR_NAME=$(echo "<branch-name>" | tr '/' '-')
-   WORKTREE_PATH=".worktrees/${DIR_NAME}"
+   WORKTREE_PATH="${TARGET_REPO}/.worktrees/${DIR_NAME}"
    ```
 
 6. **Check if worktree already exists**:
    ```bash
-   git worktree list --porcelain | grep -q "${WORKTREE_PATH}"
+   git -C "${TARGET_REPO}" worktree list --porcelain | grep -q "${WORKTREE_PATH}"
    ```
    - If yes: Report that it already exists and print the path. Ask user if they want to switch to it.
    - If no: Continue to create.
 
-7. **Create the worktree**:
+7. **Create the worktree** (all git ops use `git -C "${TARGET_REPO}"`):
 
    **For a new feature branch:**
    ```bash
-   git worktree add -b <branch-name> "${WORKTREE_PATH}" origin/<base>
+   git -C "${TARGET_REPO}" worktree add -b <branch-name> "${WORKTREE_PATH}" origin/<base>
    ```
 
    **For reviewing an existing PR (--review flag):**
    ```bash
-   gh pr checkout <pr-number> --branch review/pr-<pr-number>
-   # Then detach and re-create as worktree:
-   git worktree add "${WORKTREE_PATH}" review/pr-<pr-number>
+   git -C "${TARGET_REPO}" fetch origin "pull/<pr-number>/head:<branch>"
+   git -C "${TARGET_REPO}" worktree add "${WORKTREE_PATH}" "<branch>"
    ```
 
    **For an existing remote branch:**
    ```bash
-   git worktree add --track -b <branch-name> "${WORKTREE_PATH}" origin/<branch-name>
+   git -C "${TARGET_REPO}" worktree add --track -b <branch-name> "${WORKTREE_PATH}" origin/<branch-name>
    ```
 
-8. **Copy root `.claude/` into the worktree**:
+8. **Copy root `.claude/` into the worktree** (from TARGET_REPO, not from the invoking CWD):
    ```bash
-   REPO_ROOT=$(git rev-parse --show-toplevel)
-   cp -r "${REPO_ROOT}/.claude/" "${WORKTREE_PATH}/.claude/"
+   cp -r "${TARGET_REPO}/.claude/" "${WORKTREE_PATH}/.claude/"
    ```
    This carries over all Claude config (hooks, skills, channels, settings) so the worktree
    session behaves identically to the main repo. The copy is local — `.claude/` is already

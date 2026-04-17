@@ -1,9 +1,9 @@
 /**
- * Sub-task 3 — clearThinkingAck + reply_slack breaking change
+ * Sub-task 3 — clearThinkingAck + reply breaking change
  *
  * Tests for:
  *   1. NOT-YET-CREATED module src/ack-client.ts → clearThinkingAck()
- *   2. The updated reply_slack tool handler in mcp-server.ts (message_ts now required,
+ *   2. The updated reply tool handler in mcp-server.ts (message_ts now required,
  *      clearThinkingAck called on success, not on failure).
  *
  * clearThinkingAck contract (api-contract.md §4):
@@ -12,7 +12,7 @@
  *   - Both rejections are swallowed — always resolves.
  *   - Emoji resolved from process.env.SLACK_ACK_EMOJI ?? 'eyes'
  *
- * reply_slack handler contract (api-contract.md §5):
+ * reply handler contract (api-contract.md §5):
  *   - Returns isError=true when message_ts is missing.
  *   - On successful chat.postMessage calls clearThinkingAck.
  *   - On failed chat.postMessage does NOT call clearThinkingAck.
@@ -20,7 +20,7 @@
  *
  * RED phase:
  *   - src/ack-client.ts does not exist → clearThinkingAck import will fail.
- *   - reply_slack handler does not require message_ts and does not call clearThinkingAck.
+ *   - reply handler does not require message_ts and does not call clearThinkingAck.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -205,7 +205,7 @@ describe('clearThinkingAck — error swallowing (best-effort)', () => {
   });
 });
 
-// ─── reply_slack handler tests ───────────────────────────────────────────────
+// ─── reply handler tests ───────────────────────────────────────────────
 //
 // Strategy: We test the handler logic in isolation by importing the handler
 // shape expected from the new contract.  Since the production mcp-server.ts
@@ -215,7 +215,7 @@ describe('clearThinkingAck — error swallowing (best-effort)', () => {
 // handler contract — the implementing agent will wire it identically in
 // mcp-server.ts.
 //
-// Assumption: The implementing agent will extract the reply_slack handler body
+// Assumption: The implementing agent will extract the reply handler body
 // into a testable function, OR the tests here serve as the contract spec that
 // must be satisfied by the full e2e path.  For RED purposes, clearThinkingAck
 // import alone is sufficient to fail.

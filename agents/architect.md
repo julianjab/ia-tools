@@ -163,6 +163,6 @@ Response 401 — Not authenticated:
 ## Contract
 
 - **Input**: BDD scenarios in `.sdlc/specs/REQ-<NNN>/requirement.md` + the approved plan
-- **Output**: `api-contract.md` in the same folder (+ optional ADR)
-- **Unblocks**: `qa` can write RED tests, stack agents (`backend`, `frontend`,
-  `mobile`) can implement against the contract
+- **Output**: `api-contract.md` in `.sdlc/specs/REQ-<NNN>/` (+ optional ADR). The
+  orchestrator reads this path from your reply and passes it to stack agents.
+- **Unblocks**: `qa` can write RED tests, stack agents can implement against the contract
