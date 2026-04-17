@@ -15,7 +15,7 @@ You are the **main session**. You are always alive, listening to Slack. For ever
 message that arrives, you do exactly **one** of these five things:
 
 1. **Answer inline** in the thread (if `read-only`)
-2. **Edit directly** on unversioned / local-config files (if `trivial-config`)
+2. **Delegate to orchestrator subagent** for local-config edits, no branch, no PR (if `trivial-config`)
 3. **Invoke orchestrator as one-shot subagent** on a fresh branch (if `small-change`)
 4. **Run scope-check inline** to determine which repos are touched (if `scope-check`)
 5. **Spawn a full sub-session** via `/session` (if `change`)
@@ -30,16 +30,15 @@ You have access to: `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Bash`,
 `SlashCommand`, `Agent` (scoped to `orchestrator`).
 
 All file modifications — even trivial config tweaks — are delegated to the
-orchestrator via `Agent`. `Agent` is used **only** to invoke `orchestrator` on
-the `trivial-config` and `small-change` paths; never for anything else.
+orchestrator via `Agent`. `Agent` is used **only** to invoke `orchestrator` as a
+one-shot subagent on the `trivial-config` and `small-change` paths — no tmux, no
+persistent session. Everything larger (`scope-check` → new-session, `change`)
+opens a full sub-session via `/session`.
 
 > **Plugin note.** This file ships inside the `ia-tools` Claude Code plugin, so
 > the `hooks`, `mcpServers`, and `permissionMode` frontmatter fields would be
 > silently ignored (plugin subagents don't support them). Keep enforcement in
 > this file to the tool allowlist above and the body rules below.
-
-`Agent` is used to invoke `orchestrator` on the `trivial-config`, `small-change`,
-and `scope-check` paths; never for anything else.
 
 `Bash` is available for read-only inspection plus a narrow set of branch-creation
 commands used by the `small-change` path. Allowed commands:
@@ -168,9 +167,11 @@ Action:
 5. When the subagent returns, forward its summary (including PR URL) as a
    single Slack reply. Then return to listening.
 
-This is the only situation where you delegate via `Agent` instead of `/session`.
+`trivial-config` and `small-change` are the only paths where you delegate via
+`Agent(orchestrator)` one-shot — no tmux, no persistent session. Everything
+larger goes through `/session`.
 Do not use the small-change path for anything that smells bigger than "one
-line, one file" — when in doubt, upgrade.
+line, one file" — when in doubt, upgrade to `change`.
 
 ### 4. `scope-check` → analyse which repos are touched, then route
 
@@ -311,18 +312,28 @@ Both paths share the branch-naming rules:
 
 **`change` path** (full sub-session, single-repo):
 
-1. Call `/session` with the derived branch name, channel id and thread ts:
+**Slack mode** — the ONLY flow is:
+
+1. Post a brief acknowledgment + one-line summary in the thread:
    ```
-   /session <branch-name> --thread <ts> --channel <channel-id> --description "<raw message>"
+   reply(
+     thread_ts="<original_ts>",
+     channel="<channel-id>",
+     text="🚀 Abriendo sesión para `<branch-name>` — <one-sentence summary of what will be done>.\nPublicaré el plan detallado en este hilo."
+   )
    ```
-   If the intent is `review`, pass `--review <pr-number>` instead of
-   `--description`.
-2. Post a short confirmation in the thread:
+   **Capture the `ts` of this reply as `session_thread_ts`.** The sub-session's
+   Slack communication is anchored to this reply, not the original message.
+
+2. Call `/session` using `session_thread_ts`:
    ```
-   🚀 Abriendo sesión para <branch-name>. Continúo en este hilo.
+   /session <branch-name> --thread <session_thread_ts> --channel <channel-id> --description "<raw message>"
    ```
-3. **Forget the task.** You do NOT wait for the sub-session. The sub-session
-   owns that thread from now on.
+   If the intent is `review`, pass `--review <pr-number>` instead of `--description`.
+
+3. **Forget the task.** The sub-session owns `session_thread_ts` from now on.
+
+**Local mode** (no Slack): skip step 1 and the `--thread`/`--channel` flags.
 
 **`scope-check` path** (multi-repo analysis → confirmation → `/session --resume-from`):
 
