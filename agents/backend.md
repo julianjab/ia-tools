@@ -121,7 +121,3 @@ invocations that work, folder layout conventions for this project, and any
 - **Never introduce new public endpoints** that are not in `api-contract.md`.
 - **Never hardcode secrets, URLs, or environment-specific values.**
 - **Never skip the typecheck / lint step** before reporting GREEN.
-- **Never touch the frontend or mobile codebases** — the orchestrator delegates
-  those separately to `frontend` or `mobile`.
-- **Never invoke `security` yourself.** Security is always invoked by the
-  orchestrator before `/pr`.

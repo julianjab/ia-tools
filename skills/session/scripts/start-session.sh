@@ -201,17 +201,10 @@ else
 fi
 
 # ── 3b. Write settings.local.json ────────────────────────────────────────────
-# In resume-from mode: written to <consumer-repo-root>/.claude/ (gitignored).
-# In standard mode: written to the worktree's .claude/ directory.
-#
-# Keys:
-#   IA_TOOLS_SESSION_DIR        — set only in resume-from mode; empty otherwise
-#   IA_TOOLS_ROLE               — always "orchestrator"
-#   CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS — always "1"
-#   SLACK_*                     — slack mode only; empty string in local mode
-#
-# OAuth tokens are deliberately NOT persisted here — they stay in the user's
-# global Claude config and are inherited at runtime.
+# Only static config goes here — no runtime env vars.
+# Runtime vars (SLACK_*, IA_TOOLS_SESSION_DIR, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)
+# are passed directly in the Claude launch command so they don't bleed into the
+# main session when the orchestrator runs in the consumer repo root.
 if [ "$RESUME_FROM_MODE" = "true" ]; then
   SETTINGS_DIR="${CONSUMER_REPO_ROOT}/.claude"
 else
@@ -220,21 +213,9 @@ fi
 mkdir -p "$SETTINGS_DIR"
 SETTINGS_FILE="${SETTINGS_DIR}/settings.local.json"
 
-# M1: JSON-escape values that will be interpolated into the JSON heredoc
-SESSION_DIR_JSON=$(json_escape "$SESSION_DIR")
-SLACK_THREAD_TS_JSON=$(json_escape "$SLACK_THREAD_TS")
-SLACK_CHANNEL_ID_JSON=$(json_escape "$SLACK_CHANNEL_ID")
-
 cat > "$SETTINGS_FILE" <<EOF
 {
-  "env": {
-    "IA_TOOLS_ROLE": "orchestrator",
-    "IA_TOOLS_SESSION_DIR": "${SESSION_DIR_JSON}",
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "SLACK_THREAD_TS": "${SLACK_THREAD_TS_JSON}",
-    "SLACK_CHANNEL_ID": "${SLACK_CHANNEL_ID_JSON}",
-    "SLACK_CHANNELS": "${SLACK_CHANNEL_ID_JSON}"
-  },
+  "agent": "orchestrator",
   "disabledPlugins": ["slack@claude-plugins-official"]
 }
 EOF
@@ -292,15 +273,24 @@ EOF
 fi
 
 # ── 5. Build the Claude launch command ───────────────────────────────────────
-# IA_TOOLS_ROLE, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS and SLACK_* are already
-# in ${WORKTREE_PATH}/.claude/settings.local.json (step 3b) and load automatically
-# when Claude boots in the worktree CWD. The OAuth token, when available,
-# still travels via the tmux command line — it is NOT persisted on disk.
-if [ -n "$AGENT_TOKEN" ]; then
-  CLAUDE_CMD="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN} claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
-else
-  CLAUDE_CMD="claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
+# Runtime env vars are passed inline so they don't pollute settings.local.json
+# (which is shared with the main session in resume-from / multi-repo mode).
+SESSION_DIR_ESC=$(printf '%s' "$SESSION_DIR" | sed "s/'/'\\\\''/g")
+SLACK_THREAD_TS_ESC=$(printf '%s' "$SLACK_THREAD_TS" | sed "s/'/'\\\\''/g")
+SLACK_CHANNEL_ID_ESC=$(printf '%s' "$SLACK_CHANNEL_ID" | sed "s/'/'\\\\''/g")
+
+ENV_PREFIX="CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
+ENV_PREFIX="${ENV_PREFIX} IA_TOOLS_SESSION_DIR='${SESSION_DIR_ESC}'"
+if [ "$TASK_MODE" = "slack" ]; then
+  ENV_PREFIX="${ENV_PREFIX} SLACK_THREAD_TS='${SLACK_THREAD_TS_ESC}'"
+  ENV_PREFIX="${ENV_PREFIX} SLACK_CHANNEL_ID='${SLACK_CHANNEL_ID_ESC}'"
+  ENV_PREFIX="${ENV_PREFIX} SLACK_CHANNELS='${SLACK_CHANNEL_ID_ESC}'"
 fi
+if [ -n "$AGENT_TOKEN" ]; then
+  ENV_PREFIX="CLAUDE_CODE_OAUTH_TOKEN=${AGENT_TOKEN} ${ENV_PREFIX}"
+fi
+
+CLAUDE_CMD="${ENV_PREFIX} claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions --teammateMode split-pane"
 
 # ── 7. tmux session / window ─────────────────────────────────────────────────
 SESSION="${TMUX_SESSION_NAME:-ia-tools}"

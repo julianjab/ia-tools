@@ -104,6 +104,3 @@ accessibility gotchas you hit.
 - **Never invent new design tokens** (colors, spacing, radii). Use existing.
 - **Never call a backend endpoint that is not in `api-contract.md`** when a
   contract exists.
-- **Never touch backend or mobile codebases.**
-- **Never invoke `security` yourself.** Security is always invoked by the
-  orchestrator before `/pr`.

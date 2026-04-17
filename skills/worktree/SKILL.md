@@ -21,7 +21,7 @@ disable-model-invocation: false
 
 **This skill manages git worktrees only.** It does NOT open Claude sessions, does
 NOT touch Slack, and does NOT inject any system prompt. For task sub-sessions
-linked to a Slack thread, use `/task` — see `skills/task/SKILL.md`.
+linked to a Slack thread, use `/session` — see `skills/session/SKILL.md`.
 
 Parse `$ARGUMENTS` to determine which sub-command to execute:
 

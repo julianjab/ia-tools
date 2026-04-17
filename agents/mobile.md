@@ -103,6 +103,3 @@ that need fallbacks).
 - **Never modify RED tests** — escalate.
 - **Never ship strings that are not i18n'd.**
 - **Never use a backend endpoint not in `api-contract.md`** if a contract exists.
-- **Never touch backend or frontend codebases.**
-- **Never invoke `security` yourself.** Security is always invoked by the
-  orchestrator before `/pr`.

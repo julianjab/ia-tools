@@ -125,7 +125,7 @@ stack teammates, each assigned to one worktree.
 
    In local mode this step is skipped entirely — no MCP call.
 
-5. **Delegate to `skills/task/scripts/start-session.sh`**, which:
+5. **Delegate to `skills/session/scripts/start-session.sh`**, which:
    - Opens (or reuses) a tmux session
    - Creates a new window named after the branch, CWD = worktree path
    - Launches `claude --dangerously-skip-permissions` inside, with env vars:
