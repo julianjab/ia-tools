@@ -114,78 +114,6 @@ invocations that work, folder layout conventions for this project, and any
     Open questions:      [if any]
   ```
 
-## Multi-repo protocol (opt-in — only when orchestrator passes `teams_dir`)
-
-When the orchestrator delegates to you in multi-repo mode it includes a
-`Parameters:` block in the delegation prompt. Parse it by key:
-
-```
-Parameters:
-- teams_dir: <absolute path to .claude/teams/<label>/>
-- target_repo: <absolute path to the backend consumer repo>
-- task_label: <kebab-case slug>
-- api_contract_path: <absolute path to api-contract.md>
-```
-
-**Grammar rules** (api-contract §3.1): one parameter per line, `- <key>: <value>`
-(dash + space, no YAML nesting). Absent key ≡ parameter not passed. Do NOT
-default absent values from env, CWD, or git config.
-
-### When ALL parameters are absent (standalone mode)
-
-You behave exactly as today (AC14). No worktree creation beyond today's flow.
-No PR registration. No read/write under `.claude/teams/`. This is the default
-for any invocation that does not include a `Parameters:` block with `teams_dir`.
-
-### When `teams_dir` + `target_repo` are present (multi-repo mode)
-
-Follow this protocol in order:
-
-1. **Create your own worktree** in the target repo:
-   ```
-   /worktree init <branch> --repo <target_repo> [--base <base>]
-   ```
-   The worktree lives at `<target_repo>/.worktrees/<branch-dir>`.
-   If it already exists, reuse it.
-
-2. **Implement, commit, and run tests** inside your worktree. Use
-   `git -C <worktree>` and `pnpm --dir <worktree>` — never `cd`.
-
-3. **Report GREEN** to the orchestrator (tests pass, PR not yet opened).
-   The orchestrator then invokes `security` with your `worktree_path`.
-
-4. **Only after security APPROVED**: run `/pr` from inside your worktree.
-
-5. **Register the PR URL** — append to `<teams_dir>/prs.md` (append-only,
-   never rewrite in place):
-   ```bash
-   printf '- %s | backend | %s | %s | %s | status:open\n' \
-     "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-     "<target_repo>" "<branch>" "<pr-url>" \
-     >> "<teams_dir>/prs.md"
-   ```
-   If `prs.md` is absent, create it with the header comment first:
-   ```bash
-   printf '<!-- .claude/teams/%s/prs.md — append-only PR registry -->\n' \
-     "<task_label>" > "<teams_dir>/prs.md"
-   ```
-
-6. **Report the PR URL** in your GREEN report to the orchestrator:
-   ```
-   ✅ GREEN confirmed
-     ...
-     PR URL: https://github.com/<org>/<repo>/pull/<n>
-   ```
-
-7. **Do NOT invoke `security` yourself.** Security is always invoked by the
-   orchestrator, once per PR. Never self-gate.
-
-### api_contract_path
-
-If `api_contract_path` is passed, read the contract from that path instead of
-looking for `api-contract.md` in the CWD. This is how multi-repo tasks share
-a single architect contract across sibling repos.
-
 ## Forbidden
 
 - **Never modify the RED tests** to make them pass. If a test is wrong, escalate
@@ -193,8 +121,7 @@ a single architect contract across sibling repos.
 - **Never introduce new public endpoints** that are not in `api-contract.md`.
 - **Never hardcode secrets, URLs, or environment-specific values.**
 - **Never skip the typecheck / lint step** before reporting GREEN.
-- **Never touch the frontend or mobile codebases** — the orchestrator will
-  delegate those separately to `frontend` or `mobile`.
-- **Never read or write under `.claude/teams/`** unless the orchestrator passed
-  `teams_dir` in the delegation prompt. Standalone invocations never touch that
-  directory.
+- **Never touch the frontend or mobile codebases** — the orchestrator delegates
+  those separately to `frontend` or `mobile`.
+- **Never invoke `security` yourself.** Security is always invoked by the
+  orchestrator before `/pr`.

@@ -160,44 +160,9 @@ Response 401 — Not authenticated:
 - **Consistency:** Same error structure across all endpoints
 - **Versioning:** If it breaks compatibility → new API version
 
-## Multi-repo opt-in (`teams_dir` parameter)
-
-When the orchestrator delegates to you in multi-repo mode it includes a
-`Parameters:` block in the delegation prompt. Parse it by key:
-
-```
-Parameters:
-- teams_dir: <absolute path to .claude/teams/<label>/>
-- task_label: <kebab-case slug>
-```
-
-**Grammar rules** (api-contract §3.1): one parameter per line, `- <key>: <value>`
-(dash + space, no YAML nesting). Absent key ≡ parameter not passed. Do NOT
-default absent values from env, CWD, or git config.
-
-### When `teams_dir` is absent (standalone / single-repo mode)
-
-Write `api-contract.md` to `.sdlc/specs/REQ-<NNN>/` (today's location).
-This is unchanged from the current behavior.
-
-### When `teams_dir` is present (multi-repo mode)
-
-Write `api-contract.md` to `<teams_dir>/api-contract.md` instead of the
-`.sdlc/specs/` folder. This is the shared location all stack teammates read from
-when the orchestrator passes `api_contract_path` in their delegation prompts.
-
-Do NOT write to `.sdlc/specs/REQ-<NNN>/api-contract.md` in multi-repo mode —
-avoid two sources of truth.
-
-Include `api_contract_path: <teams_dir>/api-contract.md` in your reply to the
-orchestrator so it can pass that path to each stack teammate.
-
 ## Contract
 
-- **Input**: BDD scenarios in `.sdlc/specs/REQ-<NNN>/requirement.md` + the approved plan,
-  plus optional `Parameters:` block with `teams_dir` (multi-repo mode)
-- **Output**:
-  - Single-repo: `api-contract.md` in `.sdlc/specs/REQ-<NNN>/` (+ optional ADR)
-  - Multi-repo (`teams_dir` passed): `api-contract.md` in `<teams_dir>/` (+ optional ADR)
-- **Unblocks**: `qa` can write RED tests, stack agents (`backend`, `frontend`,
-  `mobile`) can implement against the contract
+- **Input**: BDD scenarios in `.sdlc/specs/REQ-<NNN>/requirement.md` + the approved plan
+- **Output**: `api-contract.md` in `.sdlc/specs/REQ-<NNN>/` (+ optional ADR). The
+  orchestrator reads this path from your reply and passes it to stack agents.
+- **Unblocks**: `qa` can write RED tests, stack agents can implement against the contract

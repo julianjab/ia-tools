@@ -7,7 +7,7 @@ description: >
   does NOT open a tmux window, does NOT subscribe to Slack. Returns one of
   three verdicts: read-only, inline, or new-session.
   Used by session-manager before deciding whether to open a full sub-session
-  via /task.
+  via /session.
   Examples:
     `/scope-check --description "agrega tracking de pagos que se refleje en la app y el backend"`
     `/scope-check --description "implementa auth con Google" --task-label feat-google-auth`
@@ -20,9 +20,9 @@ disable-model-invocation: false
 `/scope-check` invokes the orchestrator as a **one-shot inline subagent** in
 `scope-check` mode. It does NOT open a tmux window, does NOT create a worktree,
 and does NOT subscribe to Slack. It produces three files in
-`.claude/teams/<task-label>/` and returns a verdict JSON block.
+`.sessions/<task-label>/` and returns a verdict JSON block.
 
-`session-manager` calls this skill when it classifies an incoming message as
+`session-manager` calls this skill when it classifies a message as
 `scope-check` (ambiguous multi-repo scope). The returned verdict tells
 session-manager how to route the request.
 
@@ -42,12 +42,12 @@ session-manager how to route the request.
 1. **Derive task label** from `--task-label` if provided, otherwise slugify
    `--description` (lowercase, kebab-case, max 5 words, strip accents).
 
-2. **Resolve `teams_dir`** = `<consumer-repo-root>/.claude/teams/<task-label>/`.
+2. **Resolve `sessions_dir`** = `<consumer-repo-root>/.sessions/<task-label>/`.
    Consumer repo root = `git rev-parse --show-toplevel` from the current CWD.
 
-3. **Create `<teams_dir>`** via `Bash`:
+3. **Create `<sessions_dir>`** via `Bash`:
    ```bash
-   mkdir -p "<teams_dir>"
+   mkdir -p "<sessions_dir>"
    ```
 
 4. **Invoke orchestrator as one-shot subagent**:
@@ -56,21 +56,20 @@ session-manager how to route the request.
      subagent_type: "orchestrator",
      prompt: "mode: scope-check
 
-Parameters:
-- teams_dir: <absolute path to teams_dir>
-- task_label: <task_label>
+sessions_dir: <absolute path to sessions_dir>
+task_label: <task_label>
 
 Raw message:
 <description>"
    )
    ```
    The orchestrator writes `scope.md`, `plan-draft.md`, and `verdict.json`
-   to `<teams_dir>` and returns the verdict JSON block.
+   to `<sessions_dir>` and returns the verdict JSON block.
 
 5. **Verify output** — assert the following files exist before returning:
-   - `<teams_dir>/verdict.json`
-   - `<teams_dir>/scope.md` (required when `verdict == "new-session"`)
-   - `<teams_dir>/plan-draft.md` (required when `verdict == "new-session"`)
+   - `<sessions_dir>/verdict.json`
+   - `<sessions_dir>/scope.md` (required when `verdict == "new-session"`)
+   - `<sessions_dir>/plan-draft.md` (required when `verdict == "new-session"`)
 
    If any required file is missing, reply with an error and stop. Do NOT
    silently return a malformed verdict.
@@ -84,7 +83,7 @@ Raw message:
      "reason": "<one sentence, max 200 chars>",
      "scope_path": "<absolute path>",
      "plan_draft_path": "<absolute path>",
-     "teams_dir": "<absolute path>",
+     "sessions_dir": "<absolute path>",
      "task_label": "<slug>",
      "touched_repos": [
        { "path": "<absolute>", "stack": "backend|frontend|mobile", "reason": "<one sentence>" }
@@ -101,9 +100,9 @@ Raw message:
 
 | `verdict` | session-manager action |
 |-----------|------------------------|
-| `"read-only"` | Reply inline with `reason`. No `/task` call. |
+| `"read-only"` | Reply inline with `reason`. No `/session` call. |
 | `"inline"` | Hand off to the `downgrade_to` path (`small-change` or `trivial-config`). No new sub-session. |
-| `"new-session"` | Apply confirmation gate (unless `authorised_session: true`). Then: `/task <task_label> --resume-from <teams_dir>`. |
+| `"new-session"` | Apply confirmation gate (unless `authorised_session: true`). Then: `/session <task_label> --resume-from <sessions_dir>`. |
 
 ## Error handling
 
@@ -116,7 +115,7 @@ Raw message:
 ## What /scope-check does NOT do
 
 - **Does NOT create a worktree.** No `/worktree init`.
-- **Does NOT open a tmux window.** No `start-task.sh`.
+- **Does NOT open a tmux window.** No `start-session.sh`.
 - **Does NOT subscribe to Slack.** No `subscribe_slack`.
 - **Does NOT run the approval gate.** Approval runs later, inside the full sub-session.
 - **Does NOT run `/task`.** session-manager calls `/task` after reading the verdict.
@@ -127,13 +126,12 @@ After `/scope-check` runs, the following files exist:
 
 ```
 <consumer-repo-root>/
-└── .claude/
-    └── teams/
-        └── <task-label>/
-            ├── scope.md          ← scope-check's prose findings
-            ├── plan-draft.md     ← skeleton plan seed (orchestrator-full expands it)
-            └── verdict.json      ← machine-readable routing verdict
+└── .sessions/
+    └── <task-label>/
+        ├── scope.md          ← scope-check's prose findings
+        ├── plan-draft.md     ← skeleton plan seed (orchestrator expands it)
+        └── verdict.json      ← machine-readable routing verdict
 ```
 
-These files are gitignored (`.claude/teams/` must be in the consumer repo's
+These files are gitignored (`.sessions/` must be in the consumer repo's
 `.gitignore`). They are cleaned up by `/worktree cleanup` or manually.

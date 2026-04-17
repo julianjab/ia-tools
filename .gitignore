@@ -39,8 +39,8 @@ Thumbs.db
 # Schema documented in .claude/.channels.json.example
 .claude/.channels.json
 
-# Per-task coordination state (ephemeral, same category as .worktrees/)
-.claude/teams/
+# Per-session coordination state (ephemeral, same category as .worktrees/)
+.sessions/
 
 # Agent memory written by team-workflow agents (per-user, per-project state)
 .claude/agent-memory/
