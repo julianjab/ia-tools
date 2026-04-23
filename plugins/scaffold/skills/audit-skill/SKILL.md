@@ -1,6 +1,12 @@
 ---
 name: audit-skill
 description: Use when the user asks to review or validate an existing Claude Code skill (skills/<name>/SKILL.md) against best practices. Reports hardcoded paths, label-shaped descriptions, missing argument tables, unscoped tool permissions, and the 14 skill anti-patterns. Read-only.
+when_to_use: |
+  Trigger phrases: "review this skill", "validate SKILL.md", "check skill frontmatter",
+  "lint a slash command", "does this skill follow best practices", "audit skill directory",
+  "find issues in skills/X/", "verify allowed-tools scope", "check disable-model-invocation",
+  "skill anti-patterns", "run S1-S14 rules", "skill-author output review",
+  "is my skill portable", "check argument-hint", "verify fork-skill body".
 argument-hint: <path-to-SKILL.md-or-skill-dir> [--strict]
 arguments: [path, flag]
 allowed-tools: Read, Grep, Glob, Bash(cat *), Bash(head *), Bash(wc *), Bash(ls *)

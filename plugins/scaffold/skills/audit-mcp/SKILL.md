@@ -1,6 +1,12 @@
 ---
 name: audit-mcp
 description: Use when the user asks to review or validate an MCP server plugin (plugins/<name>/) against best practices. Checks directory layout, .mcp.json format, plugin.json, tool descriptions, Zod schemas, stdio hygiene, dist-in-sync, and test coverage. Read-only.
+when_to_use: |
+  Trigger phrases: "review MCP server", "validate plugins/X", "check .mcp.json",
+  "audit an MCP plugin", "does this MCP follow best practices", "lint MCP tools",
+  "verify Zod schemas", "check stdio hygiene", "MCP anti-patterns",
+  "run MCP-1 to MCP-8 rules", "is dist/ in sync", "mcp-author output review",
+  "check tool descriptions", "verify CLAUDE_PLUGIN_ROOT usage", "console.log in server".
 argument-hint: <path-to-mcp-plugin-dir> [--strict]
 arguments: [path, flag]
 allowed-tools: Read, Grep, Glob, Bash(cat *), Bash(head *), Bash(ls *), Bash(find *), Bash(git diff *), Bash(git status *)

@@ -1,6 +1,12 @@
 ---
 name: audit-agent
 description: Use when the user asks to review or validate an existing Claude Code agent file (agents/<name>.md) against best practices. Reports frontmatter drops, description quality, tool-allowlist issues, model mismatches, and the 12 anti-patterns. Read-only; never edits the agent.
+when_to_use: |
+  Trigger phrases: "review this agent", "validate agents/X.md", "check agent frontmatter",
+  "lint an agent", "does this agent follow best practices", "audit agent definition",
+  "find issues in agents/X.md", "is my agent well-formed", "check description shape",
+  "verify agent tools", "review my subagent", "teammate frontmatter check",
+  "agent anti-patterns", "run A1-A12 rules", "agent-author output review".
 argument-hint: <path-to-agent.md> [--strict]
 arguments: [path, flag]
 allowed-tools: Read, Grep, Glob, Bash(cat *), Bash(head *), Bash(wc *)
