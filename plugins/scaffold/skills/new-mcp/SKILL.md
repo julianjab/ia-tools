@@ -1,6 +1,11 @@
 ---
 name: new-mcp
 description: Use when the user asks to create a new MCP server plugin. Runs the deterministic scaffold.sh with templates to produce plugins/<name>/ — plugin.json, .mcp.json, package.json, tsconfig, src/mcp-server.ts, tests. Then runs /audit-mcp. Optionally delegates custom tool design to the mcp-author subagent.
+when_to_use: |
+  Trigger phrases: "create an MCP server", "new MCP plugin", "scaffold an MCP",
+  "generate a Model Context Protocol server", "add plugins/X with .mcp.json",
+  "build a custom MCP", "author MCP tools", "start an MCP from templates",
+  "wire a stdio MCP server", "new integration MCP".
 argument-hint: <name> [--custom] [--dest <path>]
 arguments: [name]
 disable-model-invocation: true

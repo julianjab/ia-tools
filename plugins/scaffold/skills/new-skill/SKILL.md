@@ -1,6 +1,10 @@
 ---
 name: new-skill
 description: Use when the user asks to create a new Claude Code skill (slash command). Gathers a brief, delegates design to the skill-author subagent, writes the skills/<name>/ directory, then runs /audit-skill. Interactive — asks clarifying questions before writing.
+when_to_use: |
+  Trigger phrases: "create a skill", "new slash command", "scaffold a skill",
+  "add skills/X", "make a Claude Code skill", "generate a slash command",
+  "build a commit-style skill", "author a fork skill", "design a subcommand skill".
 argument-hint: <name> [--invocation user-only|model-allowed] [--context inline|fork] [--dest <path>]
 arguments: [name]
 disable-model-invocation: true

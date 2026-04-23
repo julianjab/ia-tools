@@ -1,6 +1,10 @@
 ---
 name: new-agent
 description: Use when the user asks to create a new Claude Code agent. Gathers a brief, delegates design to the agent-author subagent, writes the agents/<name>.md file, then runs /audit-agent on it. Interactive — asks clarifying questions before writing.
+when_to_use: |
+  Trigger phrases: "create an agent", "new subagent", "generate a teammate",
+  "scaffold an agent", "add agents/X.md", "make a new Claude Code agent",
+  "build a security agent", "author an agent definition", "design a main-session agent".
 argument-hint: <name> [--mode subagent|teammate|main] [--dest <path>]
 arguments: [name]
 disable-model-invocation: true
