@@ -81,8 +81,8 @@ Rules:
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "zod": "^3.23.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -139,9 +139,12 @@ Committing `dist/`:
 
 ```typescript
 #!/usr/bin/env node
+// SDK is currently unified (@modelcontextprotocol/sdk). A future split into
+// @modelcontextprotocol/server, /client, and /node has been announced upstream;
+// update import paths when that ships.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import * as z from "zod/v4";
 
 const server = new McpServer({ name: "<name>", version: "0.1.0" });
 

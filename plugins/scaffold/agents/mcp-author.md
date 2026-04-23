@@ -88,7 +88,7 @@ Apply every rule in `references/mcp-tool-design.md` and `references/mcp-packagin
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import * as z from "zod/v4";
 
 const server = new McpServer({ name: "<name>", version: "0.1.0" });
 

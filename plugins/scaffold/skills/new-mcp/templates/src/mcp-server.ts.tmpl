@@ -1,7 +1,10 @@
 #!/usr/bin/env node
+// NOTE: the MCP SDK is currently shipped as a unified @modelcontextprotocol/sdk package.
+// Upstream has announced a future split into @modelcontextprotocol/server, /client, and /node.
+// When that lands, update the import paths below; no behavior change expected here.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import * as z from "zod/v4";
 
 const server = new McpServer({ name: "{{NAME}}", version: "0.1.0" });
 
