@@ -1,0 +1,44 @@
+#!/usr/bin/env node
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const server = new McpServer({ name: "{{NAME}}", version: "0.1.0" });
+
+server.registerTool(
+  "example_tool",
+  {
+    description: [
+      "TODO: one-line description of what this tool does.",
+      "Does NOT: TODO — what it explicitly doesn't do.",
+      "Prefer over: TODO — disambiguate vs other tools.",
+      "Side effects: TODO — read-only / writes X / calls Y.",
+    ].join(" "),
+    inputSchema: {
+      input: z.string().min(1).describe("TODO: describe this argument"),
+    },
+  },
+  async ({ input }) => {
+    try {
+      return {
+        content: [{ type: "text", text: `received: ${input}` }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+process.on("unhandledRejection", (err) => {
+  process.stderr.write(`[{{NAME}}] unhandled rejection: ${err}\n`);
+});
+
+await server.connect(new StdioServerTransport());
