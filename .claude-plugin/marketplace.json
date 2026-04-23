@@ -22,6 +22,13 @@
       "description": "Slack bridge MCP server: subscribe to channels, claim and reply to messages, read threads via daemon + MCP architecture.",
       "category": "integration",
       "keywords": ["slack", "mcp", "messaging", "daemon"]
+    },
+    {
+      "name": "scaffold",
+      "source": "./plugins/scaffold",
+      "description": "Scaffolding and validation for Claude Code agents, skills, and MCP servers. Ships /new-agent, /new-skill, /new-mcp generators and /audit-agent, /audit-skill, /audit-mcp validators, backed by canonical best-practice references.",
+      "category": "tooling",
+      "keywords": ["scaffold", "generator", "validator", "agents", "skills", "mcp", "best-practices"]
     }
   ]
 }
