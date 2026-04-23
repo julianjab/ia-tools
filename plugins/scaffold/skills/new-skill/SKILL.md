@@ -70,6 +70,12 @@ Verify parent exists (`mkdir -p "$(dirname "$OUT_DIR")"`). Verify `$OUT_DIR` doe
 
 ### 3. Delegate to skill-author
 
+Compute the absolute path to the references dir:
+
+```bash
+REFS_ABS_PATH="$(cd "${CLAUDE_SKILL_DIR}/../../references" && pwd)"
+```
+
 Invoke `skill-author` subagent with:
 
 ```json
@@ -82,11 +88,12 @@ Invoke `skill-author` subagent with:
   "context_mode": "<inline|fork>",
   "fork_agent": "<agent or null>",
   "output_dir": "<OUT_DIR>",
-  "stack_hints": "<optional>"
+  "stack_hints": "<optional>",
+  "refs_dir": "<REFS_ABS_PATH>"
 }
 ```
 
-The subagent reads references, designs the skill, and writes `SKILL.md` + any `scripts/` or `templates/`. Returns a report block.
+The subagent reads references from `refs_dir` (absolute path), designs the skill, and writes `SKILL.md` + any `scripts/` or `templates/`. Returns a report block.
 
 ### 4. Audit
 

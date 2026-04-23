@@ -68,6 +68,12 @@ Verify the parent directory exists (create if missing with `mkdir -p`). Verify `
 
 ### 3. Delegate to agent-author
 
+Compute the absolute path to the references dir so the agent doesn't rely on its own CWD:
+
+```bash
+REFS_ABS_PATH="$(cd "${CLAUDE_SKILL_DIR}/../../references" && pwd)"
+```
+
 Invoke the `agent-author` subagent with this brief:
 
 ```json
@@ -76,11 +82,12 @@ Invoke the `agent-author` subagent with this brief:
   "purpose": "<purpose>",
   "execution_mode": "<mode>",
   "stack_hints": "<stack_hints or empty>",
-  "output_path": "<OUT>"
+  "output_path": "<OUT>",
+  "refs_dir": "<REFS_ABS_PATH>"
 }
 ```
 
-The subagent reads the references, designs the agent, and writes the file. It returns a report block.
+The subagent reads the references from `refs_dir` (absolute path), designs the agent, and writes the file. It returns a report block.
 
 ### 4. Audit the result
 

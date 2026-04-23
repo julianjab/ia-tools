@@ -28,19 +28,20 @@ The caller passes a JSON-shaped brief:
   "purpose": "One-sentence description of what the agent does.",
   "execution_mode": "subagent" | "teammate" | "main",
   "stack_hints": "optional — relevant tech, e.g. 'Python FastAPI backend'",
-  "output_path": "plugins/scaffold/agents/<name>.md" | "agents/<name>.md" | ...
+  "output_path": "plugins/scaffold/agents/<name>.md" | "agents/<name>.md" | ...,
+  "refs_dir": "<absolute path to scaffold plugin's references/ dir>"
 }
 ```
 
-Missing fields: make reasonable inferences; note them in the report block.
+Missing fields: make reasonable inferences; note them in the report block. If `refs_dir` is missing, STOP with error — the caller must inject it (agent has no reliable CWD to infer plugin location).
 
 ## Before you start
 
-Read these references in order:
+Read these references in order, using the absolute `refs_dir` from the brief:
 
-1. `references/agent-frontmatter.md` — field matrix, plugin/teammate caveats
-2. `references/agent-anti-patterns.md` — 12 common mistakes
-3. `references/model-selection.md` — model + effort decisions
+1. `<refs_dir>/agent-frontmatter.md` — field matrix, plugin/teammate caveats
+2. `<refs_dir>/agent-anti-patterns.md` — 12 common mistakes
+3. `<refs_dir>/model-selection.md` — model + effort decisions
 
 Skim existing agents in `agents/` or `plugins/*/agents/` to pick up project conventions (tools list shape, body section order, memory pattern). Do NOT copy another agent verbatim.
 

@@ -34,16 +34,19 @@ The caller passes:
   "context_mode": "inline" | "fork",
   "fork_agent": "Explore" | "Plan" | "general-purpose" | null,
   "output_dir": "plugins/scaffold/skills/<name>/" | "skills/<name>/" | ...,
-  "stack_hints": "optional"
+  "stack_hints": "optional",
+  "refs_dir": "<absolute path to scaffold plugin's references/ dir>"
 }
 ```
 
+If `refs_dir` is missing, STOP — the caller must inject it.
+
 ## Before you start
 
-Read in order:
+Read in order, using the absolute `refs_dir` from the brief:
 
-1. `references/skill-frontmatter.md` — fields, character caps, arg syntaxes
-2. `references/skill-anti-patterns.md` — 14 common mistakes
+1. `<refs_dir>/skill-frontmatter.md` — fields, character caps, arg syntaxes
+2. `<refs_dir>/skill-anti-patterns.md` — 14 common mistakes
 3. Any existing skill in `skills/` that handles similar inputs — pattern-match the body shape.
 
 ## What you produce

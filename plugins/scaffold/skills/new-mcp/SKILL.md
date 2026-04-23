@@ -77,7 +77,7 @@ Ask the user:
 Then:
 
 1. Run `scaffold.sh` first to create the base structure (writes all manifests, tsconfig, package.json, bundle script, README, and a generic `src/` stub).
-2. Invoke `mcp-author` subagent with the brief + `output_dir: $PLUGIN_DIR`. The subagent OVERWRITES **only** `src/mcp-server.ts`, `src/shared/types.ts`, `src/__tests__/server.test.ts` (and optionally adds `src/tools/*.ts` if >3 tools). It does NOT touch manifests, package.json, tsconfig, vitest.config, bundle.mjs, or README.
+2. Compute `REFS_ABS_PATH="$(cd "${CLAUDE_SKILL_DIR}/../../references" && pwd)"` and pass it to the subagent. Invoke `mcp-author` with the brief + `output_dir: $PLUGIN_DIR` + `refs_dir: $REFS_ABS_PATH`. The subagent OVERWRITES **only** `src/mcp-server.ts`, `src/shared/types.ts`, `src/__tests__/server.test.ts` (and optionally adds `src/tools/*.ts` if >3 tools). It does NOT touch manifests, package.json, tsconfig, vitest.config, bundle.mjs, or README.
 3. Do NOT edit `package.json` from this skill. Instead, read the `external_deps` list back from `mcp-author`'s "Next steps" report and include them verbatim in this skill's output so the user adds them with `pnpm add` as a conscious step.
 
 ### 4. Audit

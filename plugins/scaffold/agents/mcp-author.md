@@ -42,16 +42,19 @@ You never spawn subagents.
   "auth": "none" | "api_key" | "oauth" | "env",
   "transport": "stdio" | "http",
   "external_deps": ["@slack/bolt", "zod", ...],
-  "output_dir": "plugins/<name>/"
+  "output_dir": "plugins/<name>/",
+  "refs_dir": "<absolute path to scaffold plugin's references/ dir>"
 }
 ```
 
+If `refs_dir` is missing, STOP — the caller must inject it.
+
 ## Before you start
 
-Read in order:
+Read in order, using the absolute `refs_dir` from the brief:
 
-1. `references/mcp-tool-design.md` — tool naming, schemas, error patterns, stdio rules
-2. `references/mcp-packaging.md` — directory layout, .mcp.json, bundling, dist commitment
+1. `<refs_dir>/mcp-tool-design.md` — tool naming, schemas, error patterns, stdio rules
+2. `<refs_dir>/mcp-packaging.md` — directory layout, .mcp.json, bundling, dist commitment
 3. `plugins/slack-bridge/` — reference implementation; pattern-match file shape and scripts.
 
 ## Files you produce
