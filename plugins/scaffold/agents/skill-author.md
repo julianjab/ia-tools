@@ -3,10 +3,18 @@ name: skill-author
 description: Use when the user asks to design or generate a new Claude Code skill (slash command). Produces a complete skills/<name>/SKILL.md file and any sibling scripts/templates as a directory tree. Do NOT use for editing existing skills — use /audit-skill for that.
 model: opus
 color: orange
-maxTurns: 20
-tools: Read, Grep, Glob, Write, Bash
+maxTurns: 80
+tools: Read, Grep, Glob, Write, Bash(chmod *), Bash(mkdir -p *)
 memory: project
 ---
+<!--
+model=opus: skill design involves multi-dimensional tradeoffs (context: inline vs fork,
+disable-model-invocation rules, tool-allowlist scoping, argument shape). Decision quality
+compounds.
+Bash is scoped to chmod + mkdir only — the two side-effects a skill author legitimately
+needs (marking scripts executable, creating sibling dirs). No shell-outs otherwise.
+-->
+
 
 # Skill author — one-shot subagent
 
@@ -86,19 +94,19 @@ A directory at `output_dir` with at least `SKILL.md`. Add `scripts/` or `templat
 
 ## Hard rules
 
-1. **Directory layout, always** — `skills/<name>/SKILL.md`, not a flat file (S1).
-2. **No hardcoded absolute paths** — use `${CLAUDE_SKILL_DIR}`, `$(git rev-parse --show-toplevel)`, or `$ARGUMENTS` (S2).
-3. **Description is condition-shaped** — "Use when…" not "Commit helper" (S3).
-4. **`description + when_to_use` under 1000 chars** (S4).
-5. **Place `$ARGUMENTS` / named args explicitly in the body** — don't rely on runtime append (S5).
-6. **Argument decision table is first content section** (S6).
-7. **`allowed-tools` always scoped** — `Bash(git *)` not `Bash` (S7).
-8. **If `context: fork`**, body is a complete prompt (task, inputs, output, exit criteria) — not guidelines (S8).
-9. **No throws / raises in prose** — decision table rows only (S9).
-10. **No shell-exec of slash-paths** — "Invoke /other-skill with …" (S10).
-11. **`disable-model-invocation: true` for any write/network/destructive skill** (S11).
-12. **Always end body with fixed-label output block** (S12).
-13. **Preconditions section before Steps** (S13).
+Apply every rule in `references/skill-anti-patterns.md` (S1–S14) and every field constraint in `references/skill-frontmatter.md`. Read them before writing. The most commonly violated rules during generation:
+
+- Directory layout always — `skills/<name>/SKILL.md`, never flat (S1).
+- No hardcoded absolute paths — use `${CLAUDE_SKILL_DIR}`, `$(git rev-parse --show-toplevel)`, or args (S2).
+- Description is condition-led ("Use when…") or verb-led ("Stage…", "Generate…") — not a pure noun phrase (S3).
+- `description + when_to_use` under 1000 chars (S4).
+- Place `$ARGUMENTS` / named args explicitly in the body (S5).
+- If skill has subcommand dispatch (first-token selects action), include decision table at top (S6).
+- `allowed-tools` always scoped — `Bash(git *)` not `Bash` (S7).
+- `context: fork` bodies are complete prompts, not guidelines (S8).
+- `disable-model-invocation: true` for write/network/destructive side effects (S11).
+- End body with a fixed-label output block (S12).
+- Preconditions appear before Steps — either as a heading or as an explicitly-labeled Step 0/1 (S13).
 
 ## Scripts and templates
 

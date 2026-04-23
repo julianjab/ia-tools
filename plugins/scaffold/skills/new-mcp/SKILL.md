@@ -2,10 +2,16 @@
 name: new-mcp
 description: Use when the user asks to create a new MCP server plugin. Runs the deterministic scaffold.sh with templates to produce plugins/<name>/ — plugin.json, .mcp.json, package.json, tsconfig, src/mcp-server.ts, tests. Then runs /audit-mcp. Optionally delegates custom tool design to the mcp-author subagent.
 argument-hint: <name> [--custom] [--dest <path>]
-arguments: [name, custom_flag, dest_flag, dest_value]
+arguments: [name]
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Write, Bash(git rev-parse *), Bash(ls *), Bash(mkdir -p *), Bash(test *), Bash(chmod *), Bash(bash *), Bash(cat *), Bash(find *)
+allowed-tools: Read, Grep, Glob, Write, Bash(git rev-parse *), Bash(ls *), Bash(mkdir -p *), Bash(test *), Bash(chmod *), Bash(${CLAUDE_SKILL_DIR}/scripts/scaffold.sh *), Bash(cat *), Bash(find *)
 ---
+<!--
+arguments: one positional slot. Flags (--custom, --dest) parsed from $ARGUMENTS.
+Bash(bash *) was replaced with a scoped matcher to the scaffold.sh path — no other
+shell scripts can be executed through this skill.
+-->
+
 
 # /new-mcp — create a new MCP server plugin
 
@@ -51,7 +57,7 @@ Verify `$PLUGIN_DIR` does not exist.
 Run:
 
 ```bash
-bash "$SCAFFOLD" "$name" "$DEST_ROOT"
+"$SCAFFOLD" "$name" "$DEST_ROOT"
 ```
 
 The script creates the directory tree, substitutes `{{NAME}}`, and prints next-step instructions. Exit on non-zero.
@@ -70,9 +76,9 @@ Ask the user:
 
 Then:
 
-1. Run `scaffold.sh` first to create the base structure.
-2. Invoke `mcp-author` subagent with the brief + `output_dir: $PLUGIN_DIR`. The subagent OVERWRITES `src/mcp-server.ts`, `src/shared/types.ts`, and `src/__tests__/server.test.ts` with custom code. It does NOT touch package.json / tsconfig / .mcp.json (scaffold handled those).
-3. Update `package.json` to add `external_deps` to dependencies — the caller (this skill) does this via Edit, since `mcp-author` can't modify files outside `src/`.
+1. Run `scaffold.sh` first to create the base structure (writes all manifests, tsconfig, package.json, bundle script, README, and a generic `src/` stub).
+2. Invoke `mcp-author` subagent with the brief + `output_dir: $PLUGIN_DIR`. The subagent OVERWRITES **only** `src/mcp-server.ts`, `src/shared/types.ts`, `src/__tests__/server.test.ts` (and optionally adds `src/tools/*.ts` if >3 tools). It does NOT touch manifests, package.json, tsconfig, vitest.config, bundle.mjs, or README.
+3. Do NOT edit `package.json` from this skill. Instead, read the `external_deps` list back from `mcp-author`'s "Next steps" report and include them verbatim in this skill's output so the user adds them with `pnpm add` as a conscious step.
 
 ### 4. Audit
 
@@ -102,6 +108,8 @@ Audit result:
 
 Next steps (run manually):
   cd <PLUGIN_DIR>
+  <if custom and external_deps non-empty:>
+    pnpm add <space-separated deps from mcp-author report>
   pnpm install
   pnpm build
   pnpm test

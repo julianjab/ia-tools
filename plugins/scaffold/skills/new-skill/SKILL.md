@@ -2,10 +2,16 @@
 name: new-skill
 description: Use when the user asks to create a new Claude Code skill (slash command). Gathers a brief, delegates design to the skill-author subagent, writes the skills/<name>/ directory, then runs /audit-skill. Interactive — asks clarifying questions before writing.
 argument-hint: <name> [--invocation user-only|model-allowed] [--context inline|fork] [--dest <path>]
-arguments: [name, inv_flag, inv_value, ctx_flag, ctx_value, dest_flag, dest_value]
+arguments: [name]
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Write, Bash(git rev-parse *), Bash(ls *), Bash(mkdir -p *), Bash(test *), Bash(chmod *)
+allowed-tools: Read, Grep, Glob, Write, Bash(git rev-parse *), Bash(ls *), Bash(mkdir -p *), Bash(test *)
 ---
+<!--
+arguments: one positional slot (name). Flags parsed from $ARGUMENTS by the body.
+Bash(chmod *) removed: skill-author holds that capability and marks its own scripts
+executable during creation; new-skill does not chmod again.
+-->
+
 
 # /new-skill — create a new Claude Code skill
 
@@ -82,15 +88,13 @@ Invoke `skill-author` subagent with:
 
 The subagent reads references, designs the skill, and writes `SKILL.md` + any `scripts/` or `templates/`. Returns a report block.
 
-### 4. Post-process
-
-If the subagent created any `scripts/*.sh` files, `chmod +x` them (the author can't).
-
-### 5. Audit
+### 4. Audit
 
 Invoke: `/audit-skill <OUT_DIR>/SKILL.md`
 
-### 6. Emit output
+(The author agent has `Bash(chmod *)` in its own allowlist and marks any scripts it creates executable during generation — no post-processing step here.)
+
+### 5. Emit output
 
 ## Output
 

@@ -2,10 +2,15 @@
 name: new-agent
 description: Use when the user asks to create a new Claude Code agent. Gathers a brief, delegates design to the agent-author subagent, writes the agents/<name>.md file, then runs /audit-agent on it. Interactive — asks clarifying questions before writing.
 argument-hint: <name> [--mode subagent|teammate|main] [--dest <path>]
-arguments: [name, mode_flag, mode_value, dest_flag, dest_value]
+arguments: [name]
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Write, Bash(git rev-parse *), Bash(ls *), Bash(mkdir -p *), Bash(test *)
 ---
+<!--
+arguments: declares ONE positional slot (name). Flags (--mode, --dest) are parsed from
+$ARGUMENTS by the body — they are not positional slots per references/skill-frontmatter.md.
+-->
+
 
 # /new-agent — create a new Claude Code agent
 
@@ -21,7 +26,7 @@ Scaffolds a single `agents/<name>.md` file by delegating the design to the `agen
 | `<kebab-name> --help` | Print usage; exit |
 | _(empty)_ | STOP — "Usage: /new-agent <name> [--mode <m>] [--dest <path>]" |
 
-Parse `$ARGUMENTS` positionally. Flags are `--mode` and `--dest`; values follow them.
+Parse `$ARGUMENTS` as a string: first token is `$name`; scan remaining tokens for `--mode <value>` and `--dest <value>` pairs.
 
 ## Preconditions
 

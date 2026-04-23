@@ -11,10 +11,16 @@ set -euo pipefail
 
 name="${1:?Usage: scaffold.sh <name> <dest-root> [author-name] [author-email]}"
 dest_root="${2:?destination root required}"
-author_name="${3:-Julian Buitrago}"
-author_email="${4:-julianbuitrago@lahaus.com}"
+author_name="${3:-$(git config user.name 2>/dev/null || echo 'Unknown')}"
+author_email="${4:-$(git config user.email 2>/dev/null || echo 'unknown@example.com')}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -d "$script_dir/../templates" ]; then
+  echo "ERROR: templates directory not found at $script_dir/../templates — scaffold plugin install is incomplete." >&2
+  exit 1
+fi
+
 templates_dir="$(cd "$script_dir/../templates" && pwd)"
 dest="$dest_root/plugins/$name"
 

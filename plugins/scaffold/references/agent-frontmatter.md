@@ -13,7 +13,7 @@ Source of truth for every `agents/*.md` field. Used by `/new-agent`, `/audit-age
 | `disallowedTools` | no | string (comma list) | yes | yes | Denylist. Applied before `tools`. |
 | `color` | no | string | yes | yes | UI only — pink/green/blue/red/yellow/purple/orange/cyan. |
 | `maxTurns` | no | integer | yes | yes | Caps conversation turns. Low for auditors (10), high for implementers (100+). |
-| `memory` | no | `user`/`project`/`local`/omit | yes | yes | Enables `.claude/agent-memory/<name>/`. See [memory docs]. |
+| `memory` | no | `user`/`project`/`local`/omit | yes | yes | Enables `.claude/agent-memory/<name>/`. |
 | `background` | no | boolean | yes | yes | Run detached from parent context. |
 | `effort` | no | `low`/`medium`/`high`/`xhigh`/`max` | yes | yes | Reasoning budget. Default `xhigh` on Opus 4.7. |
 | `isolation` | no | `worktree` | yes | yes | Spawns agent in temp git worktree. |

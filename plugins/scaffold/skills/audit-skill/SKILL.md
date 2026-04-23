@@ -39,15 +39,17 @@ From `${CLAUDE_SKILL_DIR}/../../references/`:
 
 ## Checks — run in order
 
-### 1. Layout check
+Rule IDs map 1:1 to `references/skill-anti-patterns.md`. S1 is layout; S2–S14 are frontmatter + body rules. They are numbered consistently across both files.
+
+### 1. S1 — Layout
 
 | Check | Severity |
 |-------|----------|
-| Skill is a directory (`<name>/SKILL.md`) | HIGH S1 if flat |
+| Skill is a directory (`<name>/SKILL.md`) | HIGH S1 if flat file |
 | `scripts/` present but no references in body | LOW |
 | `templates/` present but no references in body | LOW |
 
-### 2. Frontmatter rules S2–S14
+### 2. S2–S14 — Frontmatter and body rules
 
 | Rule | Check |
 |------|-------|

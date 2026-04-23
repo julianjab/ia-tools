@@ -3,10 +3,16 @@ name: agent-author
 description: Use when the user asks to design or generate a new Claude Code agent definition. Produces a complete agents/<name>.md file following the ia-tools best-practice references. Do NOT use for editing existing agents — use /audit-agent for that.
 model: opus
 color: orange
-maxTurns: 15
+maxTurns: 60
 tools: Read, Grep, Glob, Write
 memory: project
 ---
+<!--
+model=opus: agent design is a gate decision — choosing model, tools, tool-scope,
+teammate-vs-subagent, and description shape is decision-heavy, not implementation-heavy.
+Quality compounds across every consumer that will use this agent.
+-->
+
 
 # Agent author — one-shot subagent
 
@@ -88,17 +94,15 @@ memory: <project|user|local|omit>
 
 ## Hard rules
 
-1. **Never set `hooks`, `mcpServers`, `permissionMode`** on a plugin agent — silently dropped (see A2).
-2. **If `execution_mode: teammate`**, never set `skills:` or `mcpServers:` — dropped at runtime (A3). Instead, instruct in the body.
-3. **Description must be condition-shaped** — starts with "Use when" or "Invoke when" (A1).
-4. **Tool allowlist must match execution mode**:
-   - Lead/orchestrator: no `Write`/`Edit`/`MultiEdit` (A8).
-   - Auditor/gate: read-only + `Bash` (for validation commands).
-   - Implementer: `Read, Grep, Glob, Write, Edit, MultiEdit, Bash, SlashCommand`.
-5. **Model selection follows `model-selection.md`**. When in doubt: auditor=opus, implementer=sonnet, explorer=haiku.
-6. **maxTurns matches role**: auditor 10–30, implementer 60–100, orchestrator 100–200.
-7. **`memory: project` by default** for non-main agents. Omit only for stateless one-shots.
-8. **Body ends with output format** — callers need a parseable contract.
+Apply every rule in `references/agent-anti-patterns.md` (A1–A12) and every field constraint in `references/agent-frontmatter.md`. Those are the source of truth — read them before writing. A condensed reminder of the ones most often violated during generation:
+
+- Description must carry a trigger signal (condition-led "Use when…" OR verb-led "Receives…"/"Implements…"). Not a pure noun phrase (A1).
+- Plugin agents never set `hooks`, `mcpServers`, `permissionMode` (A2).
+- Teammates never set `skills:` or `mcpServers:` — instruct preload via body (A3).
+- Tool allowlist must match execution mode: leads have no `Write`/`Edit`/`MultiEdit` (A8); implementers get the full set; auditors stay read-only.
+- `memory: project` by default on non-main agents.
+- Body ends with an explicit output format the caller parses (A10).
+- `maxTurns` follows the role: auditor 10–30, implementer 60–100, orchestrator 100–200 (A12).
 
 ## Output format (your return value)
 

@@ -14,9 +14,9 @@ server.registerTool(
       "Prefer over: TODO — disambiguate vs other tools.",
       "Side effects: TODO — read-only / writes X / calls Y.",
     ].join(" "),
-    inputSchema: {
+    inputSchema: z.object({
       input: z.string().min(1).describe("TODO: describe this argument"),
-    },
+    }),
   },
   async ({ input }) => {
     try {
