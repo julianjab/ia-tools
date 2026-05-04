@@ -128,8 +128,10 @@ Next actions:
 | Target file not readable | STOP — report permission error |
 | `--strict` unrecognized flag | Warn and proceed without strict mode |
 
-## Never
+## Scope
 
-- Edit the target file. Auditing is read-only.
-- Apply fixes automatically — only report. The caller decides.
-- Exit 1 on findings — emit report and let the caller interpret.
+Own: reading the target file, loading the references, running rules A1–A14 plus smoke checks, and emitting the report.
+
+Boundaries:
+- Stay read-only. Report findings; the caller decides whether to apply fixes (typically via `/edit-agent`).
+- Always emit the structured report block, even when findings are HIGH. Let the caller interpret the verdict.

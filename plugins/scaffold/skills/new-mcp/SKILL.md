@@ -147,9 +147,12 @@ Then register (manual — required):
 | Audit fails to run | Warn; emit output without audit section |
 | Audit reports HIGH findings | Emit output; do NOT delete the plugin dir |
 
-## Never
+## Scope
 
-- Auto-register in marketplace.json or pnpm-workspace.yaml — these require explicit user commit.
-- Run `pnpm install` or `pnpm build` — leave for the user.
-- Overwrite an existing `plugins/<name>/` directory.
-- Invoke `mcp-author` without first running `scaffold.sh` (the subagent assumes the base structure exists).
+Own: argument parsing, running `scaffold.sh`, optional delegation to `mcp-author`, running `/audit-mcp`, and emitting the output block.
+
+Boundaries:
+- Print exact registration lines for `.claude-plugin/marketplace.json` and `pnpm-workspace.yaml`; let the user commit them.
+- Print exact install/build/test commands; let the user run them.
+- Require `plugins/<name>/` to be absent before scaffolding. Refuse to overwrite.
+- Run `scaffold.sh` before delegating to `mcp-author`; the subagent expects the base structure to exist.

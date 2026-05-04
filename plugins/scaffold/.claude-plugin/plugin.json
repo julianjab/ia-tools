@@ -1,7 +1,7 @@
 {
   "name": "scaffold",
   "version": "0.1.0",
-  "description": "Scaffolding and validation for Claude Code agents, skills, and MCP servers. Ships /new-agent, /new-skill, /new-mcp (generators) and /audit-agent, /audit-skill, /audit-mcp (validators), backed by canonical best-practice references.",
+  "description": "Scaffolding, validation, and editing for Claude Code agents, skills, and MCP servers. Ships /new-agent, /new-skill, /new-mcp (generators); /audit-agent, /audit-skill, /audit-mcp (validators); /edit-agent, /edit-skill, /edit-mcp (focused edits with audit-bracketed regression checks). Backed by canonical best-practice references.",
   "author": { "name": "Julian Buitrago", "email": "julianbuitrago@lahaus.com" },
   "homepage": "https://github.com/julianjab/ia-tools",
   "repository": "https://github.com/julianjab/ia-tools",

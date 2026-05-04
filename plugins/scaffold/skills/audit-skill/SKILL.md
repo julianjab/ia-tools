@@ -131,8 +131,10 @@ Next actions:
 | Permission denied | STOP |
 | `--strict` flag typo | Warn and proceed without strict |
 
-## Never
+## Scope
 
-- Edit the target.
-- Auto-fix findings.
-- Audit something that isn't a Claude Code skill (reject `.md` files outside `skills/` unless user explicitly forces via the path).
+Own: reading the target SKILL.md (and sibling files), loading the references, running rules S1–S18 plus smoke checks, and emitting the report.
+
+Boundaries:
+- Stay read-only. Report findings; the caller decides whether to apply fixes (typically via `/edit-skill`).
+- Audit Claude Code skills. Refuse `.md` files outside a `skills/` directory unless the user passes an explicit path.
