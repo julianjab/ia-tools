@@ -26,9 +26,9 @@
     {
       "name": "scaffold",
       "source": "./plugins/scaffold",
-      "description": "Scaffolding and validation for Claude Code agents, skills, and MCP servers. Ships /new-agent, /new-skill, /new-mcp generators and /audit-agent, /audit-skill, /audit-mcp validators, backed by canonical best-practice references.",
+      "description": "Scaffolding, validation, and editing for Claude Code agents, skills, and MCP servers. Ships /new-agent, /new-skill, /new-mcp generators; /audit-agent, /audit-skill, /audit-mcp validators; and /edit-agent, /edit-skill, /edit-mcp for audit-bracketed focused edits. Backed by canonical best-practice references.",
       "category": "tooling",
-      "keywords": ["scaffold", "generator", "validator", "agents", "skills", "mcp", "best-practices"]
+      "keywords": ["scaffold", "generator", "validator", "editor", "agents", "skills", "mcp", "best-practices"]
     }
   ]
 }
