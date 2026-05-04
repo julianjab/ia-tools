@@ -1,11 +1,11 @@
 ---
 name: audit-skill
-description: Use when the user asks to review or validate an existing Claude Code skill (skills/<name>/SKILL.md) against best practices. Reports hardcoded paths, label-shaped descriptions, missing argument tables, unscoped tool permissions, and the 14 skill anti-patterns. Read-only.
+description: Use when the user asks to review or validate an existing Claude Code skill (skills/<name>/SKILL.md) against best practices. Reports hardcoded paths, label-shaped descriptions, first-person descriptions, deep reference chains, missing argument tables, unscoped tool permissions, and the 18 skill anti-patterns. Read-only.
 when_to_use: |
   Trigger phrases: "review this skill", "validate SKILL.md", "check skill frontmatter",
   "lint a slash command", "does this skill follow best practices", "audit skill directory",
   "find issues in skills/X/", "verify allowed-tools scope", "check disable-model-invocation",
-  "skill anti-patterns", "run S1-S14 rules", "skill-author output review",
+  "skill anti-patterns", "run S1-S18 rules", "skill-author output review",
   "is my skill portable", "check argument-hint", "verify fork-skill body".
 argument-hint: <path-to-SKILL.md-or-skill-dir> [--strict]
 arguments: [path, flag]
@@ -45,7 +45,7 @@ From `${CLAUDE_SKILL_DIR}/../../references/`:
 
 ## Checks — run in order
 
-Rule IDs map 1:1 to `references/skill-anti-patterns.md`. S1 is layout; S2–S14 are frontmatter + body rules. They are numbered consistently across both files.
+Rule IDs map 1:1 to `references/skill-anti-patterns.md`. S1 is layout; S2–S18 are frontmatter + body rules. They are numbered consistently across both files.
 
 ### 1. S1 — Layout
 
@@ -72,6 +72,10 @@ Rule IDs map 1:1 to `references/skill-anti-patterns.md`. S1 is layout; S2–S14 
 | S12 | Body ends without a fixed-label output block → MEDIUM |
 | S13 | No preconditions before Steps. PASS if either (a) explicit "Preconditions"/"Precondition" heading exists, OR (b) an early numbered step (Step 0 or Step 1) explicitly validates state ("Verify branch", "Check that …"). Missing both → MEDIUM. |
 | S14 | `paths: ["**/*"]` or similar over-broad pattern → LOW |
+| S15 | `description` contains "I ", "I'll ", "I can", "you can", "you should", "your" → HIGH |
+| S16 | `description` starts with "This skill", "This command", "A skill that", "This tool" → MEDIUM |
+| S17 | SKILL.md references sibling file A, and A references a further file B (3+ levels deep) → MEDIUM |
+| S18 | A sibling reference file > 100 lines has no TOC heading in its first 20 lines → LOW |
 
 ### 3. Additional smoke checks
 
@@ -100,7 +104,7 @@ Rule IDs map 1:1 to `references/skill-anti-patterns.md`. S1 is layout; S2–S14 
   Name:         <name>
   Layout:       <directory | flat>
   Sibling files: <count files in dir>
-  Rules run:    S1–S14 + 5 smoke checks
+  Rules run:    S1–S18 + 5 smoke checks
 
 | Severity | Rule | Finding | Location |
 |----------|------|---------|----------|
@@ -127,8 +131,10 @@ Next actions:
 | Permission denied | STOP |
 | `--strict` flag typo | Warn and proceed without strict |
 
-## Never
+## Scope
 
-- Edit the target.
-- Auto-fix findings.
-- Audit something that isn't a Claude Code skill (reject `.md` files outside `skills/` unless user explicitly forces via the path).
+Own: reading the target SKILL.md (and sibling files), loading the references, running rules S1–S18 plus smoke checks, and emitting the report.
+
+Boundaries:
+- Stay read-only. Report findings; the caller decides whether to apply fixes (typically via `/edit-skill`).
+- Audit Claude Code skills. Refuse `.md` files outside a `skills/` directory unless the user passes an explicit path.

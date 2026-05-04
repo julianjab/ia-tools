@@ -88,3 +88,27 @@ Common mistakes detected by `/audit-skill`.
 - **Signal**: `paths: ["**/*"]` or no `paths` on a monorepo-specific skill.
 - **Why**: Skill auto-activates everywhere, including sibling packages it wasn't written for.
 - **Fix**: Scope: `paths: ["packages/mobile/**"]`. Or omit + rely on explicit user invocation.
+
+## S15. First- or second-person description
+
+- **Signal**: `description` contains "I ", "I'll ", "I can", "you can", "you should", or "your".
+- **Why**: `description` is read by the routing system, not the user. First/second-person prose breaks the autocomplete trigger and reads as a chatbot greeting, not a task signal. Anthropic requires third-person or action-verb form.
+- **Fix**: Use third person ("Stages and commits…", "Audits a skill…") or condition-shape ("Use when the user asks to commit staged changes."). Never "I can help you commit" or "You can use this to push."
+
+## S16. Generic preamble buries the trigger
+
+- **Signal**: `description` starts with "This skill", "This command", "A skill that", "This tool helps", or any noun phrase before the actual use-case.
+- **Why**: Claude's skill router scores descriptions by keyword proximity. A preamble pushes the trigger phrase past the first 80 characters, reducing routing precision. Anthropic explicitly recommends front-loading the use case.
+- **Fix**: Start directly with the trigger: "Use when the user asks to…" or an action verb ("Extracts text from PDF files…"). Drop all setup phrases.
+
+## S17. Deep reference chain
+
+- **Signal**: `SKILL.md` references a sibling file (e.g., `reference.md`) AND that sibling file itself contains references to further files (3+ levels of depth: SKILL.md → A.md → B.md).
+- **Why**: When Claude encounters a nested reference, it may use partial-read commands (`head -100`) on intermediary files instead of reading them fully, losing information before reaching the actual content. Anthropic explicitly states: "Keep references one level deep from SKILL.md."
+- **Fix**: All reference files should link directly from `SKILL.md`. Move the content from `B.md` into `A.md`, or link both directly from `SKILL.md`.
+
+## S18. Long reference file without table of contents
+
+- **Signal**: A sibling file (not `SKILL.md` itself) has more than 100 lines AND has no "## Contents", "## Table of contents", or similar TOC heading in the first 20 lines.
+- **Why**: Claude sometimes previews large files with partial reads. Without a TOC at the top, it may not see what sections exist and skip relevant content entirely. Anthropic recommends a TOC for any reference file exceeding 100 lines so Claude can see the full scope even on a partial read.
+- **Fix**: Add a short TOC section at the top of the file listing all major sections.

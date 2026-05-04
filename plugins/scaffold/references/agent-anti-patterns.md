@@ -74,3 +74,15 @@ Common mistakes detected by `/audit-agent`. Each entry: signal, why it breaks, f
 - **Signal**: No `maxTurns` on an implementer (defaults high), or `maxTurns: 10` on a teammate that iterates.
 - **Why**: Runaway budget on implementers; premature halt on iterators.
 - **Fix**: Auditors/gates: 10–30. Implementers: 60–100. Orchestrators: 100–200.
+
+## A13. First- or second-person description
+
+- **Signal**: `description` contains "I ", "I'll ", "I can", "you can", "you should", or "your".
+- **Why**: `description` is consumed by the routing system, not the user. First/second-person prose reads as a chatbot greeting, defeats keyword-based intent matching, and is explicitly flagged in Anthropic's authoring guidelines. Claude routes agents on condition-shaped or verb-led descriptions, not conversational ones.
+- **Fix**: Use third-person or condition-shape. Good: "Use when the orchestrator declares an api_contract change." Bad: "I can help you review API contracts."
+
+## A14. Implementer has no escalation policy
+
+- **Signal**: Agent body identifies as an implementer (has `Write`/`Edit`/`MultiEdit` in `tools` or body says "implement") but has no section describing when to stop and ask the user vs. when to decide autonomously.
+- **Why**: Without an explicit escalation boundary, implementers tend to guess at ambiguous inputs, mutate files outside their declared scope, or silently skip unresolved conflicts — producing bugs that are hard to attribute. `agent-frontmatter.md § Body structure` item 7 ("Escalation — when to stop and ask the user vs. when to decide autonomously") lists this as a required section for all agent bodies.
+- **Fix**: Add an "Escalation" or "When to stop" section: list the conditions (ambiguous merge conflict, spec drift, missing env var, security finding) that must pause the agent and ask the user. Document what it can resolve autonomously.

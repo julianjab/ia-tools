@@ -146,9 +146,12 @@ Next:
 | Audit returns FAIL | Emit output with findings; do NOT auto-delete |
 | User answered `model-allowed` for a write/destructive skill | Override to `user-only`, note in Decisions |
 
-## Never
+## Scope
 
-- Auto-fix audit findings.
-- Create the skill as a flat `<name>.md` file — always a directory.
-- Proceed without an explicit `purpose`.
-- Invoke `skill-author` more than once per call.
+Own: gathering the brief, resolving `OUT_DIR`, delegating once to `skill-author`, running `/audit-skill`, and emitting the output block.
+
+Boundaries:
+- Report audit findings to the user; let the user decide whether to apply fixes.
+- Always create the directory layout (`<name>/SKILL.md`); reject flat `<name>.md`.
+- Require a non-empty `purpose` before delegating.
+- Invoke `skill-author` exactly once per call. Re-run the skill if the brief changes.

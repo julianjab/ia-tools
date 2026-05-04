@@ -140,9 +140,12 @@ Next:
 | Audit returns FAIL with HIGH findings | Emit output with audit details; DO NOT delete the file — user decides |
 | Output path conflicts with existing file | STOP before delegating |
 
-## Never
+## Scope
 
-- Auto-fix audit findings. User must review.
-- Write to a path outside the chosen `dest`.
-- Invoke `agent-author` more than once per skill call.
-- Accept empty `purpose` — skill is useless without it.
+Own: gathering the brief, resolving `OUT`, delegating once to `agent-author`, running `/audit-agent`, and emitting the output block.
+
+Boundaries:
+- Report audit findings to the user; let the user decide whether to apply fixes.
+- Write only inside the chosen `dest`.
+- Invoke `agent-author` exactly once per call. Re-run the skill if the brief changes.
+- Require a non-empty `purpose` before delegating; the artifact depends on it.

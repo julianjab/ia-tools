@@ -156,8 +156,10 @@ Next actions:
 | `.mcp.json` malformed JSON | Report as HIGH; continue |
 | `package.json` malformed | Report as HIGH; continue |
 
-## Never
+## Scope
 
-- Run `pnpm install` / `pnpm build` — auditing is read-only.
-- Modify any file.
-- Execute the MCP server to test it — only static analysis.
+Own: reading the plugin directory, loading the references, running layout/manifest/source/test/dist checks, and emitting the report.
+
+Boundaries:
+- Stay read-only. Report findings; the caller decides whether to apply fixes (typically via `/edit-mcp`).
+- Use static analysis only. Skip `pnpm install`, `pnpm build`, and any execution of the MCP server.

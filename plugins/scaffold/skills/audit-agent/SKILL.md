@@ -1,12 +1,12 @@
 ---
 name: audit-agent
-description: Use when the user asks to review or validate an existing Claude Code agent file (agents/<name>.md) against best practices. Reports frontmatter drops, description quality, tool-allowlist issues, model mismatches, and the 12 anti-patterns. Read-only; never edits the agent.
+description: Use when the user asks to review or validate an existing Claude Code agent file (agents/<name>.md) against best practices. Reports frontmatter drops, first-person descriptions, description quality, tool-allowlist issues, model mismatches, and the 14 anti-patterns. Read-only; never edits the agent.
 when_to_use: |
   Trigger phrases: "review this agent", "validate agents/X.md", "check agent frontmatter",
   "lint an agent", "does this agent follow best practices", "audit agent definition",
   "find issues in agents/X.md", "is my agent well-formed", "check description shape",
   "verify agent tools", "review my subagent", "teammate frontmatter check",
-  "agent anti-patterns", "run A1-A12 rules", "agent-author output review".
+  "agent anti-patterns", "run A1-A14 rules", "agent-author output review".
 argument-hint: <path-to-agent.md> [--strict]
 arguments: [path, flag]
 allowed-tools: Read, Grep, Glob, Bash(cat *), Bash(head *), Bash(wc *)
@@ -41,7 +41,7 @@ Takes a path to an `agents/<name>.md` file, loads the canonical references, and 
 Read these files from the plugin root (`${CLAUDE_SKILL_DIR}/../../references/`):
 
 1. `agent-frontmatter.md` — field matrix
-2. `agent-anti-patterns.md` — the 12 rules A1–A12
+2. `agent-anti-patterns.md` — the 14 rules A1–A14
 3. `model-selection.md` — model decisions
 
 ## Checks — run in order
@@ -50,7 +50,7 @@ Read these files from the plugin root (`${CLAUDE_SKILL_DIR}/../../references/`):
 
 Extract every field. If the file is under a `plugins/*/` directory, set `context = plugin`. If the file contains a comment or description indicating teammate use, set `teammate = true`.
 
-### 2. Apply rules A1–A12
+### 2. Apply rules A1–A14
 
 For each rule in `agent-anti-patterns.md`, evaluate:
 
@@ -68,6 +68,8 @@ For each rule in `agent-anti-patterns.md`, evaluate:
 | A10 | Body has no "Output" / "Return" / "Output format" heading → MEDIUM. |
 | A11 | Body references "project conventions" / "our framework" without declaring `skills:` preload (for subagents) → MEDIUM. |
 | A12 | `maxTurns` missing → LOW. Implementer with `maxTurns < 40` → MEDIUM. Auditor with `maxTurns > 50` → LOW. |
+| A13 | `description` contains "I ", "I'll ", "I can", "you can", "you should", "your" → HIGH |
+| A14 | Agent body has `Write`/`Edit`/`MultiEdit` in tools or body says "implement" AND body has no escalation section → MEDIUM |
 
 ### 3. Additional smoke checks
 
@@ -85,7 +87,7 @@ For each rule in `agent-anti-patterns.md`, evaluate:
 1. Read `$ARGUMENTS[0]`.
 2. Parse YAML frontmatter using `head -n 50` + Bash `sed` for the `---` block, OR Read the whole file and locate the delimiters.
 3. Load references listed above.
-4. Apply rules A1–A12 + smoke checks.
+4. Apply rules A1–A14 + smoke checks.
 5. Emit the output block.
 
 ## Output
@@ -96,7 +98,7 @@ For each rule in `agent-anti-patterns.md`, evaluate:
   Name:         <name from frontmatter>
   Mode:         <plugin-subagent | plugin-teammate | plugin-main | standalone>
   Model:        <model>
-  Rules run:    A1–A12 + 6 smoke checks
+  Rules run:    A1–A14 + 6 smoke checks
 
 | Severity | Rule | Finding | Location |
 |----------|------|---------|----------|
@@ -126,8 +128,10 @@ Next actions:
 | Target file not readable | STOP — report permission error |
 | `--strict` unrecognized flag | Warn and proceed without strict mode |
 
-## Never
+## Scope
 
-- Edit the target file. Auditing is read-only.
-- Apply fixes automatically — only report. The caller decides.
-- Exit 1 on findings — emit report and let the caller interpret.
+Own: reading the target file, loading the references, running rules A1–A14 plus smoke checks, and emitting the report.
+
+Boundaries:
+- Stay read-only. Report findings; the caller decides whether to apply fixes (typically via `/edit-agent`).
+- Always emit the structured report block, even when findings are HIGH. Let the caller interpret the verdict.
