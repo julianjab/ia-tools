@@ -24,12 +24,12 @@
 >
 > Outside those four rules, the orchestrator decides at runtime what team
 > to spawn, in what order, and with what parallelism — see
-> `agents/orchestrator.md`.
+> `plugins/team-workflow/agents/orchestrator.md`.
 >
 > **Two hooks enforce the rules:**
-> - `SessionStart` (`hooks/scripts/session-start.sh`) — injects the session-manager
+> - `SessionStart` (`plugins/team-workflow/hooks/scripts/session-start.sh`) — injects the session-manager
 >   or orchestrator system prompt based on `IA_TOOLS_ROLE`.
-> - `PreToolUse` (`hooks/scripts/enforce-worktree.sh`) — blocks
+> - `PreToolUse` (`plugins/team-workflow/hooks/scripts/enforce-worktree.sh`) — blocks
 >   `Edit`/`Write`/`MultiEdit` on protected paths when the current branch is
 >   `main`/`master`. If you see `Pipeline violation: you are on main`, run
 >   `/worktree init feat/<name>` — the block is intentional.
@@ -58,21 +58,21 @@ Centralized AI ecosystem. Ships shared Claude Code agents, skills, hooks, and
 the Slack bridge MCP server as a single plugin. Installed in consumer repos
 where it runs the main session-manager session and spawns sub-sessions on demand.
 
-## Plugin frontmatter limitations (read before editing `agents/*.md`)
+## Plugin frontmatter limitations (read before editing `plugins/team-workflow/agents/*.md`)
 
 `ia-tools` ships as a plugin. Two Claude Code documentation limits apply:
 
 1. **Plugin subagents ignore `hooks`, `mcpServers`, `permissionMode`.** These
    three frontmatter fields are silently dropped when an agent is loaded
-   from a plugin. Do not set them in any `agents/*.md` file in this repo.
+   from a plugin. Do not set them in any `plugins/team-workflow/agents/*.md` file in this repo.
    If enforcement is needed, use the `tools:` allowlist (the only
    plugin-enforceable capability restriction), instruct the body, or move
    the rule to `settings.json` at the consumer level.
 2. **Teammates ignore `skills:` and `mcpServers:`.** When an agent runs as
    a teammate in an agent team (qa, backend, frontend, mobile by default),
    those two fields are dropped. Skill preload is done instead by having
-   the agent body invoke the skill on boot (see `agents/qa.md`,
-   `agents/security.md`).
+   the agent body invoke the skill on boot (see `plugins/team-workflow/agents/qa.md`,
+   `plugins/team-workflow/agents/security.md`).
 
 Fields that DO work in plugin agents: `name`, `description`, `tools`,
 `disallowedTools`, `model`, `maxTurns`, `memory`, `background`, `effort`,
@@ -81,19 +81,17 @@ as a one-shot subagent, not as a teammate).
 
 ## Structure
 
-- `agents/` — 8 stack-agnostic agent definitions (session-manager, orchestrator,
+- `plugins/team-workflow/agents/` — 8 stack-agnostic agent definitions (session-manager, orchestrator,
   architect, backend, frontend, mobile, qa, security). `orchestrator` is a
   main-thread agent that acts as an **agent-team lead**; qa/backend/frontend/mobile
   are its default teammates; architect/security are one-shot subagents by
   default. `session-manager` is the only main session in the plugin.
-- `skills/` — Reusable Claude Code skills (task, worktree, commit, review, pr,
-  ship, sync-docs, pr-review, security-audit, test-generation)
-- `hooks/` — SessionStart + PreToolUse enforcement scripts
-- `src/mcp-servers/*` — pnpm workspace with standalone MCP servers (today:
-  `slack-bridge`)
-- `.claude-plugin/plugin.json` — Root Claude Code plugin manifest
-- `.claude-plugin/plugins/*` — Nested Claude plugins; each one owns its
-  `plugin.json` + `.mcp.json`
+- `plugins/team-workflow/skills/` — Reusable Claude Code skills (session, worktree, commit, review, pr,
+  ship, sync-docs, pr-review, security-audit, test-generation, scope-check)
+- `plugins/team-workflow/hooks/` — SessionStart + PreToolUse enforcement scripts
+- `plugins/slack-bridge/` — Self-contained Slack bridge MCP plugin
+- `plugins/scaffold/` — Scaffolding/audit/edit skills for agents, skills, MCPs
+- `.claude-plugin/marketplace.json` — Marketplace manifest listing the three plugins above
 
 ## Session model
 
@@ -102,8 +100,8 @@ session **or** a sub-session. The switch is one env var:
 
 | `IA_TOOLS_ROLE` | Role | System prompt injected by SessionStart hook |
 |-----------------|------|---------------------------------------------|
-| unset           | session-manager | `agents/session-manager.md` |
-| `orchestrator`  | orchestrator    | `agents/orchestrator.md` |
+| unset           | session-manager | `plugins/team-workflow/agents/session-manager.md` |
+| `orchestrator`  | orchestrator    | `plugins/team-workflow/agents/orchestrator.md` |
 
 The main session starts with no env var → session-manager. `/session` spawns
 tmux with `IA_TOOLS_ROLE=orchestrator` → orchestrator. No other roles exist.
