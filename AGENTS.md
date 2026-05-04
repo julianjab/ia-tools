@@ -13,7 +13,7 @@ by the `IA_TOOLS_ROLE` env var and injected by the `SessionStart` hook:
 ┌─────────────────────────────────────────────────────────┐
 │ MAIN SESSION  (IA_TOOLS_ROLE unset → session-manager)   │
 │ - Always alive, listens to Slack DMs + subscribed chans │
-│ - System prompt: agents/session-manager.md              │
+│ - System prompt: plugins/team-workflow/agents/session-manager.md              │
 │ - Tool whitelist: read-only (Read/Grep/Glob/Bash-ro)    │
 │ - Classifies every message into 5 intents:              │
 │     read-only       → reply inline in the thread        │
@@ -28,7 +28,7 @@ by the `IA_TOOLS_ROLE` env var and injected by the `SessionStart` hook:
 ┌──────────────────────┐     ┌───────────────────────────────────────────┐
 │ SCOPE-CHECK (inline) │     │ SUB-SESSION  (IA_TOOLS_ROLE=orchestrator) │
 │ orchestrator subagent│     │ - One per Slack thread / session          │
-│ mode=scope-check     │     │ - System prompt: agents/orchestrator.md   │
+│ mode=scope-check     │     │ - System prompt: plugins/team-workflow/agents/orchestrator.md   │
 │ Writes:              │     │ - Standard: dedicated worktree + tmux     │
 │   .sessions/         │     │ - Resume-from (--resume-from):            │
 │     scope.md         │     │   CWD = consumer repo root; orchestrator  │
@@ -207,14 +207,14 @@ Key points:
 
 | Agent          | File                    | Primary mode                              | Model  | Color  | Why that mode                                                                 |
 |----------------|-------------------------|-------------------------------------------|--------|--------|-------------------------------------------------------------------------------|
-| `session-manager` | `agents/session-manager.md` | main-thread subagent               | sonnet | cyan   | Router, single session, no parallelism needed.                                |
-| `orchestrator` | `agents/orchestrator.md`| main-thread subagent + **team lead**      | opus   | purple | Only session allowed to spawn specialists + create the team.                  |
-| `architect`    | `agents/architect.md`   | one-shot subagent (optional teammate)     | opus   | orange | Produces a single `api-contract.md` and exits.                                |
-| `qa`           | `agents/qa.md`          | **teammate**                              | sonnet | yellow | Persistent context across RED → verify GREEN → re-test follow-ups.            |
-| `backend`      | `agents/backend.md`     | **teammate**                              | sonnet | green  | Own slice of files; iterative GREEN cycles benefit from persistent context.   |
-| `frontend`     | `agents/frontend.md`    | **teammate**                              | sonnet | blue   | Same.                                                                         |
-| `mobile`       | `agents/mobile.md`      | **teammate**                              | sonnet | pink   | Same.                                                                         |
-| `security`     | `agents/security.md`    | one-shot subagent (optional teammate)     | opus   | red    | Gate before `/pr`. Fresh context per invocation reduces anchoring bias.       |
+| `session-manager` | `plugins/team-workflow/agents/session-manager.md` | main-thread subagent               | sonnet | cyan   | Router, single session, no parallelism needed.                                |
+| `orchestrator` | `plugins/team-workflow/agents/orchestrator.md`| main-thread subagent + **team lead**      | opus   | purple | Only session allowed to spawn specialists + create the team.                  |
+| `architect`    | `plugins/team-workflow/agents/architect.md`   | one-shot subagent (optional teammate)     | opus   | orange | Produces a single `api-contract.md` and exits.                                |
+| `qa`           | `plugins/team-workflow/agents/qa.md`          | **teammate**                              | sonnet | yellow | Persistent context across RED → verify GREEN → re-test follow-ups.            |
+| `backend`      | `plugins/team-workflow/agents/backend.md`     | **teammate**                              | sonnet | green  | Own slice of files; iterative GREEN cycles benefit from persistent context.   |
+| `frontend`     | `plugins/team-workflow/agents/frontend.md`    | **teammate**                              | sonnet | blue   | Same.                                                                         |
+| `mobile`       | `plugins/team-workflow/agents/mobile.md`      | **teammate**                              | sonnet | pink   | Same.                                                                         |
+| `security`     | `plugins/team-workflow/agents/security.md`    | one-shot subagent (optional teammate)     | opus   | red    | Gate before `/pr`. Fresh context per invocation reduces anchoring bias.       |
 
 All 6 non-main agents carry `memory: project` so they accumulate project
 patterns across tasks in `.claude/agent-memory/<agent>/`.
@@ -365,4 +365,4 @@ to `orchestrator` (for `trivial-config` and `small-change` paths).
 - Agents never run `git push origin main` or `git merge main …`.
 - If an agent wakes up on main, the PreToolUse hook in the consumer's
   `settings.json` blocks writes to protected paths. See
-  `hooks/scripts/enforce-worktree.sh`.
+  `plugins/team-workflow/hooks/scripts/enforce-worktree.sh`.
