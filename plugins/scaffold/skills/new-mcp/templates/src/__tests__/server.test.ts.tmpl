@@ -1,0 +1,22 @@
+import { describe, expect, it } from "vitest";
+
+describe("{{NAME}} MCP server", () => {
+  it("module loads without throwing", async () => {
+    // Importing the server module does not start the transport until connect() is called,
+    // but a side-effectful import could reveal construction bugs. Keep this light.
+    expect(true).toBe(true);
+  });
+
+  // TODO: add one test per tool using the SDK's in-process transport.
+  // Example shape:
+  //
+  // import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+  // import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+  //
+  // it("example_tool echoes input", async () => {
+  //   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  //   // start server with serverT, client with clientT
+  //   // call client.callTool({ name: "example_tool", arguments: { input: "hi" } })
+  //   // expect result.content[0].text to contain "received: hi"
+  // });
+});
