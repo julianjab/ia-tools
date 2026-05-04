@@ -6,8 +6,8 @@
 #
 #   IA_TOOLS_ROLE=orchestrator  → inject agents/orchestrator.md
 #                                 (set automatically by /task on sub-sessions)
-#   IA_TOOLS_ROLE=triage        → inject agents/triage.md
-#   IA_TOOLS_ROLE unset         → default to triage (main session behavior)
+#   IA_TOOLS_ROLE=session-manager → inject agents/session-manager.md
+#   IA_TOOLS_ROLE unset           → default to session-manager (main session behavior)
 #
 # For orchestrator sessions, the hook also derives a task mode from the Slack
 # env vars and injects it into the header:
@@ -16,7 +16,7 @@
 #   otherwise                                 → mode=local (no Slack)
 #
 # This is the mechanism that makes the main/sub session split deterministic:
-# the same `claude` binary behaves as triage or orchestrator purely based on
+# the same `claude` binary behaves as session-manager or orchestrator purely based on
 # the env var that /task sets before launching tmux.
 #
 # Reads Claude Code SessionStart stdin payload, emits a JSON decision with
@@ -24,7 +24,7 @@
 
 set -u
 
-ROLE="${IA_TOOLS_ROLE:-triage}"
+ROLE="${IA_TOOLS_ROLE:-session-manager}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
 
 if [ -z "$PLUGIN_ROOT" ]; then
