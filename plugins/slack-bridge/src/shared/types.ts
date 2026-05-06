@@ -75,13 +75,6 @@ export interface SubscribeRequest {
   port: number;
   topics: string[];
   label?: string;
-  /**
-   * Session id of the subscribing MCP. When set, the daemon writes
-   * subscription/routing/delivery events related to this subscriber to
-   * /tmp/slack-bridge/<session_id>/daemon-logs.json in addition to the
-   * central daemon log.
-   */
-  session_id?: string;
 }
 
 /** Subscriber record in the daemon registry */
@@ -89,8 +82,6 @@ export interface Subscriber {
   port: number;
   topics: string[];
   label?: string;
-  /** Session id of the subscribing MCP (Claude session UUID when available). */
-  session_id?: string;
   registeredAt: string;
   lastSeen?: string;
 }

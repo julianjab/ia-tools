@@ -44,8 +44,6 @@ export interface McpBridgeServerOptions {
   web: WebClient;
   daemonClient: DaemonClient | null;
   logger: Logger;
-  /** Session id forwarded to the daemon on subscribe so it can write per-session logs. */
-  sessionId?: string;
 }
 
 export class McpBridgeServer {
@@ -53,15 +51,13 @@ export class McpBridgeServer {
   private readonly web: WebClient;
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
-  private readonly sessionId: string | undefined;
   /** All topics this subscriber is currently registered for. */
   private subscribedTopics: string[] = [];
 
-  constructor({ web, daemonClient, logger, sessionId }: McpBridgeServerOptions) {
+  constructor({ web, daemonClient, logger }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
-    this.sessionId = sessionId;
 
     this.mcp = new Server(
       { name: 'slack-bridge', version: '0.2.0' },
@@ -249,7 +245,7 @@ export class McpBridgeServer {
         throw new Error('DAEMON_URL is not set — cannot subscribe');
       }
 
-      await this.daemonClient.subscribe(topics, label, this.sessionId);
+      await this.daemonClient.subscribe(topics, label);
       this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
 
       // Persist merged topics to .claude/.channels.json
@@ -405,7 +401,7 @@ export class McpBridgeServer {
 
       try {
         const label = fileConfig.bot?.label ?? 'auto';
-        await this.daemonClient.subscribe(topics, label, this.sessionId);
+        await this.daemonClient.subscribe(topics, label);
         this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} — topics=${topics.join(', ')}`,
@@ -595,6 +591,6 @@ const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
 
 const webhookPort = await webhookSrv.start();
 const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-const mcpServer = new McpBridgeServer({ web, daemonClient, logger, sessionId: SESSION_ID });
+const mcpServer = new McpBridgeServer({ web, daemonClient, logger });
 
 await mcpServer.connect(new StdioServerTransport());

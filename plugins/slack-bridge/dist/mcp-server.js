@@ -40793,7 +40793,7 @@ var DaemonClient = class {
   get port() {
     return this.webhookPort;
   }
-  async subscribe(topics, label, sessionId) {
+  async subscribe(topics, label) {
     if (!this.daemonUrl) {
       throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
     }
@@ -40802,7 +40802,6 @@ var DaemonClient = class {
       topics
     };
     if (label !== void 0) body.label = label;
-    if (sessionId !== void 0) body.session_id = sessionId;
     debug("subscribe port=%d topics=%j", this.webhookPort, topics);
     const res = await fetch(`${this.daemonUrl}/subscribe`, {
       method: "POST",
@@ -41075,14 +41074,12 @@ var McpBridgeServer = class {
   web;
   daemonClient;
   logger;
-  sessionId;
   /** All topics this subscriber is currently registered for. */
   subscribedTopics = [];
-  constructor({ web: web2, daemonClient: daemonClient2, logger: logger2, sessionId }) {
+  constructor({ web: web2, daemonClient: daemonClient2, logger: logger2 }) {
     this.web = web2;
     this.daemonClient = daemonClient2;
     this.logger = logger2;
-    this.sessionId = sessionId;
     this.mcp = new Server(
       { name: "slack-bridge", version: "0.2.0" },
       {
@@ -41234,7 +41231,7 @@ var McpBridgeServer = class {
       if (!this.daemonClient) {
         throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
       }
-      await this.daemonClient.subscribe(topics, label, this.sessionId);
+      await this.daemonClient.subscribe(topics, label);
       this.subscribedTopics = [.../* @__PURE__ */ new Set([...this.subscribedTopics, ...topics])];
       try {
         const existing = loadConfig();
@@ -41349,7 +41346,7 @@ var McpBridgeServer = class {
       if (!topics.length) return;
       try {
         const label = fileConfig.bot?.label ?? "auto";
-        await this.daemonClient.subscribe(topics, label, this.sessionId);
+        await this.daemonClient.subscribe(topics, label);
         this.subscribedTopics = [.../* @__PURE__ */ new Set([...this.subscribedTopics, ...topics])];
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} \u2014 topics=${topics.join(", ")}`
@@ -41502,7 +41499,7 @@ var webhookSrv = new WebhookServer(async (payload) => {
 });
 var webhookPort = await webhookSrv.start();
 var daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-var mcpServer = new McpBridgeServer({ web, daemonClient, logger, sessionId: SESSION_ID });
+var mcpServer = new McpBridgeServer({ web, daemonClient, logger });
 await mcpServer.connect(new StdioServerTransport());
 export {
   McpBridgeServer
