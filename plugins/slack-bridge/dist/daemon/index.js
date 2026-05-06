@@ -55551,25 +55551,21 @@ async function addThinkingAck(app2, msg, opts) {
     (async () => {
       const threadTs = msg.thread_ts ?? msg.message_ts;
       try {
-        const client = app2.client;
-        if (client.assistant?.threads?.setStatus) {
-          await client.assistant.threads.setStatus({
-            channel_id: msg.channel_id,
-            thread_ts: threadTs,
-            status
-          });
-        } else {
-          await client.apiCall("assistant.threads.setStatus", {
-            channel_id: msg.channel_id,
-            thread_ts: threadTs,
-            status
-          });
-        }
+        await setAssistantStatus(app2, msg.channel_id, threadTs, status);
       } catch (err) {
         warn(`[ack] assistant.threads.setStatus failed: ${err}`);
       }
     })()
   ]);
+}
+async function setAssistantStatus(app2, channelId, threadTs, status) {
+  const client = app2.client;
+  const args = { channel_id: channelId, thread_ts: threadTs, status };
+  if (client.assistant?.threads?.setStatus) {
+    await client.assistant.threads.setStatus(args);
+  } else {
+    await client.apiCall("assistant.threads.setStatus", args);
+  }
 }
 
 // src/daemon/listener.ts
@@ -55758,7 +55754,7 @@ function json(res, status, data) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
 }
-function createApiServer(registry2, startedAt2, getSocketStatus) {
+function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
   setInterval(() => {
     const now2 = Date.now();
     for (const [ts] of claims) {
@@ -55833,6 +55829,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus) {
         claims.set(messageTs, body.subscriber_port);
         const resp = { claimed: true };
         log(`[claim] ${messageTs} \u2192 :${body.subscriber_port}`);
+        onClaimed2?.(messageTs);
         json(res, 200, resp);
       } catch (err) {
         json(res, 400, { error: String(err) });
@@ -55892,7 +55889,18 @@ if (spawnerSession) {
 } else {
   log("[daemon] spawned manually (no DAEMON_SPAWNER_* env)");
 }
-var api = createApiServer(registry, startedAt, () => socketStatus);
+var RECENT_MSG_TTL_MS = 5 * 60 * 1e3;
+var recentMessages = /* @__PURE__ */ new Map();
+function rememberMessage(msg) {
+  recentMessages.set(msg.message_ts, msg);
+  setTimeout(() => recentMessages.delete(msg.message_ts), RECENT_MSG_TTL_MS).unref();
+}
+function onClaimed(messageTs) {
+  const msg = recentMessages.get(messageTs);
+  if (!msg) return;
+  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
+}
+var api = createApiServer(registry, startedAt, () => socketStatus, onClaimed);
 await new Promise((resolveListen, rejectListen) => {
   const onError = (err) => {
     api.off("listening", onListening);
@@ -55970,7 +55978,7 @@ var app = await startListener({ botToken, appToken }, async (event) => {
   log(
     `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" \u2192 ${targets.length} subscriber(s)`
   );
-  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
+  rememberMessage(msg);
   await Promise.allSettled(
     targets.map(async ({ subscriber: sub, matched }) => {
       const payload = {

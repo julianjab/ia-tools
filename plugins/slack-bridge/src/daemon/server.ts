@@ -48,6 +48,7 @@ export function createApiServer(
   registry: Registry,
   startedAt: number,
   getSocketStatus: () => 'connected' | 'disconnected',
+  onClaimed?: (messageTs: string) => void,
 ) {
   // Periodic cleanup of expired claims
   setInterval(() => {
@@ -136,6 +137,7 @@ export function createApiServer(
         claims.set(messageTs, body.subscriber_port);
         const resp: ClaimResponse = { claimed: true };
         log(`[claim] ${messageTs} → :${body.subscriber_port}`);
+        onClaimed?.(messageTs);
         json(res, 200, resp);
       } catch (err) {
         json(res, 400, { error: String(err) });
