@@ -11,7 +11,8 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "prepare": "command -v pre-commit >/dev/null && pre-commit install --install-hooks || echo 'pre-commit not installed; skipping hook setup'"
+    "prepare": "command -v pre-commit >/dev/null && pre-commit install --install-hooks || echo 'pre-commit not installed; skipping hook setup'",
+    "slack-bridge": "claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4"
