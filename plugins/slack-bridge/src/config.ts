@@ -1,5 +1,5 @@
 /**
- * loadConfig / saveConfig — reads and writes .claude/.channels.json.
+ * loadConfig / saveConfig — reads and writes .claude/.slack-bridge.json.
  *
  * Schema:
  *   {
@@ -32,7 +32,7 @@ export interface ChannelsConfig {
 const ALLOWED_KEYS: ReadonlyArray<keyof SlackChannelConfig> = ['topics'];
 
 function configFilePath(cwd: string): string {
-  return join(cwd, '.claude', '.channels.json');
+  return join(cwd, '.claude', '.slack-bridge.json');
 }
 
 function readRawFile(filePath: string): ChannelsConfig | null {
@@ -50,14 +50,14 @@ function readRawFile(filePath: string): ChannelsConfig | null {
     parsed = JSON.parse(raw);
   } catch (err) {
     process.stderr.write(
-      `[slack-bridge] Warning: .claude/.channels.json contains invalid JSON — ${String(err)}\n`,
+      `[slack-bridge] Warning: .claude/.slack-bridge.json contains invalid JSON — ${String(err)}\n`,
     );
     return null;
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     process.stderr.write(
-      '[slack-bridge] Warning: .claude/.channels.json must be a JSON object — ignoring file\n',
+      '[slack-bridge] Warning: .claude/.slack-bridge.json must be a JSON object — ignoring file\n',
     );
     return null;
   }
@@ -83,7 +83,7 @@ export function loadConfig(cwd?: string): SlackChannelConfig {
   const tokenFields = Object.keys(record).filter((key) => key.toLowerCase().includes('token'));
   if (tokenFields.length > 0) {
     process.stderr.write(
-      `[slack-bridge] Warning: .claude/.channels.json contains token field(s): ${tokenFields.join(', ')} — tokens must not be stored in .channels.json. These fields are ignored.\n`,
+      `[slack-bridge] Warning: .claude/.slack-bridge.json contains token field(s): ${tokenFields.join(', ')} — tokens must not be stored in .slack-bridge.json. These fields are ignored.\n`,
     );
   }
 

@@ -26627,6 +26627,7 @@ var require_dist5 = __commonJS({
 import { execSync } from "node:child_process";
 import { readFileSync as readFileSync2 } from "node:fs";
 import { homedir } from "node:os";
+import { join as join2 } from "node:path";
 
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -40701,7 +40702,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 var ALLOWED_KEYS = ["topics"];
 function configFilePath(cwd) {
-  return join(cwd, ".claude", ".channels.json");
+  return join(cwd, ".claude", ".slack-bridge.json");
 }
 function readRawFile(filePath) {
   if (!existsSync(filePath)) return null;
@@ -40716,14 +40717,14 @@ function readRawFile(filePath) {
     parsed = JSON.parse(raw);
   } catch (err) {
     process.stderr.write(
-      `[slack-bridge] Warning: .claude/.channels.json contains invalid JSON \u2014 ${String(err)}
+      `[slack-bridge] Warning: .claude/.slack-bridge.json contains invalid JSON \u2014 ${String(err)}
 `
     );
     return null;
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     process.stderr.write(
-      "[slack-bridge] Warning: .claude/.channels.json must be a JSON object \u2014 ignoring file\n"
+      "[slack-bridge] Warning: .claude/.slack-bridge.json must be a JSON object \u2014 ignoring file\n"
     );
     return null;
   }
@@ -40742,7 +40743,7 @@ function loadConfig(cwd) {
   const tokenFields = Object.keys(record2).filter((key) => key.toLowerCase().includes("token"));
   if (tokenFields.length > 0) {
     process.stderr.write(
-      `[slack-bridge] Warning: .claude/.channels.json contains token field(s): ${tokenFields.join(", ")} \u2014 tokens must not be stored in .channels.json. These fields are ignored.
+      `[slack-bridge] Warning: .claude/.slack-bridge.json contains token field(s): ${tokenFields.join(", ")} \u2014 tokens must not be stored in .slack-bridge.json. These fields are ignored.
 `
     );
   }
@@ -40779,6 +40780,66 @@ function saveConfig(patch, cwd) {
   const output = { ...existing, slack: mergedSlack };
   writeFileSync(filePath, JSON.stringify(output, null, 2), { encoding: "utf8", mode: 384 });
 }
+
+// src/config-watcher.ts
+import { watch } from "node:fs";
+import { basename, dirname } from "node:path";
+var NOOP_LOGGER = { log: () => {
+}, warn: () => {
+} };
+var ConfigWatcher = class {
+  watcher;
+  timer;
+  configPath;
+  onChange;
+  debounceMs;
+  logger;
+  constructor(opts) {
+    this.configPath = opts.configPath;
+    this.onChange = opts.onChange;
+    this.debounceMs = opts.debounceMs ?? 250;
+    this.logger = opts.logger ?? NOOP_LOGGER;
+  }
+  /** Start watching. No-op if already started. */
+  start() {
+    if (this.watcher) return;
+    const dir = dirname(this.configPath);
+    const file2 = basename(this.configPath);
+    try {
+      this.watcher = watch(dir, (_event, filename) => {
+        if (filename !== file2) return;
+        this.scheduleReload();
+      });
+      this.watcher.on(
+        "error",
+        (err) => this.logger.warn(`[config-watcher] error: ${err}`)
+      );
+      this.logger.log(`[config-watcher] watching ${this.configPath}`);
+    } catch (err) {
+      this.logger.warn(`[config-watcher] could not start: ${err}`);
+    }
+  }
+  /** Stop watching and clear any pending reload. */
+  stop() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = void 0;
+    }
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = void 0;
+    }
+  }
+  scheduleReload() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = void 0;
+      Promise.resolve(this.onChange()).catch(
+        (err) => this.logger.warn(`[config-watcher] onChange failed: ${err}`)
+      );
+    }, this.debounceMs);
+  }
+};
 
 // src/daemon-client.ts
 import { debuglog } from "node:util";
@@ -40836,7 +40897,7 @@ var DaemonClient = class {
 // src/ensure-daemon.ts
 import { spawn } from "node:child_process";
 import { closeSync, mkdirSync as mkdirSync2, openSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname as dirname2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 var HEALTH_TIMEOUT_MS = 1e4;
 var HEALTH_POLL_MS = 200;
@@ -40866,13 +40927,13 @@ async function waitHealthy(daemonUrl, timeoutMs) {
   return false;
 }
 function daemonEntrypoint() {
-  const here = dirname(fileURLToPath(import.meta.url));
+  const here = dirname2(fileURLToPath(import.meta.url));
   return resolve(here, "daemon/index.js");
 }
 function spawnDaemon(port, spawner) {
   const logPath = process.env.DAEMON_LOG?.trim() || "/tmp/slack-bridge/daemon-logs.json";
   try {
-    mkdirSync2(dirname(logPath), { recursive: true });
+    mkdirSync2(dirname2(logPath), { recursive: true });
   } catch {
   }
   const logFd = openSync(logPath, "a");
@@ -40914,7 +40975,7 @@ async function ensureDaemon(daemonUrl, spawner, logger2) {
 
 // src/logger.ts
 import { appendFileSync, mkdirSync as mkdirSync3 } from "node:fs";
-import { dirname as dirname2 } from "node:path";
+import { dirname as dirname3 } from "node:path";
 import { debuglog as debuglog2 } from "node:util";
 function now() {
   const d = /* @__PURE__ */ new Date();
@@ -40930,7 +40991,7 @@ function createLogger(opts) {
   const namespace = debugNamespace ?? `slack-bridge:${label}`;
   const nodeDebug = debuglog2(namespace);
   try {
-    mkdirSync3(dirname2(logPath), { recursive: true });
+    mkdirSync3(dirname3(logPath), { recursive: true });
   } catch {
   }
   function writeToFile(level, msg) {
@@ -41093,10 +41154,17 @@ var McpBridgeServer = class {
   logger;
   /** All topic specs this subscriber is currently registered for. */
   subscribedTopics = [];
+  /** Reloads subscriptions when the persisted config file changes on disk. */
+  configWatcher;
   constructor({ web: web2, daemonClient: daemonClient2, logger: logger2 }) {
     this.web = web2;
     this.daemonClient = daemonClient2;
     this.logger = logger2;
+    this.configWatcher = new ConfigWatcher({
+      configPath: join2(process.cwd(), ".claude", ".slack-bridge.json"),
+      onChange: () => this.reloadFromConfig(),
+      logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) }
+    });
     this.mcp = new Server(
       { name: "slack-bridge", version: "0.2.0" },
       {
@@ -41131,7 +41199,7 @@ var McpBridgeServer = class {
       tools: [
         {
           name: "subscribe_slack",
-          description: 'Subscribe to Slack messages using topics. Each entry can be a bare topic string or an object {topic, label} where label is metadata the agent will see on every matched message (use it to remember WHY this subscription exists, e.g. "ship-pr-42" or "team-channel"). Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to .claude/.channels.json.',
+          description: 'Subscribe to Slack messages using topics. Each entry can be a bare topic string or an object {topic, label} where label is metadata the agent will see on every matched message (use it to remember WHY this subscription exists, e.g. "ship-pr-42" or "team-channel"). Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to .claude/.slack-bridge.json.',
           inputSchema: {
             type: "object",
             properties: {
@@ -41158,7 +41226,7 @@ var McpBridgeServer = class {
         },
         {
           name: "unsubscribe_slack",
-          description: "Stop listening to Slack messages. With `topics`, removes only those topics from the subscription and persists the change to .claude/.channels.json. Without `topics`, unsubscribes from everything.",
+          description: "Stop listening to Slack messages. With `topics`, removes only those topics from the subscription and persists the change to .claude/.slack-bridge.json. Without `topics`, unsubscribes from everything.",
           inputSchema: {
             type: "object",
             properties: {
@@ -41397,6 +41465,7 @@ var McpBridgeServer = class {
       const envTopics = process.env.SLACK_TOPICS?.split(",").filter(Boolean) ?? null;
       const raw = envTopics ?? fileConfig.topics ?? [];
       const topics = raw.map(normalizeTopic);
+      this.configWatcher.start();
       if (!topics.length) return;
       try {
         await this.daemonClient.subscribe(topics);
@@ -41410,6 +41479,34 @@ var McpBridgeServer = class {
         );
       }
     };
+  }
+  /**
+   * Diff the on-disk config against the in-memory subscription state and
+   * sync via the daemon. Catches manual edits to .slack-bridge.json or
+   * writes from other processes (e.g. /ship adding a new thread topic).
+   */
+  async reloadFromConfig() {
+    if (!this.daemonClient) return;
+    const desired = (loadConfig().topics ?? []).map(normalizeTopic);
+    const desiredKeys = new Set(desired.map((t) => t.topic));
+    const currentKeys = new Set(this.subscribedTopics.map((t) => t.topic));
+    const added = desired.filter((t) => !currentKeys.has(t.topic));
+    const removed = this.subscribedTopics.filter((t) => !desiredKeys.has(t.topic));
+    const relabeled = desired.filter((t) => {
+      const cur = this.subscribedTopics.find((s) => s.topic === t.topic);
+      return cur && cur.label !== t.label;
+    });
+    if (added.length === 0 && removed.length === 0 && relabeled.length === 0) {
+      return;
+    }
+    await this.daemonClient.unsubscribe();
+    if (desired.length > 0) {
+      await this.daemonClient.subscribe(desired);
+    }
+    this.subscribedTopics = desired;
+    this.logger.log(
+      `config reload \u2014 +${added.length} -${removed.length} ~${relabeled.length} (total=${desired.length})`
+    );
   }
   /** Called by the webhook server when a message arrives from the daemon. */
   async handleIncomingMessage(payload) {

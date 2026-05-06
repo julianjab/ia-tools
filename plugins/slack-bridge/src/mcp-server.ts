@@ -12,24 +12,26 @@
  * The daemon must be started separately:
  *   SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... pnpm --filter @ia-tools/slack-bridge daemon
  *
- * On startup the MCP reads .claude/.channels.json. If subscription data exists it
+ * On startup the MCP reads .claude/.slack-bridge.json. If subscription data exists it
  * subscribes automatically. All topic matching runs in the daemon.
  *
  * Env:
  *   SLACK_BOT_TOKEN   — Bot token for Slack API calls (reply, read)
  *   DAEMON_URL        — Daemon API URL (required to receive messages; omit to run read-only)
- *   SLACK_TOPICS      — Comma-separated topics (overrides .claude/.channels.json)
+ *   SLACK_TOPICS      — Comma-separated topics (overrides .claude/.slack-bridge.json)
  *                       e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,C06Q8SNF93P:*:1778078158.577219"
  */
 
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
 import { clearThinkingAck } from './ack-client.js';
+import { ConfigWatcher } from './config-watcher.js';
 import { loadConfig, saveConfig } from './config.js';
 import { DaemonClient } from './daemon-client.js';
 import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
@@ -77,11 +79,18 @@ export class McpBridgeServer {
   private readonly logger: Logger;
   /** All topic specs this subscriber is currently registered for. */
   private subscribedTopics: TopicSpec[] = [];
+  /** Reloads subscriptions when the persisted config file changes on disk. */
+  private readonly configWatcher: ConfigWatcher;
 
   constructor({ web, daemonClient, logger }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
+    this.configWatcher = new ConfigWatcher({
+      configPath: join(process.cwd(), '.claude', '.slack-bridge.json'),
+      onChange: () => this.reloadFromConfig(),
+      logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) },
+    });
 
     this.mcp = new Server(
       { name: 'slack-bridge', version: '0.2.0' },
@@ -135,7 +144,7 @@ export class McpBridgeServer {
             '"{channel}:{user}:{thread_ts}" → thread replies from a specific user; ' +
             '"DM:{user}" → direct messages from a user. ' +
             'Use "*" as a wildcard for channel or user. ' +
-            'Subscription is persisted to .claude/.channels.json.',
+            'Subscription is persisted to .claude/.slack-bridge.json.',
           inputSchema: {
             type: 'object' as const,
             properties: {
@@ -168,7 +177,7 @@ export class McpBridgeServer {
           description:
             'Stop listening to Slack messages. ' +
             'With `topics`, removes only those topics from the subscription and ' +
-            'persists the change to .claude/.channels.json. ' +
+            'persists the change to .claude/.slack-bridge.json. ' +
             'Without `topics`, unsubscribes from everything.',
           inputSchema: {
             type: 'object' as const,
@@ -299,7 +308,7 @@ export class McpBridgeServer {
       await this.daemonClient.subscribe(incoming);
       this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
 
-      // Persist merged topics to .claude/.channels.json
+      // Persist merged topics to .claude/.slack-bridge.json
       try {
         const existing = loadConfig();
         const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
@@ -349,7 +358,7 @@ export class McpBridgeServer {
 
     this.subscribedTopics = remaining;
 
-    // Persist the new topic list (or empty) to .claude/.channels.json
+    // Persist the new topic list (or empty) to .claude/.slack-bridge.json
     try {
       saveConfig({ topics: remaining });
     } catch (err) {
@@ -478,6 +487,10 @@ export class McpBridgeServer {
       const raw: Array<string | TopicSpec> = envTopics ?? fileConfig.topics ?? [];
       const topics = raw.map(normalizeTopic);
 
+      // Always watch the config file — topics may be added later by the user
+      // editing the file or another process writing it (e.g. /ship).
+      this.configWatcher.start();
+
       if (!topics.length) return;
 
       try {
@@ -492,6 +505,40 @@ export class McpBridgeServer {
         );
       }
     };
+  }
+
+  /**
+   * Diff the on-disk config against the in-memory subscription state and
+   * sync via the daemon. Catches manual edits to .slack-bridge.json or
+   * writes from other processes (e.g. /ship adding a new thread topic).
+   */
+  private async reloadFromConfig(): Promise<void> {
+    if (!this.daemonClient) return;
+    const desired = (loadConfig().topics ?? []).map(normalizeTopic);
+
+    const desiredKeys = new Set(desired.map((t) => t.topic));
+    const currentKeys = new Set(this.subscribedTopics.map((t) => t.topic));
+    const added = desired.filter((t) => !currentKeys.has(t.topic));
+    const removed = this.subscribedTopics.filter((t) => !desiredKeys.has(t.topic));
+    const relabeled = desired.filter((t) => {
+      const cur = this.subscribedTopics.find((s) => s.topic === t.topic);
+      return cur && cur.label !== t.label;
+    });
+
+    if (added.length === 0 && removed.length === 0 && relabeled.length === 0) {
+      return; // file changed but topic state matches — no-op (e.g. our own write)
+    }
+
+    // Full re-sync: registry has no "patch" op, so unsubscribe + subscribe.
+    await this.daemonClient.unsubscribe();
+    if (desired.length > 0) {
+      await this.daemonClient.subscribe(desired);
+    }
+    this.subscribedTopics = desired;
+
+    this.logger.log(
+      `config reload — +${added.length} -${removed.length} ~${relabeled.length} (total=${desired.length})`,
+    );
   }
 
   /** Called by the webhook server when a message arrives from the daemon. */
