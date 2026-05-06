@@ -8,6 +8,5 @@
   },
   "homepage": "https://github.com/julianjab/ia-tools",
   "repository": "https://github.com/julianjab/ia-tools",
-  "license": "MIT",
-  "hooks": "./hooks/hooks.json"
+  "license": "MIT"
 }
