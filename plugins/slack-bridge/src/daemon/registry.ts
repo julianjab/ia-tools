@@ -23,13 +23,14 @@ export class Registry {
 
   constructor(private healthCheckMs = 30_000) {}
 
-  add(port: number, topics: string[], label?: string): Subscriber {
+  add(port: number, topics: string[], label?: string, sessionId?: string): Subscriber {
     const existing = this.subscribers.get(port);
     if (existing) {
       const merged: Subscriber = {
         ...existing,
         topics: [...new Set([...existing.topics, ...topics])],
         label: label ?? existing.label,
+        session_id: sessionId ?? existing.session_id,
         lastSeen: new Date().toISOString(),
       };
       this.subscribers.set(port, merged);
@@ -40,6 +41,7 @@ export class Registry {
       port,
       topics,
       label,
+      session_id: sessionId,
       registeredAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
     };

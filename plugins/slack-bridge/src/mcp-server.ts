@@ -23,6 +23,8 @@
  */
 
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -42,13 +44,8 @@ export interface McpBridgeServerOptions {
   web: WebClient;
   daemonClient: DaemonClient | null;
   logger: Logger;
-  /**
-   * If set, the server is in a degraded "disabled" state: it advertises tools
-   * but every call returns this message as an error, and auto-subscribe is
-   * skipped. Used to surface the missing --dangerously-load-development-channels
-   * flag to the user via the MCP error channel.
-   */
-  disabledReason?: string | null;
+  /** Session id forwarded to the daemon on subscribe so it can write per-session logs. */
+  sessionId?: string;
 }
 
 export class McpBridgeServer {
@@ -56,15 +53,15 @@ export class McpBridgeServer {
   private readonly web: WebClient;
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
-  private readonly disabledReason: string | null;
+  private readonly sessionId: string | undefined;
   /** All topics this subscriber is currently registered for. */
   private subscribedTopics: string[] = [];
 
-  constructor({ web, daemonClient, logger, disabledReason = null }: McpBridgeServerOptions) {
+  constructor({ web, daemonClient, logger, sessionId }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
-    this.disabledReason = disabledReason;
+    this.sessionId = sessionId;
 
     this.mcp = new Server(
       { name: 'slack-bridge', version: '0.2.0' },
@@ -224,12 +221,6 @@ export class McpBridgeServer {
     name: string,
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-    if (this.disabledReason) {
-      return {
-        content: [{ type: 'text' as const, text: this.disabledReason }],
-        isError: true,
-      };
-    }
     if (name === 'subscribe_slack') return this.handleSubscribe(args);
     if (name === 'unsubscribe_slack') return this.handleUnsubscribe();
     if (name === 'claim_message') return this.handleClaimMessage(args);
@@ -258,7 +249,7 @@ export class McpBridgeServer {
         throw new Error('DAEMON_URL is not set — cannot subscribe');
       }
 
-      await this.daemonClient.subscribe(topics, label);
+      await this.daemonClient.subscribe(topics, label, this.sessionId);
       this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
 
       // Persist merged topics to .claude/.channels.json
@@ -399,10 +390,6 @@ export class McpBridgeServer {
 
   private registerOnInitialized(): void {
     this.mcp.oninitialized = async () => {
-      if (this.disabledReason) {
-        this.logger.error(`disabled: ${this.disabledReason}`);
-        return;
-      }
       if (!this.daemonClient) {
         this.logger.warn(
           'DAEMON_URL is not set — running in read-only mode (no subscriptions possible)',
@@ -418,7 +405,7 @@ export class McpBridgeServer {
 
       try {
         const label = fileConfig.bot?.label ?? 'auto';
-        await this.daemonClient.subscribe(topics, label);
+        await this.daemonClient.subscribe(topics, label, this.sessionId);
         this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} — topics=${topics.join(', ')}`,
@@ -469,9 +456,36 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-const SESSION_ID = `${Date.now()}-${process.pid}`;
+/**
+ * Claude writes ~/.claude/sessions/<claude_pid>.json with a `sessionId` UUID
+ * when it boots. The MCP server is spawned as a child of Claude, so process.ppid
+ * points at that exact file. Reading it lets us use the canonical Claude
+ * session UUID as the log directory, making correlation with Claude's
+ * own session logs (~/.claude/projects/.../<sessionId>.jsonl,
+ * ~/.claude/debug/<sessionId>.txt) trivial.
+ *
+ * Falls back to <ppid>-<pid> if the file is unreadable (race at very early
+ * startup, or the MCP being run standalone outside Claude).
+ */
+function readClaudeSessionId(ppid: number): string | null {
+  try {
+    const raw = readFileSync(`${homedir()}/.claude/sessions/${ppid}.json`, 'utf8');
+    const data = JSON.parse(raw) as { sessionId?: string };
+    return typeof data.sessionId === 'string' && data.sessionId.length > 0 ? data.sessionId : null;
+  } catch {
+    return null;
+  }
+}
+
+const claudeSessionId = readClaudeSessionId(process.ppid);
+const SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
 const mcpLogPath = `/tmp/slack-bridge/${SESSION_ID}/mcp-logs.json`;
 const logger = createLogger({ logPath: mcpLogPath, label: 'mcp', stderr: true });
+if (claudeSessionId) {
+  logger.log(`claude session: ${claudeSessionId} (ppid=${process.ppid})`);
+} else {
+  logger.warn(`claude session id unavailable (ppid=${process.ppid}); using fallback`);
+}
 
 const botToken = process.env.SLACK_BOT_TOKEN;
 if (!botToken) {
@@ -500,40 +514,65 @@ function readParentCmd(ppid: number): string {
 const parentCmd = readParentCmd(process.ppid);
 const hasDevChannels = parentCmd.includes('--dangerously-load-development-channels');
 logger.log(`parent argv: ${parentCmd || '(unavailable)'}`);
-const disabledReason = hasDevChannels
-  ? null
-  : 'slack-bridge requires Claude to be started with --dangerously-load-development-channels. ' +
+if (!hasDevChannels) {
+  const msg =
+    'slack-bridge requires Claude to be started with --dangerously-load-development-channels. ' +
     'Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools';
-if (disabledReason) {
-  logger.error(disabledReason);
+  logger.error(msg);
+
+  // Reply to the JSON-RPC `initialize` request with an error so Claude marks
+  // the MCP as failed and the user cannot invoke its tools. The reason is
+  // surfaced in Claude's debug log (~/.claude/debug/<session>.txt) and in
+  // /tmp/slack-bridge/<session>/mcp-logs.json.
+  const { createInterface } = await import('node:readline');
+  const rl = createInterface({ input: process.stdin });
+  rl.on('line', (line) => {
+    try {
+      const req = JSON.parse(line) as { id?: number | string; method?: string };
+      if (req.method === 'initialize' && req.id !== undefined) {
+        const resp = {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32002, message: msg },
+        };
+        process.stdout.write(`${JSON.stringify(resp)}\n`);
+        // Give stdout a tick to flush before exit.
+        setTimeout(() => process.exit(1), 50);
+      }
+    } catch {
+      // Ignore non-JSON lines.
+    }
+  });
+  // Safety timeout: if `initialize` never arrives, exit anyway.
+  setTimeout(() => process.exit(1), 5000);
+  // Block top-level await so the rest of the file doesn't run.
+  await new Promise<never>(() => {});
 }
 
 let daemonReady = false;
-if (!disabledReason) {
+try {
+  await ensureDaemon(
+    DAEMON_URL,
+    {
+      session: SESSION_ID,
+      pid: process.pid,
+      ppid: process.ppid,
+      cwd: process.cwd(),
+    },
+    logger,
+  );
+  daemonReady = true;
   try {
-    await ensureDaemon(
-      DAEMON_URL,
-      {
-        session: SESSION_ID,
-        pid: process.pid,
-        ppid: process.ppid,
-        cwd: process.cwd(),
-      },
-      logger,
+    const res = await fetch(`${DAEMON_URL}/health`);
+    const health = (await res.json()) as { pid?: number; entrypoint?: string };
+    logger.log(
+      `daemon ready at ${DAEMON_URL} — pid=${health.pid ?? '?'} entrypoint=${health.entrypoint ?? '?'}`,
     );
-    daemonReady = true;
-    try {
-      const res = await fetch(`${DAEMON_URL}/health`);
-      const health = (await res.json()) as { pid?: number; entrypoint?: string };
-      logger.log(
-        `daemon ready at ${DAEMON_URL} — pid=${health.pid ?? '?'} entrypoint=${health.entrypoint ?? '?'}`,
-      );
-    } catch (err) {
-      logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
-    }
   } catch (err) {
-    logger.warn(`ensureDaemon failed — continuing in read-only mode: ${err}`);
+    logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
   }
+} catch (err) {
+  logger.warn(`ensureDaemon failed — continuing in read-only mode: ${err}`);
 }
 
 const web = new WebClient(botToken);
@@ -556,6 +595,6 @@ const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
 
 const webhookPort = await webhookSrv.start();
 const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-const mcpServer = new McpBridgeServer({ web, daemonClient, logger, disabledReason });
+const mcpServer = new McpBridgeServer({ web, daemonClient, logger, sessionId: SESSION_ID });
 
 await mcpServer.connect(new StdioServerTransport());

@@ -49932,7 +49932,7 @@ var require_view2 = __commonJS({
     var debug2 = require_src()("express:view");
     var path = __require("node:path");
     var fs = __require("node:fs");
-    var dirname2 = path.dirname;
+    var dirname3 = path.dirname;
     var basename = path.basename;
     var extname = path.extname;
     var join = path.join;
@@ -49971,7 +49971,7 @@ var require_view2 = __commonJS({
       for (var i = 0; i < roots.length && !path2; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
-        var dir = dirname2(loc);
+        var dir = dirname3(loc);
         var file = basename(loc);
         path2 = this.resolve(dir, file);
       }
@@ -55469,6 +55469,10 @@ function buildSlackMessage(fields) {
   };
 }
 
+// src/daemon/logger.ts
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
+import { dirname as dirname2 } from "node:path";
+
 // src/logger.ts
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -55537,6 +55541,32 @@ var {
   logPath,
   label: "daemon"
 });
+function nowParts() {
+  const d = /* @__PURE__ */ new Date();
+  return {
+    date: d.toLocaleDateString("en-CA"),
+    time: d.toTimeString().slice(0, 8)
+  };
+}
+function appendSessionLine(sessionId, level, msg) {
+  const path = `/tmp/slack-bridge/${sessionId}/daemon-logs.json`;
+  const { date, time } = nowParts();
+  const line = `[${date} ${time}] ${level.toUpperCase().padEnd(5)} [daemon] ${msg}
+`;
+  try {
+    mkdirSync2(dirname2(path), { recursive: true });
+    appendFileSync2(path, line);
+  } catch {
+  }
+}
+function logForSession(sessionId, msg) {
+  log(msg);
+  if (sessionId) appendSessionLine(sessionId, "info", msg);
+}
+function warnForSession(sessionId, msg) {
+  warn(msg);
+  if (sessionId) appendSessionLine(sessionId, "warn", msg);
+}
 
 // src/daemon/ack.ts
 async function addThinkingAck(app2, msg, opts) {
@@ -55675,13 +55705,14 @@ var Registry = class {
   healthCheckMs;
   subscribers = /* @__PURE__ */ new Map();
   healthInterval;
-  add(port2, topics, label) {
+  add(port2, topics, label, sessionId) {
     const existing = this.subscribers.get(port2);
     if (existing) {
       const merged = {
         ...existing,
         topics: [.../* @__PURE__ */ new Set([...existing.topics, ...topics])],
         label: label ?? existing.label,
+        session_id: sessionId ?? existing.session_id,
         lastSeen: (/* @__PURE__ */ new Date()).toISOString()
       };
       this.subscribers.set(port2, merged);
@@ -55691,6 +55722,7 @@ var Registry = class {
       port: port2,
       topics,
       label,
+      session_id: sessionId,
       registeredAt: (/* @__PURE__ */ new Date()).toISOString(),
       lastSeen: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -55788,9 +55820,10 @@ function createApiServer(registry2, startedAt2, getSocketStatus) {
             return;
           }
         }
-        const sub = registry2.add(body.port, body.topics, body.label);
-        log(
-          `[api] +subscriber :${body.port} (${body.label ?? "-"}) topics=${JSON.stringify(sub.topics)}`
+        const sub = registry2.add(body.port, body.topics, body.label, body.session_id);
+        logForSession(
+          sub.session_id,
+          `[api] +subscriber :${body.port} (${body.label ?? "-"}) session=${sub.session_id ?? "-"} topics=${JSON.stringify(sub.topics)}`
         );
         json(res, 200, sub);
       } catch (err) {
@@ -55804,8 +55837,12 @@ function createApiServer(registry2, startedAt2, getSocketStatus) {
         json(res, 400, { error: "invalid port" });
         return;
       }
+      const existing = registry2.get(port2);
       const removed = registry2.remove(port2);
-      log(`[api] -subscriber :${port2} removed=${removed}`);
+      logForSession(
+        existing?.session_id,
+        `[api] -subscriber :${port2} session=${existing?.session_id ?? "-"} removed=${removed}`
+      );
       json(res, 200, { removed });
       return;
     }
@@ -55953,6 +55990,10 @@ var app = await startListener({ botToken, appToken }, async (event) => {
         matched_topics: matched,
         daemon_ts: (/* @__PURE__ */ new Date()).toISOString()
       };
+      logForSession(
+        sub.session_id,
+        `[route] \u2192 :${sub.port} #${channelName} ${userName} ts=${event.message_ts} matched=${JSON.stringify(matched)}`
+      );
       try {
         const res = await fetch(`http://localhost:${sub.port}/message`, {
           method: "POST",
@@ -55960,13 +56001,16 @@ var app = await startListener({ botToken, appToken }, async (event) => {
           body: JSON.stringify(payload)
         });
         if (!res.ok) {
-          warn(`[route] subscriber :${sub.port} responded ${res.status} \u2014 removing`);
+          warnForSession(
+            sub.session_id,
+            `[route] subscriber :${sub.port} responded ${res.status} \u2014 removing`
+          );
           registry.remove(sub.port);
           return;
         }
         registry.markSeen(sub.port);
       } catch (_err) {
-        warn(`[route] subscriber :${sub.port} unreachable \u2014 removing`);
+        warnForSession(sub.session_id, `[route] subscriber :${sub.port} unreachable \u2014 removing`);
         registry.remove(sub.port);
       }
     })

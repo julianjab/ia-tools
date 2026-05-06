@@ -25,7 +25,7 @@ import { buildSlackMessage } from '../shared/build-message.js';
 import type { MessagePayload } from '../shared/types.js';
 import { addThinkingAck } from './ack.js';
 import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
-import { error, log, logPath, warn } from './logger.js';
+import { error, log, logForSession, logPath, warn, warnForSession } from './logger.js';
 import { Registry } from './registry.js';
 import { createApiServer } from './server.js';
 
@@ -145,6 +145,10 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
         matched_topics: matched,
         daemon_ts: new Date().toISOString(),
       };
+      logForSession(
+        sub.session_id,
+        `[route] → :${sub.port} #${channelName} ${userName} ts=${event.message_ts} matched=${JSON.stringify(matched)}`,
+      );
       try {
         const res = await fetch(`http://localhost:${sub.port}/message`, {
           method: 'POST',
@@ -152,13 +156,16 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          warn(`[route] subscriber :${sub.port} responded ${res.status} — removing`);
+          warnForSession(
+            sub.session_id,
+            `[route] subscriber :${sub.port} responded ${res.status} — removing`,
+          );
           registry.remove(sub.port);
           return;
         }
         registry.markSeen(sub.port);
       } catch (_err) {
-        warn(`[route] subscriber :${sub.port} unreachable — removing`);
+        warnForSession(sub.session_id, `[route] subscriber :${sub.port} unreachable — removing`);
         registry.remove(sub.port);
       }
     }),

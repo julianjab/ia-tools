@@ -19,7 +19,7 @@ import type {
   SubscribeRequest,
 } from '../shared/types.js';
 import { parseTopic } from '../shared/types.js';
-import { log } from './logger.js';
+import { log, logForSession } from './logger.js';
 import type { Registry } from './registry.js';
 
 const DAEMON_ENTRYPOINT = fileURLToPath(import.meta.url);
@@ -83,9 +83,10 @@ export function createApiServer(
             return;
           }
         }
-        const sub = registry.add(body.port, body.topics, body.label);
-        log(
-          `[api] +subscriber :${body.port} (${body.label ?? '-'}) topics=${JSON.stringify(sub.topics)}`,
+        const sub = registry.add(body.port, body.topics, body.label, body.session_id);
+        logForSession(
+          sub.session_id,
+          `[api] +subscriber :${body.port} (${body.label ?? '-'}) session=${sub.session_id ?? '-'} topics=${JSON.stringify(sub.topics)}`,
         );
         json(res, 200, sub);
       } catch (err) {
@@ -101,8 +102,12 @@ export function createApiServer(
         json(res, 400, { error: 'invalid port' });
         return;
       }
+      const existing = registry.get(port);
       const removed = registry.remove(port);
-      log(`[api] -subscriber :${port} removed=${removed}`);
+      logForSession(
+        existing?.session_id,
+        `[api] -subscriber :${port} session=${existing?.session_id ?? '-'} removed=${removed}`,
+      );
       json(res, 200, { removed });
       return;
     }
