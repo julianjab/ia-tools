@@ -16,8 +16,10 @@
  * Env (fallback):
  *   SLACK_BOT_TOKEN   — Bot token
  *   SLACK_APP_TOKEN   — App-level token for Socket Mode
- *   DAEMON_PORT       — HTTP API port (default: 3800)
- *   DAEMON_LOG        — Log file path (default: /tmp/slack-bridge/daemon-logs.json)
+ *   DAEMON_PORT                  — HTTP API port (default: 3800)
+ *   DAEMON_LOG                   — Log file path (default: /tmp/slack-bridge/daemon-logs.json)
+ *   DAEMON_IDLE_SHUTDOWN_MS      — Auto-exit after this many ms with 0 subscribers
+ *                                  (default: 600000 = 10 min; set to 0 to disable)
  */
 
 import { fileURLToPath } from 'node:url';
@@ -103,6 +105,37 @@ registry.startHealthChecks(async (subscriberPort) => {
     return false;
   }
 });
+
+// ─── Idle auto-shutdown ─────────────────────────────────────────────
+// When no subscribers are registered for `DAEMON_IDLE_SHUTDOWN_MS`, exit so
+// stale daemons don't outlive every Claude session that ever used them. Any
+// new MCP that needs the daemon will spawn a fresh one via ensureDaemon.
+// Set DAEMON_IDLE_SHUTDOWN_MS=0 to disable (persistent daemon).
+const IDLE_SHUTDOWN_MS = Number.parseInt(
+  process.env.DAEMON_IDLE_SHUTDOWN_MS ?? String(10 * 60 * 1000),
+  10,
+);
+let lastActiveAt = Date.now();
+if (IDLE_SHUTDOWN_MS > 0) {
+  log(`[daemon] idle auto-shutdown enabled — ${Math.round(IDLE_SHUTDOWN_MS / 1000)}s`);
+  setInterval(() => {
+    if (registry.all().length > 0) {
+      lastActiveAt = Date.now();
+      return;
+    }
+    const idleMs = Date.now() - lastActiveAt;
+    if (idleMs >= IDLE_SHUTDOWN_MS) {
+      log(
+        `[daemon] no subscribers for ${Math.round(idleMs / 1000)}s — shutting down (set DAEMON_IDLE_SHUTDOWN_MS=0 to disable)`,
+      );
+      registry.stopHealthChecks();
+      api.close();
+      process.exit(0);
+    }
+  }, 60_000);
+} else {
+  log('[daemon] idle auto-shutdown disabled (DAEMON_IDLE_SHUTDOWN_MS=0) — persistent mode');
+}
 
 // ─── Slack listener ─────────────────────────────────────────────────
 const app = await startListener({ botToken, appToken }, async (event: SlackEvent) => {

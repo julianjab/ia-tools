@@ -55959,6 +55959,31 @@ registry.startHealthChecks(async (subscriberPort) => {
     return false;
   }
 });
+var IDLE_SHUTDOWN_MS = Number.parseInt(
+  process.env.DAEMON_IDLE_SHUTDOWN_MS ?? String(10 * 60 * 1e3),
+  10
+);
+var lastActiveAt = Date.now();
+if (IDLE_SHUTDOWN_MS > 0) {
+  log(`[daemon] idle auto-shutdown enabled \u2014 ${Math.round(IDLE_SHUTDOWN_MS / 1e3)}s`);
+  setInterval(() => {
+    if (registry.all().length > 0) {
+      lastActiveAt = Date.now();
+      return;
+    }
+    const idleMs = Date.now() - lastActiveAt;
+    if (idleMs >= IDLE_SHUTDOWN_MS) {
+      log(
+        `[daemon] no subscribers for ${Math.round(idleMs / 1e3)}s \u2014 shutting down (set DAEMON_IDLE_SHUTDOWN_MS=0 to disable)`
+      );
+      registry.stopHealthChecks();
+      api.close();
+      process.exit(0);
+    }
+  }, 6e4);
+} else {
+  log("[daemon] idle auto-shutdown disabled (DAEMON_IDLE_SHUTDOWN_MS=0) \u2014 persistent mode");
+}
 var app = await startListener({ botToken, appToken }, async (event) => {
   socketStatus = "connected";
   const [userName, channelName] = await Promise.all([
