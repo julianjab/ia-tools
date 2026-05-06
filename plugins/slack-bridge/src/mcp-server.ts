@@ -128,8 +128,22 @@ export class McpBridgeServer {
         },
         {
           name: 'unsubscribe_slack',
-          description: 'Stop listening to Slack messages.',
-          inputSchema: { type: 'object' as const, properties: {} },
+          description:
+            'Stop listening to Slack messages. ' +
+            'With `topics`, removes only those topics from the subscription and ' +
+            'persists the change to .claude/.channels.json. ' +
+            'Without `topics`, unsubscribes from everything.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              topics: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Optional list of specific topics to remove. Omit to unsubscribe from all.',
+              },
+            },
+          },
         },
         {
           name: 'claim_message',
@@ -218,7 +232,7 @@ export class McpBridgeServer {
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     if (name === 'subscribe_slack') return this.handleSubscribe(args);
-    if (name === 'unsubscribe_slack') return this.handleUnsubscribe();
+    if (name === 'unsubscribe_slack') return this.handleUnsubscribe(args);
     if (name === 'claim_message') return this.handleClaimMessage(args);
     if (name === 'reply') return this.handleReply(args);
     if (name === 'read_thread') return this.handleReadThread(args);
@@ -272,14 +286,50 @@ export class McpBridgeServer {
     }
   }
 
-  private async handleUnsubscribe(): Promise<{
+  private async handleUnsubscribe(args: Record<string, unknown>): Promise<{
     content: Array<{ type: 'text'; text: string }>;
   }> {
+    const requested = (args.topics as string[] | undefined) ?? null;
+    const isPartial = Array.isArray(requested) && requested.length > 0;
+
+    // Always tear down the existing subscription on the daemon — the registry
+    // doesn't expose a "remove these topics" op, so partial unsubscribe is
+    // implemented as full unsubscribe + resubscribe with the remainder.
     if (this.daemonClient) {
       await this.daemonClient.unsubscribe();
     }
-    this.subscribedTopics = [];
-    return { content: [{ type: 'text' as const, text: 'Unsubscribed from daemon' }] };
+
+    let remaining: string[] = [];
+    let removed: string[] = [];
+    if (isPartial) {
+      const toRemove = new Set(requested);
+      removed = this.subscribedTopics.filter((t) => toRemove.has(t));
+      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t));
+      if (this.daemonClient && remaining.length > 0) {
+        const label = loadConfig().bot?.label;
+        await this.daemonClient.subscribe(remaining, label);
+      }
+    } else {
+      removed = [...this.subscribedTopics];
+    }
+
+    this.subscribedTopics = remaining;
+
+    // Persist the new topic list (or empty) to .claude/.channels.json
+    try {
+      const existing = loadConfig();
+      saveConfig({
+        topics: remaining,
+        ...(existing.bot ? { bot: existing.bot } : {}),
+      });
+    } catch (err) {
+      this.logger.warn(`could not persist unsubscribe — ${err}`);
+    }
+
+    const text = isPartial
+      ? `Unsubscribed from: ${removed.join(', ') || '(none — topic was not subscribed)'}. Remaining: ${remaining.join(', ') || '(none)'}`
+      : `Unsubscribed from all topics${removed.length ? ` (${removed.join(', ')})` : ''}`;
+    return { content: [{ type: 'text' as const, text }] };
   }
 
   private async handleClaimMessage(args: Record<string, unknown>): Promise<{

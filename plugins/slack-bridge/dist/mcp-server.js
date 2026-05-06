@@ -41133,8 +41133,17 @@ var McpBridgeServer = class {
         },
         {
           name: "unsubscribe_slack",
-          description: "Stop listening to Slack messages.",
-          inputSchema: { type: "object", properties: {} }
+          description: "Stop listening to Slack messages. With `topics`, removes only those topics from the subscription and persists the change to .claude/.channels.json. Without `topics`, unsubscribes from everything.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              topics: {
+                type: "array",
+                items: { type: "string" },
+                description: "Optional list of specific topics to remove. Omit to unsubscribe from all."
+              }
+            }
+          }
         },
         {
           name: "claim_message",
@@ -41210,7 +41219,7 @@ var McpBridgeServer = class {
   }
   async dispatchTool(name, args) {
     if (name === "subscribe_slack") return this.handleSubscribe(args);
-    if (name === "unsubscribe_slack") return this.handleUnsubscribe();
+    if (name === "unsubscribe_slack") return this.handleUnsubscribe(args);
     if (name === "claim_message") return this.handleClaimMessage(args);
     if (name === "reply") return this.handleReply(args);
     if (name === "read_thread") return this.handleReadThread(args);
@@ -41254,12 +41263,37 @@ var McpBridgeServer = class {
       return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
     }
   }
-  async handleUnsubscribe() {
+  async handleUnsubscribe(args) {
+    const requested = args.topics ?? null;
+    const isPartial = Array.isArray(requested) && requested.length > 0;
     if (this.daemonClient) {
       await this.daemonClient.unsubscribe();
     }
-    this.subscribedTopics = [];
-    return { content: [{ type: "text", text: "Unsubscribed from daemon" }] };
+    let remaining = [];
+    let removed = [];
+    if (isPartial) {
+      const toRemove = new Set(requested);
+      removed = this.subscribedTopics.filter((t) => toRemove.has(t));
+      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t));
+      if (this.daemonClient && remaining.length > 0) {
+        const label = loadConfig().bot?.label;
+        await this.daemonClient.subscribe(remaining, label);
+      }
+    } else {
+      removed = [...this.subscribedTopics];
+    }
+    this.subscribedTopics = remaining;
+    try {
+      const existing = loadConfig();
+      saveConfig({
+        topics: remaining,
+        ...existing.bot ? { bot: existing.bot } : {}
+      });
+    } catch (err) {
+      this.logger.warn(`could not persist unsubscribe \u2014 ${err}`);
+    }
+    const text = isPartial ? `Unsubscribed from: ${removed.join(", ") || "(none \u2014 topic was not subscribed)"}. Remaining: ${remaining.join(", ") || "(none)"}` : `Unsubscribed from all topics${removed.length ? ` (${removed.join(", ")})` : ""}`;
+    return { content: [{ type: "text", text }] };
   }
   async handleClaimMessage(args) {
     try {

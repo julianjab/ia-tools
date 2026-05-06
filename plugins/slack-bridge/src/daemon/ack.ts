@@ -68,4 +68,3 @@ async function setAssistantStatus(
     await client.apiCall('assistant.threads.setStatus', args);
   }
 }
-
