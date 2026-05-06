@@ -124,11 +124,6 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
     thread_ts: event.thread_ts,
   });
 
-  const payload: MessagePayload = {
-    message: msg,
-    daemon_ts: new Date().toISOString(),
-  };
-
   // Route to matching subscribers
   const targets = registry.match(msg);
   if (targets.length === 0) {
@@ -144,7 +139,12 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
   addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
 
   await Promise.allSettled(
-    targets.map(async (sub) => {
+    targets.map(async ({ subscriber: sub, matched }) => {
+      const payload: MessagePayload = {
+        message: msg,
+        matched_topics: matched,
+        daemon_ts: new Date().toISOString(),
+      };
       try {
         const res = await fetch(`http://localhost:${sub.port}/message`, {
           method: 'POST',

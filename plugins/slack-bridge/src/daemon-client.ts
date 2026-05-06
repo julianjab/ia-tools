@@ -8,8 +8,7 @@
  */
 
 import { debuglog } from 'node:util';
-import type { SlackFilters } from './config.js';
-import type { ClaimResponse, SubscriptionFilters } from './shared/types.js';
+import type { ClaimResponse } from './shared/types.js';
 
 const debug = debuglog('slack-bridge:mcp');
 
@@ -23,23 +22,18 @@ export class DaemonClient {
     return this.webhookPort;
   }
 
-  async subscribe(
-    filters: SubscriptionFilters,
-    regexp?: SlackFilters,
-    label?: string,
-  ): Promise<boolean> {
+  async subscribe(topics: string[], label?: string): Promise<boolean> {
     if (!this.daemonUrl) {
       throw new Error('DAEMON_URL is not set — cannot subscribe');
     }
 
     const body: Record<string, unknown> = {
       port: this.webhookPort,
-      filters,
+      topics,
     };
-    if (regexp !== undefined) body.regexp = regexp;
     if (label !== undefined) body.label = label;
 
-    debug('subscribe port=%d filters=%j', this.webhookPort, filters);
+    debug('subscribe port=%d topics=%j', this.webhookPort, topics);
     const res = await fetch(`${this.daemonUrl}/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

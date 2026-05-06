@@ -18,6 +18,7 @@ import type {
   DaemonHealth,
   SubscribeRequest,
 } from '../shared/types.js';
+import { parseTopic } from '../shared/types.js';
 import { log } from './logger.js';
 import type { Registry } from './registry.js';
 
@@ -69,9 +70,22 @@ export function createApiServer(
           json(res, 400, { error: 'port is required' });
           return;
         }
-        const sub = registry.add(body.port, body.filters ?? {}, body.regexp, body.label);
+        if (!Array.isArray(body.topics) || body.topics.length === 0) {
+          json(res, 400, { error: 'topics[] is required and must be non-empty' });
+          return;
+        }
+        // Validate topic format — parseTopic must not throw
+        for (const t of body.topics) {
+          try {
+            parseTopic(t);
+          } catch {
+            json(res, 400, { error: `invalid topic: ${t}` });
+            return;
+          }
+        }
+        const sub = registry.add(body.port, body.topics, body.label);
         log(
-          `[api] +subscriber :${body.port} (${body.label ?? '-'}) filters=${JSON.stringify(sub.filters)} regexp=${JSON.stringify(body.regexp ?? {})}`,
+          `[api] +subscriber :${body.port} (${body.label ?? '-'}) topics=${JSON.stringify(sub.topics)}`,
         );
         json(res, 200, sub);
       } catch (err) {

@@ -13,14 +13,13 @@
  *   SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... pnpm --filter @ia-tools/slack-bridge daemon
  *
  * On startup the MCP reads .claude/.channels.json. If subscription data exists it
- * subscribes automatically. All filter logic (ID-based and regexp) runs in the daemon.
+ * subscribes automatically. All topic matching runs in the daemon.
  *
  * Env:
  *   SLACK_BOT_TOKEN   — Bot token for Slack API calls (reply, read)
  *   DAEMON_URL        — Daemon API URL (required to receive messages; omit to run read-only)
- *   SLACK_CHANNELS    — Comma-separated channel IDs (overrides .claude/.channels.json)
- *   SLACK_USERS       — Comma-separated user IDs (overrides .claude/.channels.json)
- *   SLACK_THREADS     — Comma-separated thread timestamps (overrides .claude/.channels.json)
+ *   SLACK_TOPICS      — Comma-separated topics (overrides .claude/.channels.json)
+ *                       e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,C06Q8SNF93P:*:1778078158.577219"
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -28,22 +27,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
 import { clearThinkingAck } from './ack-client.js';
-import type { SlackFilters } from './config.js';
 import { loadConfig, saveConfig } from './config.js';
 import { DaemonClient } from './daemon-client.js';
 import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
 import { createLogger } from './logger.js';
 import type { Logger } from './logger.js';
-import type { MessagePayload, SubscriptionFilters } from './shared/types.js';
+import type { MessagePayload } from './shared/types.js';
 import { WebhookServer } from './webhook-server.js';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Union two optional string arrays, deduplicating values. */
-function union(a: string[] | undefined, b: string[] | undefined): string[] {
-  if (!a?.length && !b?.length) return [];
-  return [...new Set([...(a ?? []), ...(b ?? [])])];
-}
 
 // ─── McpBridgeServer ─────────────────────────────────────────────────────────
 
@@ -58,6 +48,8 @@ export class McpBridgeServer {
   private readonly web: WebClient;
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
+  /** All topics this subscriber is currently registered for. */
+  private subscribedTopics: string[] = [];
 
   constructor({ web, daemonClient, logger }: McpBridgeServerOptions) {
     this.web = web;
@@ -104,42 +96,31 @@ export class McpBridgeServer {
         {
           name: 'subscribe_slack',
           description:
-            'Subscribe to Slack messages. Call this when the user tells you what channels/users/threads to listen to. ' +
-            'Subscription is persisted to .claude/.channels.json. All filter logic runs in the daemon.',
+            'Subscribe to Slack messages using topics. ' +
+            'Topic formats: ' +
+            '"{channel}" → all messages in channel; ' +
+            '"{channel}:{user}" → messages from a specific user in a channel; ' +
+            '"{channel}:*:{thread_ts}" → all replies in a thread (any user); ' +
+            '"{channel}:{user}:{thread_ts}" → thread replies from a specific user; ' +
+            '"DM:{user}" → direct messages from a user. ' +
+            'Use "*" as a wildcard for channel or user. ' +
+            'Subscription is persisted to .claude/.channels.json.',
           inputSchema: {
             type: 'object' as const,
             properties: {
-              channels: {
+              topics: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Channel IDs to listen to (e.g., ["C123ABC"])',
-              },
-              dms: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'User IDs for DM listening (e.g., ["U456DEF"])',
-              },
-              threads: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Thread timestamps to follow',
-              },
-              filters: {
-                type: 'object',
                 description:
-                  'Optional regexp filters applied in the daemon before forwarding (AND logic — all must match).',
-                properties: {
-                  channel: { type: 'string', description: 'Regexp matched against channel_name' },
-                  user: { type: 'string', description: 'Regexp matched against user_name' },
-                  message: { type: 'string', description: 'Regexp matched against message text' },
-                  thread: { type: 'string', description: 'Regexp matched against thread_ts' },
-                },
+                  'List of topics to subscribe to. ' +
+                  'Examples: ["C06Q8SNF93P", "C06Q8SNF93P:*:1778078158.577219", "DM:U02M1QFA0AF"]',
               },
               label: {
                 type: 'string',
                 description: 'Label for this session (visible in daemon logs and /subscribers)',
               },
             },
+            required: ['topics'],
           },
         },
         {
@@ -233,34 +214,13 @@ export class McpBridgeServer {
     name: string,
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-    if (name === 'subscribe_slack') {
-      return this.handleSubscribe(args);
-    }
-
-    if (name === 'unsubscribe_slack') {
-      return this.handleUnsubscribe();
-    }
-
-    if (name === 'claim_message') {
-      return this.handleClaimMessage(args);
-    }
-
-    if (name === 'reply') {
-      return this.handleReply(args);
-    }
-
-    if (name === 'read_thread') {
-      return this.handleReadThread(args);
-    }
-
-    if (name === 'read_channel') {
-      return this.handleReadChannel(args);
-    }
-
-    if (name === 'list_channels') {
-      return this.handleListChannels();
-    }
-
+    if (name === 'subscribe_slack') return this.handleSubscribe(args);
+    if (name === 'unsubscribe_slack') return this.handleUnsubscribe();
+    if (name === 'claim_message') return this.handleClaimMessage(args);
+    if (name === 'reply') return this.handleReply(args);
+    if (name === 'read_thread') return this.handleReadThread(args);
+    if (name === 'read_channel') return this.handleReadChannel(args);
+    if (name === 'list_channels') return this.handleListChannels();
     throw new Error(`Unknown tool: ${name}`);
   }
 
@@ -268,46 +228,39 @@ export class McpBridgeServer {
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     try {
-      const filters: SubscriptionFilters = {
-        channels: (args.channels as string[]) ?? [],
-        dms: (args.dms as string[]) ?? [],
-        threads: (args.threads as string[]) ?? [],
-      };
-      const regexp = args.filters as SlackFilters | undefined;
+      const topics = (args.topics as string[]) ?? [];
       const label = args.label as string | undefined;
+
+      if (!topics.length) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: topics[] must be non-empty' }],
+          isError: true,
+        };
+      }
 
       if (!this.daemonClient) {
         throw new Error('DAEMON_URL is not set — cannot subscribe');
       }
 
-      await this.daemonClient.subscribe(filters, regexp, label);
+      await this.daemonClient.subscribe(topics, label);
+      this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
 
-      // Persist to .claude/.channels.json — merge with existing so previous subscriptions survive
+      // Persist merged topics to .claude/.channels.json
       try {
         const existing = loadConfig();
         saveConfig({
-          channels: union(existing.channels, filters.channels),
-          dms: union(existing.dms, filters.dms),
-          threads: union(existing.threads, filters.threads),
-          ...(regexp ? { filters: regexp } : existing.filters ? { filters: existing.filters } : {}),
+          topics: [...new Set([...(existing.topics ?? []), ...topics])],
           ...(label ? { bot: { label } } : existing.bot ? { bot: existing.bot } : {}),
         });
       } catch (err) {
         this.logger.warn(`could not persist subscription — ${err}`);
       }
 
-      const parts: string[] = [];
-      if (filters.channels?.length) parts.push(`channels: ${filters.channels.join(', ')}`);
-      if (filters.dms?.length) parts.push(`dms: ${filters.dms.join(', ')}`);
-      if (filters.threads?.length) parts.push(`threads: ${filters.threads.join(', ')}`);
-      if (regexp && Object.keys(regexp).length) parts.push(`regexp: ${JSON.stringify(regexp)}`);
-      const summary = parts.length ? parts.join(' | ') : 'all messages';
-
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Subscribed on :${this.daemonClient.port} — listening to: ${summary}`,
+            text: `Subscribed on :${this.daemonClient.port} — topics: ${topics.join(', ')}`,
           },
         ],
       };
@@ -322,6 +275,7 @@ export class McpBridgeServer {
     if (this.daemonClient) {
       await this.daemonClient.unsubscribe();
     }
+    this.subscribedTopics = [];
     return { content: [{ type: 'text' as const, text: 'Unsubscribed from daemon' }] };
   }
 
@@ -437,22 +391,17 @@ export class McpBridgeServer {
       }
 
       const fileConfig = loadConfig();
-      const channels =
-        process.env.SLACK_CHANNELS?.split(',').filter(Boolean) ?? fileConfig.channels ?? [];
-      const dms = process.env.SLACK_USERS?.split(',').filter(Boolean) ?? fileConfig.dms ?? [];
-      const threads =
-        process.env.SLACK_THREADS?.split(',').filter(Boolean) ?? fileConfig.threads ?? [];
+      const topics =
+        process.env.SLACK_TOPICS?.split(',').filter(Boolean) ?? fileConfig.topics ?? [];
 
-      if (!channels.length && !dms.length && !threads.length) return;
+      if (!topics.length) return;
 
       try {
-        await this.daemonClient.subscribe(
-          { channels, dms, threads },
-          fileConfig.filters,
-          fileConfig.bot?.label ?? 'auto',
-        );
+        const label = fileConfig.bot?.label ?? 'auto';
+        await this.daemonClient.subscribe(topics, label);
+        this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
         this.logger.log(
-          `auto-subscribed on :${this.daemonClient.port} — channels=${channels} dms=${dms} threads=${threads}`,
+          `auto-subscribed on :${this.daemonClient.port} — topics=${topics.join(', ')}`,
         );
       } catch {
         this.logger.warn(
@@ -460,6 +409,29 @@ export class McpBridgeServer {
         );
       }
     };
+  }
+
+  /** Called by the webhook server when a message arrives from the daemon. */
+  async handleIncomingMessage(payload: MessagePayload): Promise<void> {
+    const { message, matched_topics } = payload;
+    await this.mcp.notification({
+      method: 'notifications/claude/channel',
+      params: {
+        content: message.text,
+        meta: {
+          source: 'slack-bridge',
+          channel_id: message.channel_id,
+          channel_name: message.channel_name,
+          user_id: message.user_id,
+          user_name: message.user_name,
+          message_ts: message.message_ts,
+          thread_ts: message.thread_ts ?? '',
+          is_dm: message.is_dm ? 'true' : 'false',
+          matched_topics: matched_topics.join(','),
+          subscribed_topics: this.subscribedTopics.join(','),
+        },
+      },
+    });
   }
 }
 
@@ -478,7 +450,7 @@ process.on('uncaughtException', (err) => {
 });
 
 const SESSION_ID = `${Date.now()}-${process.pid}`;
-const mcpLogPath = './.logs/mcp-logs.json';
+const mcpLogPath = `/tmp/slack-bridge/${SESSION_ID}/mcp-logs.json`;
 const logger = createLogger({ logPath: mcpLogPath, label: 'mcp', stderr: true });
 
 const botToken = process.env.SLACK_BOT_TOKEN;
@@ -522,25 +494,10 @@ const web = new WebClient(botToken);
 const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
   const { message } = payload;
   logger.debug(
-    `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm}`,
+    `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(',')}`,
   );
   try {
-    await mcpServer.server.notification({
-      method: 'notifications/claude/channel',
-      params: {
-        content: message.text,
-        meta: {
-          source: 'slack-bridge',
-          channel_id: message.channel_id,
-          channel_name: message.channel_name,
-          user_id: message.user_id,
-          user_name: message.user_name,
-          message_ts: message.message_ts,
-          thread_ts: message.thread_ts ?? '',
-          is_dm: message.is_dm ? 'true' : 'false',
-        },
-      },
-    });
+    await mcpServer.handleIncomingMessage(payload);
     logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
   } catch (err) {
     logger.error(`[webhook] notification failed: ${err}`);

@@ -4,12 +4,8 @@
  * Schema:
  *   {
  *     "slack": {
- *       "bot":     { "label": string },
- *       "channels": string[],
- *       "dms":      string[],
- *       "threads":  string[],
- *       "filters":  { "channel": regexp-string, "user": regexp-string,
- *                     "message": regexp-string, "thread": regexp-string }
+ *       "bot":    { "label": string },
+ *       "topics": string[]
  *     }
  *   }
  *
@@ -22,32 +18,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export interface SlackFilters {
-  channel?: string; // regexp string — filter by channel name
-  user?: string; // regexp string — filter by user name / ID
-  message?: string; // regexp string — filter by message text
-  thread?: string; // regexp string — filter by thread ts
-}
-
 export interface SlackChannelConfig {
   bot?: { label?: string };
-  channels?: string[];
-  dms?: string[];
-  threads?: string[];
-  filters?: SlackFilters;
+  topics?: string[];
 }
 
 export interface ChannelsConfig {
   slack?: SlackChannelConfig;
 }
 
-const ALLOWED_KEYS: ReadonlyArray<keyof SlackChannelConfig> = [
-  'bot',
-  'channels',
-  'dms',
-  'threads',
-  'filters',
-];
+const ALLOWED_KEYS: ReadonlyArray<keyof SlackChannelConfig> = ['bot', 'topics'];
 
 function configFilePath(cwd: string): string {
   return join(cwd, '.claude', '.channels.json');
