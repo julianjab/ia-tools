@@ -22,6 +22,7 @@
  *                       e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,C06Q8SNF93P:*:1778078158.577219"
  */
 
+import { execSync } from 'node:child_process';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -41,6 +42,13 @@ export interface McpBridgeServerOptions {
   web: WebClient;
   daemonClient: DaemonClient | null;
   logger: Logger;
+  /**
+   * If set, the server is in a degraded "disabled" state: it advertises tools
+   * but every call returns this message as an error, and auto-subscribe is
+   * skipped. Used to surface the missing --dangerously-load-development-channels
+   * flag to the user via the MCP error channel.
+   */
+  disabledReason?: string | null;
 }
 
 export class McpBridgeServer {
@@ -48,13 +56,15 @@ export class McpBridgeServer {
   private readonly web: WebClient;
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
+  private readonly disabledReason: string | null;
   /** All topics this subscriber is currently registered for. */
   private subscribedTopics: string[] = [];
 
-  constructor({ web, daemonClient, logger }: McpBridgeServerOptions) {
+  constructor({ web, daemonClient, logger, disabledReason = null }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
+    this.disabledReason = disabledReason;
 
     this.mcp = new Server(
       { name: 'slack-bridge', version: '0.2.0' },
@@ -214,6 +224,12 @@ export class McpBridgeServer {
     name: string,
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
+    if (this.disabledReason) {
+      return {
+        content: [{ type: 'text' as const, text: this.disabledReason }],
+        isError: true,
+      };
+    }
     if (name === 'subscribe_slack') return this.handleSubscribe(args);
     if (name === 'unsubscribe_slack') return this.handleUnsubscribe();
     if (name === 'claim_message') return this.handleClaimMessage(args);
@@ -383,6 +399,10 @@ export class McpBridgeServer {
 
   private registerOnInitialized(): void {
     this.mcp.oninitialized = async () => {
+      if (this.disabledReason) {
+        this.logger.error(`disabled: ${this.disabledReason}`);
+        return;
+      }
       if (!this.daemonClient) {
         this.logger.warn(
           'DAEMON_URL is not set — running in read-only mode (no subscriptions possible)',
@@ -462,30 +482,58 @@ if (!botToken) {
 const DAEMON_URL = resolveDaemonUrl();
 logger.log(`starting — session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath}`);
 
-let daemonReady = false;
-try {
-  await ensureDaemon(
-    DAEMON_URL,
-    {
-      session: SESSION_ID,
-      pid: process.pid,
-      ppid: process.ppid,
-      cwd: process.cwd(),
-    },
-    logger,
-  );
-  daemonReady = true;
+// slack-bridge depends on the experimental `claude/channel` capability, which
+// is only enabled when Claude is started with --dangerously-load-development-channels.
+// That flag is not propagated to MCP child processes via env, but the parent
+// process (Claude itself) preserves it in its argv — readable via `ps`.
+function readParentCmd(ppid: number): string {
   try {
-    const res = await fetch(`${DAEMON_URL}/health`);
-    const health = (await res.json()) as { pid?: number; entrypoint?: string };
-    logger.log(
-      `daemon ready at ${DAEMON_URL} — pid=${health.pid ?? '?'} entrypoint=${health.entrypoint ?? '?'}`,
-    );
-  } catch (err) {
-    logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+    return execSync(`ps -ww -p ${ppid} -o command=`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
   }
-} catch (err) {
-  logger.warn(`ensureDaemon failed — continuing in read-only mode: ${err}`);
+}
+
+const parentCmd = readParentCmd(process.ppid);
+const hasDevChannels = parentCmd.includes('--dangerously-load-development-channels');
+logger.log(`parent argv: ${parentCmd || '(unavailable)'}`);
+const disabledReason = hasDevChannels
+  ? null
+  : 'slack-bridge requires Claude to be started with --dangerously-load-development-channels. ' +
+    'Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools';
+if (disabledReason) {
+  logger.error(disabledReason);
+}
+
+let daemonReady = false;
+if (!disabledReason) {
+  try {
+    await ensureDaemon(
+      DAEMON_URL,
+      {
+        session: SESSION_ID,
+        pid: process.pid,
+        ppid: process.ppid,
+        cwd: process.cwd(),
+      },
+      logger,
+    );
+    daemonReady = true;
+    try {
+      const res = await fetch(`${DAEMON_URL}/health`);
+      const health = (await res.json()) as { pid?: number; entrypoint?: string };
+      logger.log(
+        `daemon ready at ${DAEMON_URL} — pid=${health.pid ?? '?'} entrypoint=${health.entrypoint ?? '?'}`,
+      );
+    } catch (err) {
+      logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+    }
+  } catch (err) {
+    logger.warn(`ensureDaemon failed — continuing in read-only mode: ${err}`);
+  }
 }
 
 const web = new WebClient(botToken);
@@ -508,6 +556,6 @@ const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
 
 const webhookPort = await webhookSrv.start();
 const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-const mcpServer = new McpBridgeServer({ web, daemonClient, logger });
+const mcpServer = new McpBridgeServer({ web, daemonClient, logger, disabledReason });
 
 await mcpServer.connect(new StdioServerTransport());

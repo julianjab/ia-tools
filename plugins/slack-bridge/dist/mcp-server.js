@@ -26623,6 +26623,9 @@ var require_dist5 = __commonJS({
   }
 });
 
+// src/mcp-server.ts
+import { execSync } from "node:child_process";
+
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
@@ -41069,12 +41072,14 @@ var McpBridgeServer = class {
   web;
   daemonClient;
   logger;
+  disabledReason;
   /** All topics this subscriber is currently registered for. */
   subscribedTopics = [];
-  constructor({ web: web2, daemonClient: daemonClient2, logger: logger2 }) {
+  constructor({ web: web2, daemonClient: daemonClient2, logger: logger2, disabledReason: disabledReason2 = null }) {
     this.web = web2;
     this.daemonClient = daemonClient2;
     this.logger = logger2;
+    this.disabledReason = disabledReason2;
     this.mcp = new Server(
       { name: "slack-bridge", version: "0.2.0" },
       {
@@ -41204,6 +41209,12 @@ var McpBridgeServer = class {
     });
   }
   async dispatchTool(name, args) {
+    if (this.disabledReason) {
+      return {
+        content: [{ type: "text", text: this.disabledReason }],
+        isError: true
+      };
+    }
     if (name === "subscribe_slack") return this.handleSubscribe(args);
     if (name === "unsubscribe_slack") return this.handleUnsubscribe();
     if (name === "claim_message") return this.handleClaimMessage(args);
@@ -41330,6 +41341,10 @@ var McpBridgeServer = class {
   }
   registerOnInitialized() {
     this.mcp.oninitialized = async () => {
+      if (this.disabledReason) {
+        this.logger.error(`disabled: ${this.disabledReason}`);
+        return;
+      }
       if (!this.daemonClient) {
         this.logger.warn(
           "DAEMON_URL is not set \u2014 running in read-only mode (no subscriptions possible)"
@@ -41399,30 +41414,49 @@ if (!botToken) {
 }
 var DAEMON_URL = resolveDaemonUrl();
 logger.log(`starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath}`);
-var daemonReady = false;
-try {
-  await ensureDaemon(
-    DAEMON_URL,
-    {
-      session: SESSION_ID,
-      pid: process.pid,
-      ppid: process.ppid,
-      cwd: process.cwd()
-    },
-    logger
-  );
-  daemonReady = true;
+function readParentCmd(ppid) {
   try {
-    const res = await fetch(`${DAEMON_URL}/health`);
-    const health = await res.json();
-    logger.log(
-      `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
-    );
-  } catch (err) {
-    logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+    return execSync(`ps -ww -p ${ppid} -o command=`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return "";
   }
-} catch (err) {
-  logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
+}
+var parentCmd = readParentCmd(process.ppid);
+var hasDevChannels = parentCmd.includes("--dangerously-load-development-channels");
+logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
+var disabledReason = hasDevChannels ? null : "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
+if (disabledReason) {
+  logger.error(disabledReason);
+}
+var daemonReady = false;
+if (!disabledReason) {
+  try {
+    await ensureDaemon(
+      DAEMON_URL,
+      {
+        session: SESSION_ID,
+        pid: process.pid,
+        ppid: process.ppid,
+        cwd: process.cwd()
+      },
+      logger
+    );
+    daemonReady = true;
+    try {
+      const res = await fetch(`${DAEMON_URL}/health`);
+      const health = await res.json();
+      logger.log(
+        `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
+      );
+    } catch (err) {
+      logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+    }
+  } catch (err) {
+    logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
+  }
 }
 var web = new import_web_api.WebClient(botToken);
 var webhookSrv = new WebhookServer(async (payload) => {
@@ -41441,7 +41475,7 @@ var webhookSrv = new WebhookServer(async (payload) => {
 });
 var webhookPort = await webhookSrv.start();
 var daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-var mcpServer = new McpBridgeServer({ web, daemonClient, logger });
+var mcpServer = new McpBridgeServer({ web, daemonClient, logger, disabledReason });
 await mcpServer.connect(new StdioServerTransport());
 export {
   McpBridgeServer
