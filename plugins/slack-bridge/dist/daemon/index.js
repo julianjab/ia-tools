@@ -55662,8 +55662,24 @@ function matchesTopic(parsed, msg) {
   if (parsed.user && msg.user_id !== parsed.user) return false;
   return true;
 }
+function normalizeTopic(input) {
+  if (typeof input === "string") return { topic: input };
+  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
+}
 
 // src/daemon/registry.ts
+function mergeTopics(existing, incoming) {
+  const map = /* @__PURE__ */ new Map();
+  for (const t of existing) map.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map.get(t.topic);
+    map.set(t.topic, {
+      topic: t.topic,
+      ...t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}
+    });
+  }
+  return [...map.values()];
+}
 var Registry = class {
   constructor(healthCheckMs = 3e4) {
     this.healthCheckMs = healthCheckMs;
@@ -55671,13 +55687,12 @@ var Registry = class {
   healthCheckMs;
   subscribers = /* @__PURE__ */ new Map();
   healthInterval;
-  add(port2, topics, label) {
+  add(port2, topics) {
     const existing = this.subscribers.get(port2);
     if (existing) {
       const merged = {
         ...existing,
-        topics: [.../* @__PURE__ */ new Set([...existing.topics, ...topics])],
-        label: label ?? existing.label,
+        topics: mergeTopics(existing.topics, topics),
         lastSeen: (/* @__PURE__ */ new Date()).toISOString()
       };
       this.subscribers.set(port2, merged);
@@ -55686,7 +55701,6 @@ var Registry = class {
     const sub = {
       port: port2,
       topics,
-      label,
       registeredAt: (/* @__PURE__ */ new Date()).toISOString(),
       lastSeen: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -55704,17 +55718,31 @@ var Registry = class {
   }
   /**
    * Find subscribers whose topics match the message.
-   * Returns each matching subscriber paired with the topics that matched.
+   * Returns each matching subscriber paired with the TopicSpecs that matched
+   * (preserving labels so the caller can forward them on delivery).
    */
   match(msg) {
     const results = [];
     for (const sub of this.all()) {
-      const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t), msg));
+      const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t.topic), msg));
       if (matched.length > 0) {
         results.push({ subscriber: sub, matched });
       }
     }
     return results;
+  }
+  /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
+  removeTopics(port2, topicStrings) {
+    const sub = this.subscribers.get(port2);
+    if (!sub) return void 0;
+    const drop = new Set(topicStrings);
+    const remaining = sub.topics.filter((t) => !drop.has(t.topic));
+    if (remaining.length === 0) {
+      this.subscribers.delete(port2);
+      return [];
+    }
+    this.subscribers.set(port2, { ...sub, topics: remaining, lastSeen: (/* @__PURE__ */ new Date()).toISOString() });
+    return remaining;
   }
   markSeen(port2) {
     const sub = this.subscribers.get(port2);
@@ -55725,7 +55753,7 @@ var Registry = class {
       for (const [port2, sub] of this.subscribers) {
         const alive = await checkFn(port2);
         if (!alive) {
-          log(`[registry] removing dead subscriber :${port2} (${sub.label ?? "no label"})`);
+          log(`[registry] removing dead subscriber :${port2} (${sub.topics.length} topics)`);
           this.subscribers.delete(port2);
         }
       }
@@ -55776,18 +55804,21 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
           json(res, 400, { error: "topics[] is required and must be non-empty" });
           return;
         }
-        for (const t of body.topics) {
+        const normalized = body.topics.map(normalizeTopic);
+        for (const t of normalized) {
+          if (!t.topic || typeof t.topic !== "string") {
+            json(res, 400, { error: "each topic must have a non-empty topic string" });
+            return;
+          }
           try {
-            parseTopic(t);
+            parseTopic(t.topic);
           } catch {
-            json(res, 400, { error: `invalid topic: ${t}` });
+            json(res, 400, { error: `invalid topic: ${t.topic}` });
             return;
           }
         }
-        const sub = registry2.add(body.port, body.topics, body.label);
-        log(
-          `[api] +subscriber :${body.port} (${body.label ?? "-"}) topics=${JSON.stringify(sub.topics)}`
-        );
+        const sub = registry2.add(body.port, normalized);
+        log(`[api] +subscriber :${body.port} topics=${JSON.stringify(sub.topics)}`);
         json(res, 200, sub);
       } catch (err) {
         json(res, 400, { error: String(err) });

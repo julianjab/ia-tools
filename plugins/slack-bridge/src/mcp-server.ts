@@ -35,8 +35,32 @@ import { DaemonClient } from './daemon-client.js';
 import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
 import { createLogger } from './logger.js';
 import type { Logger } from './logger.js';
-import type { MessagePayload } from './shared/types.js';
+import type { MessagePayload, TopicSpec } from './shared/types.js';
+import { normalizeTopic } from './shared/types.js';
 import { WebhookServer } from './webhook-server.js';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Merge two TopicSpec lists by topic string. Later entries' labels win
+ * so a re-subscribe can rebrand a topic.
+ */
+function mergeTopicSpecs(existing: TopicSpec[], incoming: TopicSpec[]): TopicSpec[] {
+  const map = new Map<string, TopicSpec>();
+  for (const t of existing) map.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map.get(t.topic);
+    map.set(t.topic, {
+      topic: t.topic,
+      ...(t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}),
+    });
+  }
+  return [...map.values()];
+}
+
+function formatSpec(spec: TopicSpec): string {
+  return spec.label ? `${spec.label}:${spec.topic}` : spec.topic;
+}
 
 // ─── McpBridgeServer ─────────────────────────────────────────────────────────
 
@@ -51,8 +75,8 @@ export class McpBridgeServer {
   private readonly web: WebClient;
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
-  /** All topics this subscriber is currently registered for. */
-  private subscribedTopics: string[] = [];
+  /** All topic specs this subscriber is currently registered for. */
+  private subscribedTopics: TopicSpec[] = [];
 
   constructor({ web, daemonClient, logger }: McpBridgeServerOptions) {
     this.web = web;
@@ -100,6 +124,10 @@ export class McpBridgeServer {
           name: 'subscribe_slack',
           description:
             'Subscribe to Slack messages using topics. ' +
+            'Each entry can be a bare topic string or an object {topic, label} ' +
+            'where label is metadata the agent will see on every matched ' +
+            'message (use it to remember WHY this subscription exists, e.g. ' +
+            '"ship-pr-42" or "team-channel"). ' +
             'Topic formats: ' +
             '"{channel}" → all messages in channel; ' +
             '"{channel}:{user}" → messages from a specific user in a channel; ' +
@@ -113,14 +141,23 @@ export class McpBridgeServer {
             properties: {
               topics: {
                 type: 'array',
-                items: { type: 'string' },
+                items: {
+                  oneOf: [
+                    { type: 'string' },
+                    {
+                      type: 'object',
+                      properties: {
+                        topic: { type: 'string' },
+                        label: { type: 'string' },
+                      },
+                      required: ['topic'],
+                    },
+                  ],
+                },
                 description:
-                  'List of topics to subscribe to. ' +
-                  'Examples: ["C06Q8SNF93P", "C06Q8SNF93P:*:1778078158.577219", "DM:U02M1QFA0AF"]',
-              },
-              label: {
-                type: 'string',
-                description: 'Label for this session (visible in daemon logs and /subscribers)',
+                  'Topics to subscribe to. Each item is either a topic string ' +
+                  'or {topic, label?}. Examples: ' +
+                  '["C06Q8SNF93P", {"topic": "C06Q8SNF93P:*:1778078158.577219", "label": "ship-pr-42"}, {"topic": "DM:U02M1QFA0AF", "label": "dm-julian"}]',
               },
             },
             required: ['topics'],
@@ -245,10 +282,10 @@ export class McpBridgeServer {
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     try {
-      const topics = (args.topics as string[]) ?? [];
-      const label = args.label as string | undefined;
+      const raw = (args.topics as Array<string | TopicSpec> | undefined) ?? [];
+      const incoming = raw.map(normalizeTopic);
 
-      if (!topics.length) {
+      if (!incoming.length) {
         return {
           content: [{ type: 'text' as const, text: 'Error: topics[] must be non-empty' }],
           isError: true,
@@ -259,16 +296,14 @@ export class McpBridgeServer {
         throw new Error('DAEMON_URL is not set — cannot subscribe');
       }
 
-      await this.daemonClient.subscribe(topics, label);
-      this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
+      await this.daemonClient.subscribe(incoming);
+      this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
 
       // Persist merged topics to .claude/.channels.json
       try {
         const existing = loadConfig();
-        saveConfig({
-          topics: [...new Set([...(existing.topics ?? []), ...topics])],
-          ...(label ? { bot: { label } } : existing.bot ? { bot: existing.bot } : {}),
-        });
+        const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
+        saveConfig({ topics: mergeTopicSpecs(existingSpecs, incoming) });
       } catch (err) {
         this.logger.warn(`could not persist subscription — ${err}`);
       }
@@ -277,7 +312,7 @@ export class McpBridgeServer {
         content: [
           {
             type: 'text' as const,
-            text: `Subscribed on :${this.daemonClient.port} — topics: ${topics.join(', ')}`,
+            text: `Subscribed on :${this.daemonClient.port} — topics: ${incoming.map(formatSpec).join(', ')}`,
           },
         ],
       };
@@ -299,15 +334,14 @@ export class McpBridgeServer {
       await this.daemonClient.unsubscribe();
     }
 
-    let remaining: string[] = [];
-    let removed: string[] = [];
+    let remaining: TopicSpec[] = [];
+    let removed: TopicSpec[] = [];
     if (isPartial) {
       const toRemove = new Set(requested);
-      removed = this.subscribedTopics.filter((t) => toRemove.has(t));
-      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t));
+      removed = this.subscribedTopics.filter((t) => toRemove.has(t.topic));
+      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t.topic));
       if (this.daemonClient && remaining.length > 0) {
-        const label = loadConfig().bot?.label;
-        await this.daemonClient.subscribe(remaining, label);
+        await this.daemonClient.subscribe(remaining);
       }
     } else {
       removed = [...this.subscribedTopics];
@@ -317,18 +351,14 @@ export class McpBridgeServer {
 
     // Persist the new topic list (or empty) to .claude/.channels.json
     try {
-      const existing = loadConfig();
-      saveConfig({
-        topics: remaining,
-        ...(existing.bot ? { bot: existing.bot } : {}),
-      });
+      saveConfig({ topics: remaining });
     } catch (err) {
       this.logger.warn(`could not persist unsubscribe — ${err}`);
     }
 
     const text = isPartial
-      ? `Unsubscribed from: ${removed.join(', ') || '(none — topic was not subscribed)'}. Remaining: ${remaining.join(', ') || '(none)'}`
-      : `Unsubscribed from all topics${removed.length ? ` (${removed.join(', ')})` : ''}`;
+      ? `Unsubscribed from: ${removed.map(formatSpec).join(', ') || '(none — topic was not subscribed)'}. Remaining: ${remaining.map(formatSpec).join(', ') || '(none)'}`
+      : `Unsubscribed from all topics${removed.length ? ` (${removed.map(formatSpec).join(', ')})` : ''}`;
     return { content: [{ type: 'text' as const, text }] };
   }
 
@@ -444,17 +474,17 @@ export class McpBridgeServer {
       }
 
       const fileConfig = loadConfig();
-      const topics =
-        process.env.SLACK_TOPICS?.split(',').filter(Boolean) ?? fileConfig.topics ?? [];
+      const envTopics = process.env.SLACK_TOPICS?.split(',').filter(Boolean) ?? null;
+      const raw: Array<string | TopicSpec> = envTopics ?? fileConfig.topics ?? [];
+      const topics = raw.map(normalizeTopic);
 
       if (!topics.length) return;
 
       try {
-        const label = fileConfig.bot?.label ?? 'auto';
-        await this.daemonClient.subscribe(topics, label);
-        this.subscribedTopics = [...new Set([...this.subscribedTopics, ...topics])];
+        await this.daemonClient.subscribe(topics);
+        this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, topics);
         this.logger.log(
-          `auto-subscribed on :${this.daemonClient.port} — topics=${topics.join(', ')}`,
+          `auto-subscribed on :${this.daemonClient.port} — topics=${topics.map(formatSpec).join(', ')}`,
         );
       } catch {
         this.logger.warn(
@@ -480,8 +510,15 @@ export class McpBridgeServer {
           message_ts: message.message_ts,
           thread_ts: message.thread_ts ?? '',
           is_dm: message.is_dm ? 'true' : 'false',
-          matched_topics: matched_topics.join(','),
-          subscribed_topics: this.subscribedTopics.join(','),
+          // Per-topic labels surface the subscriber's intent for this match
+          // (e.g. "ship-pr-42") so the agent can decide what to do with the
+          // message based on WHY it was subscribed, not just the topic string.
+          matched_topics: JSON.stringify(matched_topics),
+          matched_labels: matched_topics
+            .map((t) => t.label)
+            .filter((l): l is string => Boolean(l))
+            .join(','),
+          subscribed_topics: JSON.stringify(this.subscribedTopics),
         },
       },
     });

@@ -13,9 +13,26 @@
  *   "DM:{user}"                  → DMs from a specific user
  */
 
-import type { SlackMessage, Subscriber } from '../shared/types.js';
+import type { SlackMessage, Subscriber, TopicSpec } from '../shared/types.js';
 import { matchesTopic, parseTopic } from '../shared/types.js';
 import { log } from './logger.js';
+
+/**
+ * Merge two TopicSpec lists by `topic` string. Later entries' labels win
+ * (callers can rebrand a topic by re-subscribing with a new label).
+ */
+function mergeTopics(existing: TopicSpec[], incoming: TopicSpec[]): TopicSpec[] {
+  const map = new Map<string, TopicSpec>();
+  for (const t of existing) map.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map.get(t.topic);
+    map.set(t.topic, {
+      topic: t.topic,
+      ...(t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}),
+    });
+  }
+  return [...map.values()];
+}
 
 export class Registry {
   private subscribers = new Map<number, Subscriber>();
@@ -23,13 +40,12 @@ export class Registry {
 
   constructor(private healthCheckMs = 30_000) {}
 
-  add(port: number, topics: string[], label?: string): Subscriber {
+  add(port: number, topics: TopicSpec[]): Subscriber {
     const existing = this.subscribers.get(port);
     if (existing) {
       const merged: Subscriber = {
         ...existing,
-        topics: [...new Set([...existing.topics, ...topics])],
-        label: label ?? existing.label,
+        topics: mergeTopics(existing.topics, topics),
         lastSeen: new Date().toISOString(),
       };
       this.subscribers.set(port, merged);
@@ -39,7 +55,6 @@ export class Registry {
     const sub: Subscriber = {
       port,
       topics,
-      label,
       registeredAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
     };
@@ -61,17 +76,32 @@ export class Registry {
 
   /**
    * Find subscribers whose topics match the message.
-   * Returns each matching subscriber paired with the topics that matched.
+   * Returns each matching subscriber paired with the TopicSpecs that matched
+   * (preserving labels so the caller can forward them on delivery).
    */
-  match(msg: SlackMessage): Array<{ subscriber: Subscriber; matched: string[] }> {
-    const results: Array<{ subscriber: Subscriber; matched: string[] }> = [];
+  match(msg: SlackMessage): Array<{ subscriber: Subscriber; matched: TopicSpec[] }> {
+    const results: Array<{ subscriber: Subscriber; matched: TopicSpec[] }> = [];
     for (const sub of this.all()) {
-      const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t), msg));
+      const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t.topic), msg));
       if (matched.length > 0) {
         results.push({ subscriber: sub, matched });
       }
     }
     return results;
+  }
+
+  /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
+  removeTopics(port: number, topicStrings: string[]): TopicSpec[] | undefined {
+    const sub = this.subscribers.get(port);
+    if (!sub) return undefined;
+    const drop = new Set(topicStrings);
+    const remaining = sub.topics.filter((t) => !drop.has(t.topic));
+    if (remaining.length === 0) {
+      this.subscribers.delete(port);
+      return [];
+    }
+    this.subscribers.set(port, { ...sub, topics: remaining, lastSeen: new Date().toISOString() });
+    return remaining;
   }
 
   markSeen(port: number): void {
@@ -84,7 +114,7 @@ export class Registry {
       for (const [port, sub] of this.subscribers) {
         const alive = await checkFn(port);
         if (!alive) {
-          log(`[registry] removing dead subscriber :${port} (${sub.label ?? 'no label'})`);
+          log(`[registry] removing dead subscriber :${port} (${sub.topics.length} topics)`);
           this.subscribers.delete(port);
         }
       }

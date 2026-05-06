@@ -70,18 +70,33 @@ export function matchesTopic(parsed: ParsedTopic, msg: SlackMessage): boolean {
   return true;
 }
 
+/**
+ * A topic with an optional label. The label is application-level metadata
+ * the subscriber attaches to give the agent context about why this topic
+ * exists (e.g. "ship-pr-42" for a thread subscription opened by /ship).
+ * The label is forwarded to the agent on every matched delivery.
+ */
+export interface TopicSpec {
+  topic: string;
+  label?: string;
+}
+
+/** Normalize a topic input that may be a bare string or a TopicSpec. */
+export function normalizeTopic(input: string | TopicSpec): TopicSpec {
+  if (typeof input === 'string') return { topic: input };
+  return { topic: input.topic, ...(input.label ? { label: input.label } : {}) };
+}
+
 /** POST /subscribe */
 export interface SubscribeRequest {
   port: number;
-  topics: string[];
-  label?: string;
+  topics: Array<string | TopicSpec>;
 }
 
 /** Subscriber record in the daemon registry */
 export interface Subscriber {
   port: number;
-  topics: string[];
-  label?: string;
+  topics: TopicSpec[];
   registeredAt: string;
   lastSeen?: string;
 }
@@ -89,8 +104,8 @@ export interface Subscriber {
 /** POST /message — daemon → subscriber */
 export interface MessagePayload {
   message: SlackMessage;
-  /** Topics from the subscriber's list that matched this message. */
-  matched_topics: string[];
+  /** TopicSpecs from the subscriber's list that matched this message. */
+  matched_topics: TopicSpec[];
   daemon_ts: string;
 }
 

@@ -4,10 +4,12 @@
  * Schema:
  *   {
  *     "slack": {
- *       "bot":    { "label": string },
- *       "topics": string[]
+ *       "topics": Array<string | { topic: string, label?: string }>
  *     }
  *   }
+ *
+ * Bare strings are accepted for ergonomics; objects let the caller attach a
+ * label that the agent will see on every matched message.
  *
  * - Any field whose name contains "token" (case-insensitive) is stripped and
  *   triggers a stderr warning so secrets never end up in the config object.
@@ -17,17 +19,17 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { TopicSpec } from './shared/types.js';
 
 export interface SlackChannelConfig {
-  bot?: { label?: string };
-  topics?: string[];
+  topics?: Array<string | TopicSpec>;
 }
 
 export interface ChannelsConfig {
   slack?: SlackChannelConfig;
 }
 
-const ALLOWED_KEYS: ReadonlyArray<keyof SlackChannelConfig> = ['bot', 'topics'];
+const ALLOWED_KEYS: ReadonlyArray<keyof SlackChannelConfig> = ['topics'];
 
 function configFilePath(cwd: string): string {
   return join(cwd, '.claude', '.channels.json');

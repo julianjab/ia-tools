@@ -40699,7 +40699,7 @@ async function clearThinkingAck(web2, args) {
 // src/config.ts
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-var ALLOWED_KEYS = ["bot", "topics"];
+var ALLOWED_KEYS = ["topics"];
 function configFilePath(cwd) {
   return join(cwd, ".claude", ".channels.json");
 }
@@ -40793,15 +40793,11 @@ var DaemonClient = class {
   get port() {
     return this.webhookPort;
   }
-  async subscribe(topics, label) {
+  async subscribe(topics) {
     if (!this.daemonUrl) {
       throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
     }
-    const body = {
-      port: this.webhookPort,
-      topics
-    };
-    if (label !== void 0) body.label = label;
+    const body = { port: this.webhookPort, topics };
     debug("subscribe port=%d topics=%j", this.webhookPort, topics);
     const res = await fetch(`${this.daemonUrl}/subscribe`, {
       method: "POST",
@@ -40972,6 +40968,12 @@ function createLogger(opts) {
   };
 }
 
+// src/shared/types.ts
+function normalizeTopic(input) {
+  if (typeof input === "string") return { topic: input };
+  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
+}
+
 // src/webhook-server.ts
 import { createServer } from "node:http";
 var WebhookServer = class {
@@ -41069,12 +41071,27 @@ var WebhookServer = class {
 };
 
 // src/mcp-server.ts
+function mergeTopicSpecs(existing, incoming) {
+  const map2 = /* @__PURE__ */ new Map();
+  for (const t of existing) map2.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map2.get(t.topic);
+    map2.set(t.topic, {
+      topic: t.topic,
+      ...t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}
+    });
+  }
+  return [...map2.values()];
+}
+function formatSpec(spec) {
+  return spec.label ? `${spec.label}:${spec.topic}` : spec.topic;
+}
 var McpBridgeServer = class {
   mcp;
   web;
   daemonClient;
   logger;
-  /** All topics this subscriber is currently registered for. */
+  /** All topic specs this subscriber is currently registered for. */
   subscribedTopics = [];
   constructor({ web: web2, daemonClient: daemonClient2, logger: logger2 }) {
     this.web = web2;
@@ -41114,18 +41131,26 @@ var McpBridgeServer = class {
       tools: [
         {
           name: "subscribe_slack",
-          description: 'Subscribe to Slack messages using topics. Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to .claude/.channels.json.',
+          description: 'Subscribe to Slack messages using topics. Each entry can be a bare topic string or an object {topic, label} where label is metadata the agent will see on every matched message (use it to remember WHY this subscription exists, e.g. "ship-pr-42" or "team-channel"). Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to .claude/.channels.json.',
           inputSchema: {
             type: "object",
             properties: {
               topics: {
                 type: "array",
-                items: { type: "string" },
-                description: 'List of topics to subscribe to. Examples: ["C06Q8SNF93P", "C06Q8SNF93P:*:1778078158.577219", "DM:U02M1QFA0AF"]'
-              },
-              label: {
-                type: "string",
-                description: "Label for this session (visible in daemon logs and /subscribers)"
+                items: {
+                  oneOf: [
+                    { type: "string" },
+                    {
+                      type: "object",
+                      properties: {
+                        topic: { type: "string" },
+                        label: { type: "string" }
+                      },
+                      required: ["topic"]
+                    }
+                  ]
+                },
+                description: 'Topics to subscribe to. Each item is either a topic string or {topic, label?}. Examples: ["C06Q8SNF93P", {"topic": "C06Q8SNF93P:*:1778078158.577219", "label": "ship-pr-42"}, {"topic": "DM:U02M1QFA0AF", "label": "dm-julian"}]'
               }
             },
             required: ["topics"]
@@ -41229,9 +41254,9 @@ var McpBridgeServer = class {
   }
   async handleSubscribe(args) {
     try {
-      const topics = args.topics ?? [];
-      const label = args.label;
-      if (!topics.length) {
+      const raw = args.topics ?? [];
+      const incoming = raw.map(normalizeTopic);
+      if (!incoming.length) {
         return {
           content: [{ type: "text", text: "Error: topics[] must be non-empty" }],
           isError: true
@@ -41240,14 +41265,12 @@ var McpBridgeServer = class {
       if (!this.daemonClient) {
         throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
       }
-      await this.daemonClient.subscribe(topics, label);
-      this.subscribedTopics = [.../* @__PURE__ */ new Set([...this.subscribedTopics, ...topics])];
+      await this.daemonClient.subscribe(incoming);
+      this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
       try {
         const existing = loadConfig();
-        saveConfig({
-          topics: [.../* @__PURE__ */ new Set([...existing.topics ?? [], ...topics])],
-          ...label ? { bot: { label } } : existing.bot ? { bot: existing.bot } : {}
-        });
+        const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
+        saveConfig({ topics: mergeTopicSpecs(existingSpecs, incoming) });
       } catch (err) {
         this.logger.warn(`could not persist subscription \u2014 ${err}`);
       }
@@ -41255,7 +41278,7 @@ var McpBridgeServer = class {
         content: [
           {
             type: "text",
-            text: `Subscribed on :${this.daemonClient.port} \u2014 topics: ${topics.join(", ")}`
+            text: `Subscribed on :${this.daemonClient.port} \u2014 topics: ${incoming.map(formatSpec).join(", ")}`
           }
         ]
       };
@@ -41273,26 +41296,21 @@ var McpBridgeServer = class {
     let removed = [];
     if (isPartial) {
       const toRemove = new Set(requested);
-      removed = this.subscribedTopics.filter((t) => toRemove.has(t));
-      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t));
+      removed = this.subscribedTopics.filter((t) => toRemove.has(t.topic));
+      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t.topic));
       if (this.daemonClient && remaining.length > 0) {
-        const label = loadConfig().bot?.label;
-        await this.daemonClient.subscribe(remaining, label);
+        await this.daemonClient.subscribe(remaining);
       }
     } else {
       removed = [...this.subscribedTopics];
     }
     this.subscribedTopics = remaining;
     try {
-      const existing = loadConfig();
-      saveConfig({
-        topics: remaining,
-        ...existing.bot ? { bot: existing.bot } : {}
-      });
+      saveConfig({ topics: remaining });
     } catch (err) {
       this.logger.warn(`could not persist unsubscribe \u2014 ${err}`);
     }
-    const text = isPartial ? `Unsubscribed from: ${removed.join(", ") || "(none \u2014 topic was not subscribed)"}. Remaining: ${remaining.join(", ") || "(none)"}` : `Unsubscribed from all topics${removed.length ? ` (${removed.join(", ")})` : ""}`;
+    const text = isPartial ? `Unsubscribed from: ${removed.map(formatSpec).join(", ") || "(none \u2014 topic was not subscribed)"}. Remaining: ${remaining.map(formatSpec).join(", ") || "(none)"}` : `Unsubscribed from all topics${removed.length ? ` (${removed.map(formatSpec).join(", ")})` : ""}`;
     return { content: [{ type: "text", text }] };
   }
   async handleClaimMessage(args) {
@@ -41376,14 +41394,15 @@ var McpBridgeServer = class {
         return;
       }
       const fileConfig = loadConfig();
-      const topics = process.env.SLACK_TOPICS?.split(",").filter(Boolean) ?? fileConfig.topics ?? [];
+      const envTopics = process.env.SLACK_TOPICS?.split(",").filter(Boolean) ?? null;
+      const raw = envTopics ?? fileConfig.topics ?? [];
+      const topics = raw.map(normalizeTopic);
       if (!topics.length) return;
       try {
-        const label = fileConfig.bot?.label ?? "auto";
-        await this.daemonClient.subscribe(topics, label);
-        this.subscribedTopics = [.../* @__PURE__ */ new Set([...this.subscribedTopics, ...topics])];
+        await this.daemonClient.subscribe(topics);
+        this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, topics);
         this.logger.log(
-          `auto-subscribed on :${this.daemonClient.port} \u2014 topics=${topics.join(", ")}`
+          `auto-subscribed on :${this.daemonClient.port} \u2014 topics=${topics.map(formatSpec).join(", ")}`
         );
       } catch {
         this.logger.warn(
@@ -41408,8 +41427,12 @@ var McpBridgeServer = class {
           message_ts: message.message_ts,
           thread_ts: message.thread_ts ?? "",
           is_dm: message.is_dm ? "true" : "false",
-          matched_topics: matched_topics.join(","),
-          subscribed_topics: this.subscribedTopics.join(",")
+          // Per-topic labels surface the subscriber's intent for this match
+          // (e.g. "ship-pr-42") so the agent can decide what to do with the
+          // message based on WHY it was subscribed, not just the topic string.
+          matched_topics: JSON.stringify(matched_topics),
+          matched_labels: matched_topics.map((t) => t.label).filter((l) => Boolean(l)).join(","),
+          subscribed_topics: JSON.stringify(this.subscribedTopics)
         }
       }
     });

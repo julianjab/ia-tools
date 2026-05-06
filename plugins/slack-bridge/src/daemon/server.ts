@@ -18,7 +18,7 @@ import type {
   DaemonHealth,
   SubscribeRequest,
 } from '../shared/types.js';
-import { parseTopic } from '../shared/types.js';
+import { normalizeTopic, parseTopic } from '../shared/types.js';
 import { log } from './logger.js';
 import type { Registry } from './registry.js';
 
@@ -75,19 +75,22 @@ export function createApiServer(
           json(res, 400, { error: 'topics[] is required and must be non-empty' });
           return;
         }
-        // Validate topic format — parseTopic must not throw
-        for (const t of body.topics) {
+        // Normalize: each entry can be a string or { topic, label }.
+        const normalized = body.topics.map(normalizeTopic);
+        for (const t of normalized) {
+          if (!t.topic || typeof t.topic !== 'string') {
+            json(res, 400, { error: 'each topic must have a non-empty topic string' });
+            return;
+          }
           try {
-            parseTopic(t);
+            parseTopic(t.topic);
           } catch {
-            json(res, 400, { error: `invalid topic: ${t}` });
+            json(res, 400, { error: `invalid topic: ${t.topic}` });
             return;
           }
         }
-        const sub = registry.add(body.port, body.topics, body.label);
-        log(
-          `[api] +subscriber :${body.port} (${body.label ?? '-'}) topics=${JSON.stringify(sub.topics)}`,
-        );
+        const sub = registry.add(body.port, normalized);
+        log(`[api] +subscriber :${body.port} topics=${JSON.stringify(sub.topics)}`);
         json(res, 200, sub);
       } catch (err) {
         json(res, 400, { error: String(err) });

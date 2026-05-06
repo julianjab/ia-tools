@@ -8,7 +8,7 @@
  */
 
 import { debuglog } from 'node:util';
-import type { ClaimResponse } from './shared/types.js';
+import type { ClaimResponse, TopicSpec } from './shared/types.js';
 
 const debug = debuglog('slack-bridge:mcp');
 
@@ -22,17 +22,12 @@ export class DaemonClient {
     return this.webhookPort;
   }
 
-  async subscribe(topics: string[], label?: string): Promise<boolean> {
+  async subscribe(topics: Array<string | TopicSpec>): Promise<boolean> {
     if (!this.daemonUrl) {
       throw new Error('DAEMON_URL is not set — cannot subscribe');
     }
 
-    const body: Record<string, unknown> = {
-      port: this.webhookPort,
-      topics,
-    };
-    if (label !== undefined) body.label = label;
-
+    const body = { port: this.webhookPort, topics };
     debug('subscribe port=%d topics=%j', this.webhookPort, topics);
     const res = await fetch(`${this.daemonUrl}/subscribe`, {
       method: 'POST',
