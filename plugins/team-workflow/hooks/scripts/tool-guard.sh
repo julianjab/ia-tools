@@ -113,6 +113,18 @@ PATTERNS=(
 #   ?   → .     (match one char)
 #   The rest is treated as a literal substring (not anchored).
 
+_emit_patterns_from_file() {
+  local fpath="$1"
+  jq -r '(.permissions.deny // [])[] | select(test("^[A-Za-z*]+\\("))' \
+    "$fpath" 2>/dev/null | while IFS= read -r entry; do
+      local tname glob pattern
+      tname=$(printf '%s' "$entry" | sed 's/(.*//')
+      glob=$(printf '%s' "$entry" | sed 's/^[^(]*(\(.*\))$/\1/')
+      pattern=$(printf '%s' "$glob" | sed 's/\./\\./g; s/\*/.*/g; s/?/./g')
+      printf '%s|%s|[settings] Patrón personalizado bloqueado: %s\n' "$tname" "$pattern" "$entry"
+    done
+}
+
 load_settings_patterns() {
   local dir="$PWD"
   local seen_files=()
@@ -129,18 +141,22 @@ load_settings_patterns() {
       [[ "$already" -eq 1 ]] && continue
       seen_files+=("$fpath")
 
-      # Extract "ToolName(...)" entries from permissions.deny
-      # Entry format: "ToolName(glob)" → strip prefix+suffix to get "ToolName" and "glob"
-      jq -r '(.permissions.deny // [])[] | select(test("^[A-Za-z*]+\\("))' \
-        "$fpath" 2>/dev/null | while IFS= read -r entry; do
-          local tname glob pattern
-          tname=$(printf '%s' "$entry" | sed 's/(.*//')
-          glob=$(printf '%s' "$entry" | sed 's/^[^(]*(\(.*\))$/\1/')
-          pattern=$(printf '%s' "$glob" | sed 's/\./\\./g; s/\*/.*/g; s/?/./g')
-          printf '%s|%s|[settings] Patrón personalizado bloqueado: %s\n' "$tname" "$pattern" "$entry"
-        done
+      _emit_patterns_from_file "$fpath"
     done
     dir="$(dirname "$dir")"
+  done
+
+  # Global user settings (~/.claude/)
+  for fname in settings.json settings.local.json; do
+    local fpath="$HOME/.claude/$fname"
+    [[ -f "$fpath" ]] || continue
+    local already=0
+    for seen in "${seen_files[@]+"${seen_files[@]}"}"; do
+      [[ "$seen" == "$fpath" ]] && already=1 && break
+    done
+    [[ "$already" -eq 1 ]] && continue
+    seen_files+=("$fpath")
+    _emit_patterns_from_file "$fpath"
   done
 }
 
