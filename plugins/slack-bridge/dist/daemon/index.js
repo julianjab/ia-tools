@@ -55597,6 +55597,37 @@ function requireSessionId(sessionId) {
   }
 }
 
+// src/shared/types.ts
+function parseTopic(topic) {
+  if (topic.startsWith("DM:")) {
+    const user = topic.slice(3);
+    return { type: "dm", user: user || void 0 };
+  }
+  const parts = topic.split(":");
+  const rawChannel = parts[0];
+  const rawUser = parts[1];
+  const rawThread = parts[2];
+  return {
+    type: "channel",
+    channel: rawChannel && rawChannel !== "*" ? rawChannel : void 0,
+    user: rawUser && rawUser !== "*" ? rawUser : void 0,
+    thread: rawThread && rawThread !== "*" ? rawThread : void 0
+  };
+}
+function matchesTopic(parsed, msg) {
+  if (parsed.type === "dm") {
+    return msg.is_dm && (!parsed.user || msg.user_id === parsed.user);
+  }
+  if (parsed.channel && msg.channel_id !== parsed.channel) return false;
+  if (parsed.thread && msg.thread_ts !== parsed.thread) return false;
+  if (parsed.user && msg.user_id !== parsed.user) return false;
+  return true;
+}
+function normalizeTopic(input) {
+  if (typeof input === "string") return { topic: input };
+  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
+}
+
 // src/daemon/logger.ts
 function resolveDefaultLogPath() {
   const fromEnv = process.env.DAEMON_LOG?.trim();
@@ -55707,38 +55738,15 @@ async function resolveChannel(app2, channelId) {
   }
 }
 
-// src/shared/types.ts
-function parseTopic(topic) {
-  if (topic.startsWith("DM:")) {
-    const user = topic.slice(3);
-    return { type: "dm", user: user || void 0 };
-  }
-  const parts = topic.split(":");
-  const rawChannel = parts[0];
-  const rawUser = parts[1];
-  const rawThread = parts[2];
-  return {
-    type: "channel",
-    channel: rawChannel && rawChannel !== "*" ? rawChannel : void 0,
-    user: rawUser && rawUser !== "*" ? rawUser : void 0,
-    thread: rawThread && rawThread !== "*" ? rawThread : void 0
-  };
-}
-function matchesTopic(parsed, msg) {
-  if (parsed.type === "dm") {
-    return msg.is_dm && (!parsed.user || msg.user_id === parsed.user);
-  }
-  if (parsed.channel && msg.channel_id !== parsed.channel) return false;
-  if (parsed.thread && msg.thread_ts !== parsed.thread) return false;
-  if (parsed.user && msg.user_id !== parsed.user) return false;
-  return true;
-}
-function normalizeTopic(input) {
-  if (typeof input === "string") return { topic: input };
-  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
-}
-
 // src/daemon/registry.ts
+function topicSpecificity(spec) {
+  const p = parseTopic(spec.topic);
+  let s = 0;
+  if (p.channel) s++;
+  if (p.user) s++;
+  if (p.thread) s++;
+  return s;
+}
 function mergeTopics(existing, incoming) {
   const map = /* @__PURE__ */ new Map();
   for (const t of existing) map.set(t.topic, t);
@@ -55775,13 +55783,15 @@ var Registry = class {
       this.logger = opts.logger ?? NOOP_LOGGER;
     }
   }
-  add(port2, topics) {
+  add(port2, topics, sessionId) {
     const existing = this.subscribers.get(port2);
     if (existing) {
       const merged = {
         ...existing,
         topics: mergeTopics(existing.topics, topics),
-        lastSeen: (/* @__PURE__ */ new Date()).toISOString()
+        lastSeen: (/* @__PURE__ */ new Date()).toISOString(),
+        // Refresh session_id if a new one is provided; otherwise preserve.
+        ...sessionId && sessionId.length > 0 ? { session_id: sessionId } : existing.session_id ? { session_id: existing.session_id } : {}
       };
       this.subscribers.set(port2, merged);
       return merged;
@@ -55790,7 +55800,8 @@ var Registry = class {
       port: port2,
       topics,
       registeredAt: (/* @__PURE__ */ new Date()).toISOString(),
-      lastSeen: (/* @__PURE__ */ new Date()).toISOString()
+      lastSeen: (/* @__PURE__ */ new Date()).toISOString(),
+      ...sessionId && sessionId.length > 0 ? { session_id: sessionId } : {}
     };
     this.subscribers.set(port2, sub);
     return sub;
@@ -55808,16 +55819,54 @@ var Registry = class {
    * Find subscribers whose topics match the message.
    * Returns each matching subscriber paired with the TopicSpecs that matched
    * (preserving labels so the caller can forward them on delivery).
+   *
+   * Specificity pre-emption: a message in `C123` thread `t1` matches both
+   * a subscriber on `C123` (whole channel) AND a subscriber on
+   * `C123:*:t1` (the specific thread). Delivering to both produces
+   * duplicates and lets a less-intentional subscriber see messages a more
+   * specific one is actively handling. We compute the global maximum
+   * specificity score across all matched topics and keep only matches at
+   * that score; ties are preserved (multiple subscribers at the same
+   * top score all receive the message). Within a single subscriber that
+   * has both a wide and a narrow topic on the same message, only the
+   * narrower spec is forwarded — the agent sees the most informative
+   * label in `matched_topics`.
    */
   match(msg) {
-    const results = [];
+    const all = [];
     for (const sub of this.all()) {
       const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t.topic), msg));
       if (matched.length > 0) {
-        results.push({ subscriber: sub, matched });
+        all.push({ subscriber: sub, matched });
       }
     }
-    return results;
+    if (all.length === 0) return [];
+    let maxScore = 0;
+    for (const { matched } of all) {
+      for (const t of matched) {
+        const s = topicSpecificity(t);
+        if (s > maxScore) maxScore = s;
+      }
+    }
+    const winners = [];
+    for (const { subscriber, matched } of all) {
+      const kept = matched.filter((t) => topicSpecificity(t) === maxScore);
+      if (kept.length > 0) winners.push({ subscriber, matched: kept });
+    }
+    return winners;
+  }
+  /**
+   * Count subscribers that would match `msg` BEFORE pre-emption — i.e. the
+   * raw OR-of-topics check. Used by the daemon's fan-out logger to report
+   * how many subscribers were pre-empted out by `match()`. Kept separate
+   * from `match()` so its return shape stays stable.
+   */
+  countMatchingSubscribers(msg) {
+    let count = 0;
+    for (const sub of this.all()) {
+      if (sub.topics.some((t) => matchesTopic(parseTopic(t.topic), msg))) count++;
+    }
+    return count;
   }
   /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
   removeTopics(port2, topicStrings) {
@@ -55918,8 +55967,10 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2, log
             return;
           }
         }
-        const sub = registry2.add(body.port, normalized);
-        log3(`[api] +subscriber :${body.port} topics=${JSON.stringify(sub.topics)}`);
+        const sessionId = typeof body.session_id === "string" && body.session_id.length > 0 ? body.session_id : void 0;
+        const sub = registry2.add(body.port, normalized, sessionId);
+        const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : "";
+        log3(`[api] +subscriber :${body.port}${sessionSeg} topics=${JSON.stringify(sub.topics)}`);
         json(res, 200, sub);
       } catch (err) {
         json(res, 400, { error: String(err) });
@@ -55932,8 +55983,10 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2, log
         json(res, 400, { error: "invalid port" });
         return;
       }
+      const existing = registry2.get(port2);
+      const sessionSeg = existing?.session_id ? ` (session=${existing.session_id})` : "";
       const removed = registry2.remove(port2);
-      log3(`[api] -subscriber :${port2} removed=${removed}`);
+      log3(`[api] -subscriber :${port2}${sessionSeg} removed=${removed}`);
       json(res, 200, { removed });
       return;
     }
@@ -55960,7 +56013,9 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2, log
         }
         claims.set(messageTs, body.subscriber_port);
         const resp = { claimed: true };
-        log3(`[claim] ${messageTs} \u2192 :${body.subscriber_port}`);
+        const claimer = registry2.get(body.subscriber_port);
+        const sessionSeg = claimer?.session_id ? ` (session=${claimer.session_id})` : "";
+        log3(`[claim] ${messageTs} \u2192 :${body.subscriber_port}${sessionSeg}`);
         onClaimed2?.(messageTs);
         json(res, 200, resp);
       } catch (err) {
@@ -56117,6 +56172,22 @@ var app = await startListener({ botToken, appToken }, async (event) => {
   log2(
     `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" \u2192 ${targets.length} subscriber(s)`
   );
+  const matchingCount = registry.countMatchingSubscribers(msg);
+  const dropped = matchingCount - targets.length;
+  if (dropped > 0) {
+    let maxScore = 0;
+    for (const { matched } of targets) {
+      for (const t of matched) {
+        const p = parseTopic(t.topic);
+        let s = 0;
+        if (p.channel) s++;
+        if (p.user) s++;
+        if (p.thread) s++;
+        if (s > maxScore) maxScore = s;
+      }
+    }
+    log2(`[route] specificity max=${maxScore} \u2014 ${targets.length} winner(s), ${dropped} pre-empted`);
+  }
   rememberMessage(msg);
   await Promise.allSettled(
     targets.map(async ({ subscriber: sub, matched }) => {
@@ -56125,6 +56196,11 @@ var app = await startListener({ botToken, appToken }, async (event) => {
         matched_topics: matched,
         daemon_ts: (/* @__PURE__ */ new Date()).toISOString()
       };
+      const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : "";
+      const matchedTopics = matched.map((t) => t.topic).join(",");
+      log2(
+        `[route] \u2192 :${sub.port}${sessionSeg} #${channelName} ${userName} matched=[${matchedTopics}]`
+      );
       try {
         const res = await fetch(`http://localhost:${sub.port}/message`, {
           method: "POST",
@@ -56132,13 +56208,13 @@ var app = await startListener({ botToken, appToken }, async (event) => {
           body: JSON.stringify(payload)
         });
         if (!res.ok) {
-          warn2(`[route] subscriber :${sub.port} responded ${res.status} \u2014 removing`);
+          warn2(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} \u2014 removing`);
           registry.remove(sub.port);
           return;
         }
         registry.markSeen(sub.port);
       } catch (_err) {
-        warn2(`[route] subscriber :${sub.port} unreachable \u2014 removing`);
+        warn2(`[route] subscriber :${sub.port}${sessionSeg} unreachable \u2014 removing`);
         registry.remove(sub.port);
       }
     })

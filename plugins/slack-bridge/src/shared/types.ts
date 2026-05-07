@@ -91,6 +91,12 @@ export function normalizeTopic(input: string | TopicSpec): TopicSpec {
 export interface SubscribeRequest {
   port: number;
   topics: Array<string | TopicSpec>;
+  /**
+   * Optional Claude session id (CLAUDE_CODE_SESSION_ID or
+   * ~/.claude/sessions/<ppid>.json). Used purely for log correlation in the
+   * central daemon log — never written to per-session files.
+   */
+  session_id?: string;
 }
 
 /** Subscriber record in the daemon registry */
@@ -99,6 +105,8 @@ export interface Subscriber {
   topics: TopicSpec[];
   registeredAt: string;
   lastSeen?: string;
+  /** See SubscribeRequest.session_id — kept for log correlation. */
+  session_id?: string;
 }
 
 /** POST /message — daemon → subscriber */

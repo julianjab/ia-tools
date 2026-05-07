@@ -4371,13 +4371,13 @@ var require_core = __commonJS({
     }, warn() {
     }, error() {
     } };
-    function getLogger(logger2) {
-      if (logger2 === false)
+    function getLogger(logger) {
+      if (logger === false)
         return noLogs;
-      if (logger2 === void 0)
+      if (logger === void 0)
         return console;
-      if (logger2.log && logger2.warn && logger2.error)
-        return logger2;
+      if (logger.log && logger.warn && logger.error)
+        return logger;
       throw new Error("logger must implement log, warn and error methods");
     }
     var KEYWORD_NAME = /^[a-z_$][a-z0-9_$:-]*$/i;
@@ -7115,17 +7115,17 @@ var require_logger = __commonJS({
     function getLogger(name, level, existingLogger) {
       const instanceId = instanceCount;
       instanceCount += 1;
-      const logger2 = (() => {
+      const logger = (() => {
         if (existingLogger !== void 0) {
           return existingLogger;
         }
         return new logger_1.ConsoleLogger();
       })();
-      logger2.setName(`web-api:${name}:${instanceId}`);
+      logger.setName(`web-api:${name}:${instanceId}`);
       if (level !== void 0) {
-        logger2.setLevel(level);
+        logger.setLevel(level);
       }
-      return logger2;
+      return logger;
     }
   }
 });
@@ -7214,11 +7214,11 @@ var require_chat_stream = __commonJS({
        * @see {@link https://docs.slack.dev/reference/methods/chat.appendStream}
        * @see {@link https://docs.slack.dev/reference/methods/chat.stopStream}
        */
-      constructor(client, logger2, args, options) {
+      constructor(client, logger, args, options) {
         var _a2;
         this.buffer = "";
         this.client = client;
-        this.logger = logger2;
+        this.logger = logger;
         this.options = {
           buffer_size: (_a2 = options.buffer_size) !== null && _a2 !== void 0 ? _a2 : 256
         };
@@ -23395,12 +23395,12 @@ var require_file_upload = __commonJS({
     var node_fs_1 = __require("node:fs");
     var node_stream_1 = __require("node:stream");
     var errors_1 = require_errors2();
-    async function getFileUploadJob(options, logger2) {
+    async function getFileUploadJob(options, logger) {
       var _a2, _b, _c, _d;
-      warnIfLegacyFileType(options, logger2);
-      warnIfChannels(options, logger2);
+      warnIfLegacyFileType(options, logger);
+      warnIfChannels(options, logger);
       errorIfChannelsCsv(options);
-      const fileName = warnIfMissingOrInvalidFileNameAndDefault(options, logger2);
+      const fileName = warnIfMissingOrInvalidFileNameAndDefault(options, logger);
       const fileData = await getFileData(options);
       const fileDataBytesLength = getFileDataLength(fileData);
       const fileUploadJob = {
@@ -23431,7 +23431,7 @@ var require_file_upload = __commonJS({
       }
       throw (0, errors_1.errorWithCode)(new Error("Either a file or content field is required for valid file upload. You must supply one"), errors_1.ErrorCode.FileUploadInvalidArgumentsError);
     }
-    async function getMultipleFileUploadJobs(options, logger2) {
+    async function getMultipleFileUploadJobs(options, logger) {
       if ("file_uploads" in options) {
         return Promise.all(options.file_uploads.map((upload) => {
           const { blocks, channel_id, channels, initial_comment, thread_ts } = upload;
@@ -23446,10 +23446,10 @@ var require_file_upload = __commonJS({
             uploadJobArgs.token = options.token;
           }
           if ("content" in upload) {
-            return getFileUploadJob(Object.assign({ content: upload.content }, uploadJobArgs), logger2);
+            return getFileUploadJob(Object.assign({ content: upload.content }, uploadJobArgs), logger);
           }
           if ("file" in upload) {
-            return getFileUploadJob(Object.assign({ file: upload.file }, uploadJobArgs), logger2);
+            return getFileUploadJob(Object.assign({ file: upload.file }, uploadJobArgs), logger);
           }
           throw (0, errors_1.errorWithCode)(new Error("Either a file or content field is required for valid file upload. You must supply one"), errors_1.ErrorCode.FileUploadInvalidArgumentsError);
         }));
@@ -23539,17 +23539,17 @@ var require_file_upload = __commonJS({
       }
       return toComplete;
     }
-    function warnIfNotUsingFilesUploadV2(method, logger2) {
+    function warnIfNotUsingFilesUploadV2(method, logger) {
       const targetMethods = ["files.upload"];
       const isTargetMethod = targetMethods.includes(method);
       if (method === "files.upload")
-        logger2.warn(buildLegacyMethodWarning(method));
+        logger.warn(buildLegacyMethodWarning(method));
       if (isTargetMethod)
-        logger2.info(buildGeneralFilesUploadWarning());
+        logger.info(buildGeneralFilesUploadWarning());
     }
-    function warnIfChannels(options, logger2) {
+    function warnIfChannels(options, logger) {
       if (options.channels)
-        logger2.warn(buildChannelsWarning());
+        logger.warn(buildChannelsWarning());
     }
     function errorIfChannelsCsv(options) {
       const channels = options.channels ? options.channels.split(",") : [];
@@ -23573,23 +23573,23 @@ var require_file_upload = __commonJS({
         throw (0, errors_1.errorWithCode)(new Error("content must be a string"), errors_1.ErrorCode.FileUploadInvalidArgumentsError);
       }
     }
-    function warnIfMissingOrInvalidFileNameAndDefault(options, logger2) {
+    function warnIfMissingOrInvalidFileNameAndDefault(options, logger) {
       var _a2;
       const DEFAULT_FILETYPE = "txt";
       const DEFAULT_FILENAME = `file.${(_a2 = options.filetype) !== null && _a2 !== void 0 ? _a2 : DEFAULT_FILETYPE}`;
       const { filename } = options;
       if (!filename) {
-        logger2.warn(buildMissingFileNameWarning());
+        logger.warn(buildMissingFileNameWarning());
         return DEFAULT_FILENAME;
       }
       if (filename.split(".").length < 2) {
-        logger2.warn(buildMissingExtensionWarning(filename));
+        logger.warn(buildMissingExtensionWarning(filename));
       }
       return filename;
     }
-    function warnIfLegacyFileType(options, logger2) {
+    function warnIfLegacyFileType(options, logger) {
       if (options.filetype) {
-        logger2.warn(buildLegacyFileTypeWarning());
+        logger.warn(buildLegacyFileTypeWarning());
       }
     }
     function buildMissingFileIdError() {
@@ -26002,7 +26002,7 @@ var require_WebClient = __commonJS({
        * @param {Function} [webClientOptions.requestInterceptor] - An interceptor to mutate outgoing requests. See {@link https://axios-http.com/docs/interceptors Axios interceptors}
        * @param {Function} [webClientOptions.adapter] - An adapter to allow custom handling of requests. Useful if you would like to use a pre-configured http client. See {@link https://github.com/axios/axios/blob/v1.x/README.md?plain=1#L586 Axios adapter}
        */
-      constructor(token, { slackApiUrl = "https://slack.com/api/", logger: logger2 = void 0, logLevel = void 0, maxRequestConcurrency = 100, retryConfig = retry_policies_1.tenRetriesInAboutThirtyMinutes, agent = void 0, tls = void 0, timeout = 0, rejectRateLimitedCalls = false, headers = {}, teamId = void 0, allowAbsoluteUrls = true, attachOriginalToWebAPIRequestError = true, requestInterceptor = void 0, adapter = void 0 } = {}) {
+      constructor(token, { slackApiUrl = "https://slack.com/api/", logger = void 0, logLevel = void 0, maxRequestConcurrency = 100, retryConfig = retry_policies_1.tenRetriesInAboutThirtyMinutes, agent = void 0, tls = void 0, timeout = 0, rejectRateLimitedCalls = false, headers = {}, teamId = void 0, allowAbsoluteUrls = true, attachOriginalToWebAPIRequestError = true, requestInterceptor = void 0, adapter = void 0 } = {}) {
         super();
         this.token = token;
         this.slackApiUrl = slackApiUrl;
@@ -26016,13 +26016,13 @@ var require_WebClient = __commonJS({
         this.teamId = teamId;
         this.allowAbsoluteUrls = allowAbsoluteUrls;
         this.attachOriginalToWebAPIRequestError = attachOriginalToWebAPIRequestError;
-        if (typeof logger2 !== "undefined") {
-          this.logger = logger2;
+        if (typeof logger !== "undefined") {
+          this.logger = logger;
           if (typeof logLevel !== "undefined") {
             this.logger.debug("The logLevel given to WebClient was ignored as you also gave logger");
           }
         } else {
-          this.logger = (0, logger_1.getLogger)(_WebClient.loggerName, logLevel !== null && logLevel !== void 0 ? logLevel : logger_1.LogLevel.INFO, logger2);
+          this.logger = (0, logger_1.getLogger)(_WebClient.loggerName, logLevel !== null && logLevel !== void 0 ? logLevel : logger_1.LogLevel.INFO, logger);
         }
         if (this.token && !headers.Authorization)
           headers.Authorization = `Bearer ${this.token}`;
@@ -26499,17 +26499,17 @@ var require_WebClient = __commonJS({
       }
       return void 0;
     }
-    function warnDeprecations(method, logger2) {
+    function warnDeprecations(method, logger) {
       const deprecatedMethods = ["workflows.stepCompleted", "workflows.stepFailed", "workflows.updateStep"];
       const isDeprecated = deprecatedMethods.some((depMethod) => {
         const re = new RegExp(`^${depMethod}`);
         return re.test(method);
       });
       if (isDeprecated) {
-        logger2.warn(`${method} is deprecated. Please check on https://docs.slack.dev/reference/methods for an alternative.`);
+        logger.warn(`${method} is deprecated. Please check on https://docs.slack.dev/reference/methods for an alternative.`);
       }
     }
-    function warnIfFallbackIsMissing(method, logger2, options) {
+    function warnIfFallbackIsMissing(method, logger, options) {
       const targetMethods = ["chat.postEphemeral", "chat.postMessage", "chat.scheduleMessage"];
       const isTargetMethod = targetMethods.includes(method);
       const hasAttachments = (args) => Array.isArray(args.attachments) && args.attachments.length;
@@ -26520,19 +26520,19 @@ var require_WebClient = __commonJS({
       if (isTargetMethod && typeof options === "object") {
         if (hasAttachments(options)) {
           if (missingAttachmentFallbackDetected(options) && isEmptyText(options)) {
-            logger2.warn(buildMissingTextWarning());
-            logger2.warn(buildMissingFallbackWarning());
+            logger.warn(buildMissingTextWarning());
+            logger.warn(buildMissingFallbackWarning());
           }
         } else if (isEmptyText(options)) {
-          logger2.warn(buildMissingTextWarning());
+          logger.warn(buildMissingTextWarning());
         }
       }
     }
-    function warnIfThreadTsIsNotString(method, logger2, options) {
+    function warnIfThreadTsIsNotString(method, logger, options) {
       const targetMethods = ["chat.postEphemeral", "chat.postMessage", "chat.scheduleMessage", "files.upload"];
       const isTargetMethod = targetMethods.includes(method);
       if (isTargetMethod && (options === null || options === void 0 ? void 0 : options.thread_ts) !== void 0 && typeof (options === null || options === void 0 ? void 0 : options.thread_ts) !== "string") {
-        logger2.warn(buildThreadTsWarningMessage(method));
+        logger.warn(buildThreadTsWarningMessage(method));
       }
     }
     function buildThreadTsWarningMessage(method) {
@@ -26624,9 +26624,6 @@ var require_dist5 = __commonJS({
 });
 
 // src/mcp-server.ts
-import { execSync } from "node:child_process";
-import { readFileSync as readFileSync2 } from "node:fs";
-import { homedir } from "node:os";
 import { join as join3 } from "node:path";
 
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -40660,41 +40657,43 @@ var StdioServerTransport = class {
 // src/mcp-server.ts
 var import_web_api = __toESM(require_dist5(), 1);
 
-// src/ack-client.ts
-function warn(msg) {
-  process.stderr.write(`${msg}
-`);
+// src/auth-gate.ts
+function parseAllowedSubscribeUsers(envValue) {
+  return new Set(
+    (envValue ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+  );
 }
-async function clearThinkingAck(web2, args) {
-  const emoji3 = process.env.SLACK_ACK_EMOJI ?? "eyes";
-  const threadTs = args.thread_ts ?? args.message_ts;
-  await Promise.allSettled([
-    web2.reactions.remove({
-      name: emoji3,
-      channel: args.channel_id,
-      timestamp: args.message_ts
-    }).catch((err) => warn(`[ack-client] reactions.remove failed: ${err}`)),
-    (async () => {
-      try {
-        const client = web2;
-        if (client.assistant?.threads?.setStatus) {
-          await client.assistant.threads.setStatus({
-            channel_id: args.channel_id,
-            thread_ts: threadTs,
-            status: ""
-          });
-        } else {
-          await client.apiCall("assistant.threads.setStatus", {
-            channel_id: args.channel_id,
-            thread_ts: threadTs,
-            status: ""
-          });
+function gateSubscribeChange(args, op, allowedSubscribeUsers, logger) {
+  const raw = args.requested_by;
+  const requestedBy = typeof raw === "string" && raw.length > 0 ? raw : null;
+  if (!requestedBy) {
+    return null;
+  }
+  if (allowedSubscribeUsers.size === 0) {
+    logger.warn(`[gate] ${op} rejected \u2014 Slack-originated, no allowlist configured`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Refused: ${op}_slack requests originating from Slack messages are blocked because no allowlist is configured. Set SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS in the MCP env to authorize specific users.`
         }
-      } catch (err) {
-        warn(`[ack-client] assistant.threads.setStatus failed: ${err}`);
-      }
-    })()
-  ]);
+      ],
+      isError: true
+    };
+  }
+  if (!allowedSubscribeUsers.has(requestedBy)) {
+    logger.warn(`[gate] ${op} rejected \u2014 ${requestedBy} not in allowlist`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...allowedSubscribeUsers].join(", ")}.`
+        }
+      ],
+      isError: true
+    };
+  }
+  return null;
 }
 
 // src/config-watcher.ts
@@ -40813,8 +40812,8 @@ function loadConfig(cwd) {
   if (raw === null) return {};
   return projectAllowed(raw.slack);
 }
-function loadConfigFromPath(stateFilePath2) {
-  const raw = readRawFile(stateFilePath2);
+function loadConfigFromPath(stateFilePath) {
+  const raw = readRawFile(stateFilePath);
   if (raw === null) return {};
   return projectAllowed(raw.slack);
 }
@@ -40843,29 +40842,33 @@ function writeMerged(filePath, patch) {
 function saveConfig(patch, cwd) {
   writeMerged(legacyConfigFilePath(cwd ?? process.cwd()), patch);
 }
-function saveConfigAtPath(stateFilePath2, patch) {
-  writeMerged(stateFilePath2, patch);
+function saveConfigAtPath(stateFilePath, patch) {
+  writeMerged(stateFilePath, patch);
 }
 
 // src/daemon-client.ts
 import { debuglog } from "node:util";
 var debug = debuglog("slack-bridge:mcp");
 var DaemonClient = class {
-  constructor(daemonUrl, webhookPort2) {
+  constructor(daemonUrl, webhookPort) {
     this.daemonUrl = daemonUrl;
-    this.webhookPort = webhookPort2;
+    this.webhookPort = webhookPort;
   }
   daemonUrl;
   webhookPort;
   get port() {
     return this.webhookPort;
   }
-  async subscribe(topics) {
+  async subscribe(topics, sessionId) {
     if (!this.daemonUrl) {
       throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
     }
-    const body = { port: this.webhookPort, topics };
-    debug("subscribe port=%d topics=%j", this.webhookPort, topics);
+    const body = {
+      port: this.webhookPort,
+      topics
+    };
+    if (sessionId && sessionId.length > 0) body.session_id = sessionId;
+    debug("subscribe port=%d topics=%j session=%s", this.webhookPort, topics, sessionId ?? "");
     const res = await fetch(`${this.daemonUrl}/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -41005,7 +41008,7 @@ function spawnDaemon(port, spawner) {
   closeSync(logFd);
   child.unref();
 }
-async function ensureDaemon(daemonUrl, spawner, logger2) {
+async function ensureDaemon(daemonUrl, spawner, logger) {
   if (await isHealthy(daemonUrl)) return;
   if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) {
     throw new Error(
@@ -41013,7 +41016,7 @@ async function ensureDaemon(daemonUrl, spawner, logger2) {
     );
   }
   const port = Number.parseInt(new URL(daemonUrl).port || "3800", 10);
-  logger2?.log(
+  logger?.log(
     `spawning daemon \u2014 session=${spawner.session} pid=${spawner.pid} ppid=${spawner.ppid} cwd=${spawner.cwd}`
   );
   spawnDaemon(port, spawner);
@@ -41023,6 +41026,284 @@ async function ensureDaemon(daemonUrl, spawner, logger2) {
       `slack-bridge daemon did not become healthy within ${HEALTH_TIMEOUT_MS}ms. Check ${process.env.DAEMON_LOG || defaultPaths.getDaemonLogPath()} for details.`
     );
   }
+}
+
+// src/ack-client.ts
+function warn(msg) {
+  process.stderr.write(`${msg}
+`);
+}
+async function clearThinkingAck(web, args) {
+  const emoji3 = process.env.SLACK_ACK_EMOJI ?? "eyes";
+  const threadTs = args.thread_ts ?? args.message_ts;
+  await Promise.allSettled([
+    web.reactions.remove({
+      name: emoji3,
+      channel: args.channel_id,
+      timestamp: args.message_ts
+    }).catch((err) => warn(`[ack-client] reactions.remove failed: ${err}`)),
+    (async () => {
+      try {
+        const client = web;
+        if (client.assistant?.threads?.setStatus) {
+          await client.assistant.threads.setStatus({
+            channel_id: args.channel_id,
+            thread_ts: threadTs,
+            status: ""
+          });
+        } else {
+          await client.apiCall("assistant.threads.setStatus", {
+            channel_id: args.channel_id,
+            thread_ts: threadTs,
+            status: ""
+          });
+        }
+      } catch (err) {
+        warn(`[ack-client] assistant.threads.setStatus failed: ${err}`);
+      }
+    })()
+  ]);
+}
+
+// src/handlers/messaging.ts
+async function handleClaimMessage(args, deps) {
+  try {
+    if (!deps.daemonClient) {
+      throw new Error("DAEMON_URL is not set \u2014 cannot claim messages");
+    }
+    const result = await deps.daemonClient.claim(args.message_ts);
+    if (result.claimed) {
+      return { content: [{ type: "text", text: "Claimed \u2014 you may reply." }] };
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Already claimed by another session (:${result.claimed_by}). Do NOT reply.`
+        }
+      ]
+    };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Claim error: ${err}` }], isError: true };
+  }
+}
+async function handleReply(args, deps) {
+  const { channel_id, text, message_ts, thread_ts } = args;
+  try {
+    const result = await deps.web.chat.postMessage({ channel: channel_id, text, thread_ts });
+    if (message_ts) {
+      await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    }
+    return { content: [{ type: "text", text: `Sent (ts: ${result.ts})` }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+
+// src/handlers/read-only.ts
+async function handleReadThread(args, deps) {
+  const { channel_id, thread_ts, limit } = args;
+  try {
+    const result = await deps.web.conversations.replies({
+      channel: channel_id,
+      ts: thread_ts,
+      limit: limit ?? 20
+    });
+    const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
+    return { content: [{ type: "text", text: messages || "No messages in thread" }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+async function handleReadChannel(args, deps) {
+  const { channel_id, limit } = args;
+  try {
+    const result = await deps.web.conversations.history({
+      channel: channel_id,
+      limit: limit ?? 20
+    });
+    const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
+    return { content: [{ type: "text", text: messages || "No messages in channel" }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+async function handleListChannels(deps) {
+  try {
+    const result = await deps.web.users.conversations({
+      types: "public_channel,private_channel",
+      limit: 100
+    });
+    const channels = (result.channels ?? []).map((c) => `#${c.name} (${c.id})`).join("\n");
+    return { content: [{ type: "text", text: channels || "No channels found" }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+
+// src/shared/types.ts
+function normalizeTopic(input) {
+  if (typeof input === "string") return { topic: input };
+  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
+}
+
+// src/topic-helpers.ts
+function mergeTopicSpecs(existing, incoming) {
+  const map2 = /* @__PURE__ */ new Map();
+  for (const t of existing) map2.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map2.get(t.topic);
+    map2.set(t.topic, {
+      topic: t.topic,
+      ...t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}
+    });
+  }
+  return [...map2.values()];
+}
+function formatSpec(spec) {
+  return spec.label ? `${spec.label}:${spec.topic}` : spec.topic;
+}
+
+// src/handlers/subscribe.ts
+async function handleSubscribe(args, deps) {
+  const blocked = gateSubscribeChange(args, "subscribe", deps.allowedSubscribeUsers, deps.logger);
+  if (blocked) return blocked;
+  try {
+    const raw = args.topics ?? [];
+    const incoming = raw.map(normalizeTopic);
+    if (!incoming.length) {
+      return {
+        content: [{ type: "text", text: "Error: topics[] must be non-empty" }],
+        isError: true
+      };
+    }
+    if (!deps.daemonClient) {
+      throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
+    }
+    await deps.daemonClient.subscribe(incoming, deps.sessionId);
+    deps.setSubscribedTopics(mergeTopicSpecs(deps.getSubscribedTopics(), incoming));
+    try {
+      const existing = deps.readState();
+      const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
+      deps.writeState({ topics: mergeTopicSpecs(existingSpecs, incoming) });
+    } catch (err) {
+      deps.logger.warn(`could not persist subscription \u2014 ${err}`);
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Subscribed on :${deps.daemonClient.port} \u2014 topics: ${incoming.map(formatSpec).join(", ")}`
+        }
+      ]
+    };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+async function handleUnsubscribe(args, deps) {
+  const blocked = gateSubscribeChange(args, "unsubscribe", deps.allowedSubscribeUsers, deps.logger);
+  if (blocked) return blocked;
+  const requested = args.topics ?? null;
+  const isPartial = Array.isArray(requested) && requested.length > 0;
+  if (deps.daemonClient) {
+    await deps.daemonClient.unsubscribe();
+  }
+  const subscribedTopics = deps.getSubscribedTopics();
+  let remaining = [];
+  let removed = [];
+  if (isPartial) {
+    const toRemove = new Set(requested);
+    removed = subscribedTopics.filter((t) => toRemove.has(t.topic));
+    remaining = subscribedTopics.filter((t) => !toRemove.has(t.topic));
+    if (deps.daemonClient && remaining.length > 0) {
+      await deps.daemonClient.subscribe(remaining, deps.sessionId);
+    }
+  } else {
+    removed = [...subscribedTopics];
+  }
+  deps.setSubscribedTopics(remaining);
+  try {
+    deps.writeState({ topics: remaining });
+  } catch (err) {
+    deps.logger.warn(`could not persist unsubscribe \u2014 ${err}`);
+  }
+  const text = isPartial ? `Unsubscribed from: ${removed.map(formatSpec).join(", ") || "(none \u2014 topic was not subscribed)"}. Remaining: ${remaining.map(formatSpec).join(", ") || "(none)"}` : `Unsubscribed from all topics${removed.length ? ` (${removed.map(formatSpec).join(", ")})` : ""}`;
+  return { content: [{ type: "text", text }] };
+}
+async function handleListSubscriptions(deps) {
+  const subscribedTopics = deps.getSubscribedTopics();
+  const count = subscribedTopics.length;
+  if (count === 0) {
+    return {
+      content: [{ type: "text", text: "No active subscriptions for this session." }]
+    };
+  }
+  const lines = subscribedTopics.map((t, i) => `  ${i + 1}. ${formatSpec(t)}`).join("\n");
+  const json2 = JSON.stringify(subscribedTopics);
+  const header = deps.sessionId ? `Active subscriptions (${count}) for session ${deps.sessionId}:` : `Active subscriptions (${count}):`;
+  return {
+    content: [
+      {
+        type: "text",
+        text: `${header}
+${lines}
+
+JSON: ${json2}`
+      }
+    ]
+  };
+}
+
+// src/parent-process.ts
+import { execSync } from "node:child_process";
+function readParentCmd(ppid) {
+  try {
+    return execSync(`ps -ww -p ${ppid} -o command=`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+function hasDevChannelsFlag(parentCmd) {
+  return parentCmd.includes("--dangerously-load-development-channels");
+}
+
+// src/session-id-resolver.ts
+import { readFileSync as readFileSync2 } from "node:fs";
+import { homedir } from "node:os";
+async function readClaudeSessionId(ppid) {
+  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
+  const ATTEMPTS = 30;
+  const BACKOFF_MS = 100;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    try {
+      const raw = readFileSync2(path, "utf8");
+      const data = JSON.parse(raw);
+      if (typeof data.sessionId === "string" && data.sessionId.length > 0 && typeof data.status === "string" && data.status.length > 0) {
+        return data.sessionId;
+      }
+    } catch {
+    }
+    if (attempt < ATTEMPTS - 1) {
+      await new Promise((resolve2) => setTimeout(resolve2, BACKOFF_MS));
+    }
+  }
+  return null;
+}
+async function resolveSessionId(ppid, logger) {
+  const fileId = await readClaudeSessionId(ppid);
+  if (fileId) {
+    logger.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
+    return { id: fileId, source: "file" };
+  }
+  const fallback = `${ppid}-${process.pid}`;
+  logger.warn(
+    `claude session id unavailable (ppid=${ppid} file unreadable); using fallback ${fallback}`
+  );
+  return { id: fallback, source: "fallback" };
 }
 
 // src/logger.ts
@@ -41088,8 +41369,8 @@ var McpLogger = class {
     if (typeof opts.sessionId !== "string" || opts.sessionId.length === 0) {
       throw new Error("McpLogger: sessionId must be a non-empty string");
     }
-    const paths2 = opts.paths ?? new PathResolver();
-    const logPath = paths2.getMcpLogPath(opts.sessionId);
+    const paths = opts.paths ?? new PathResolver();
+    const logPath = paths.getMcpLogPath(opts.sessionId);
     this.inner = createLogger({
       logPath,
       label: "mcp",
@@ -41113,12 +41394,6 @@ var McpLogger = class {
     this.inner.debug(msg);
   }
 };
-
-// src/shared/types.ts
-function normalizeTopic(input) {
-  if (typeof input === "string") return { topic: input };
-  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
-}
 
 // src/webhook-server.ts
 import { createServer } from "node:http";
@@ -41217,21 +41492,6 @@ var WebhookServer = class {
 };
 
 // src/mcp-server.ts
-function mergeTopicSpecs(existing, incoming) {
-  const map2 = /* @__PURE__ */ new Map();
-  for (const t of existing) map2.set(t.topic, t);
-  for (const t of incoming) {
-    const prev = map2.get(t.topic);
-    map2.set(t.topic, {
-      topic: t.topic,
-      ...t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}
-    });
-  }
-  return [...map2.values()];
-}
-function formatSpec(spec) {
-  return spec.label ? `${spec.label}:${spec.topic}` : spec.topic;
-}
 var McpBridgeServer = class {
   mcp;
   web;
@@ -41247,20 +41507,20 @@ var McpBridgeServer = class {
   /** Absolute path to the state file, or undefined for legacy mode. */
   stateFilePath;
   constructor({
-    web: web2,
-    daemonClient: daemonClient2,
-    logger: logger2,
-    stateFilePath: stateFilePath2,
-    allowedSubscribeUsers: allowedSubscribeUsers2,
+    web,
+    daemonClient,
+    logger,
+    stateFilePath,
+    allowedSubscribeUsers,
     sessionId
   }) {
-    this.web = web2;
-    this.daemonClient = daemonClient2;
-    this.logger = logger2;
-    this.stateFilePath = stateFilePath2;
-    this.allowedSubscribeUsers = allowedSubscribeUsers2;
+    this.web = web;
+    this.daemonClient = daemonClient;
+    this.logger = logger;
+    this.stateFilePath = stateFilePath;
+    this.allowedSubscribeUsers = allowedSubscribeUsers;
     this.sessionId = sessionId;
-    const watchedPath = stateFilePath2 ?? join3(process.cwd(), ".claude", ".slack-bridge.json");
+    const watchedPath = stateFilePath ?? join3(process.cwd(), ".claude", ".slack-bridge.json");
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
       onChange: () => this.reloadFromConfig(),
@@ -41431,233 +41691,42 @@ var McpBridgeServer = class {
       return this.dispatchTool(name, args);
     });
   }
-  async dispatchTool(name, args) {
-    if (name === "subscribe_slack") return this.handleSubscribe(args);
-    if (name === "unsubscribe_slack") return this.handleUnsubscribe(args);
-    if (name === "claim_message") return this.handleClaimMessage(args);
-    if (name === "reply") return this.handleReply(args);
-    if (name === "read_thread") return this.handleReadThread(args);
-    if (name === "read_channel") return this.handleReadChannel(args);
-    if (name === "list_channels") return this.handleListChannels();
-    if (name === "list_subscriptions") return this.handleListSubscriptions();
-    throw new Error(`Unknown tool: ${name}`);
-  }
-  /**
-   * Authorization gate for subscribe/unsubscribe.
-   *
-   * The agent passes `requested_by` to declare the source of the request:
-   *   - `requested_by` absent  → local CLI invocation (the operator typing
-   *     in Claude Code). Always allowed; the operator is implicitly trusted.
-   *   - `requested_by` present → request originated from a Slack message
-   *     (the agent should set it to the user_id from the triggering
-   *     notification). In this case:
-   *       - allowlist empty  → REJECTED. Slack-originated requests must be
-   *         explicitly authorized via SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS.
-   *       - allowlist set    → must include `requested_by`, otherwise
-   *         REJECTED.
-   *
-   * Returns the tool error response when blocked, or null when the call may
-   * proceed.
-   */
-  gateSubscribeChange(args, op) {
-    const raw = args.requested_by;
-    const requestedBy = typeof raw === "string" && raw.length > 0 ? raw : null;
-    if (!requestedBy) {
-      return null;
-    }
-    if (this.allowedSubscribeUsers.size === 0) {
-      this.logger.warn(`[gate] ${op} rejected \u2014 Slack-originated, no allowlist configured`);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Refused: ${op}_slack requests originating from Slack messages are blocked because no allowlist is configured. Set SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS in the MCP env to authorize specific users.`
-          }
-        ],
-        isError: true
-      };
-    }
-    if (!this.allowedSubscribeUsers.has(requestedBy)) {
-      this.logger.warn(`[gate] ${op} rejected \u2014 ${requestedBy} not in allowlist`);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...this.allowedSubscribeUsers].join(", ")}.`
-          }
-        ],
-        isError: true
-      };
-    }
-    return null;
-  }
-  async handleSubscribe(args) {
-    const blocked = this.gateSubscribeChange(args, "subscribe");
-    if (blocked) return blocked;
-    try {
-      const raw = args.topics ?? [];
-      const incoming = raw.map(normalizeTopic);
-      if (!incoming.length) {
-        return {
-          content: [{ type: "text", text: "Error: topics[] must be non-empty" }],
-          isError: true
-        };
-      }
-      if (!this.daemonClient) {
-        throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
-      }
-      await this.daemonClient.subscribe(incoming);
-      this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
-      try {
-        const existing = this.readState();
-        const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
-        this.writeState({ topics: mergeTopicSpecs(existingSpecs, incoming) });
-      } catch (err) {
-        this.logger.warn(`could not persist subscription \u2014 ${err}`);
-      }
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Subscribed on :${this.daemonClient.port} \u2014 topics: ${incoming.map(formatSpec).join(", ")}`
-          }
-        ]
-      };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleUnsubscribe(args) {
-    const blocked = this.gateSubscribeChange(args, "unsubscribe");
-    if (blocked) return blocked;
-    const requested = args.topics ?? null;
-    const isPartial = Array.isArray(requested) && requested.length > 0;
-    if (this.daemonClient) {
-      await this.daemonClient.unsubscribe();
-    }
-    let remaining = [];
-    let removed = [];
-    if (isPartial) {
-      const toRemove = new Set(requested);
-      removed = this.subscribedTopics.filter((t) => toRemove.has(t.topic));
-      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t.topic));
-      if (this.daemonClient && remaining.length > 0) {
-        await this.daemonClient.subscribe(remaining);
-      }
-    } else {
-      removed = [...this.subscribedTopics];
-    }
-    this.subscribedTopics = remaining;
-    try {
-      this.writeState({ topics: remaining });
-    } catch (err) {
-      this.logger.warn(`could not persist unsubscribe \u2014 ${err}`);
-    }
-    const text = isPartial ? `Unsubscribed from: ${removed.map(formatSpec).join(", ") || "(none \u2014 topic was not subscribed)"}. Remaining: ${remaining.map(formatSpec).join(", ") || "(none)"}` : `Unsubscribed from all topics${removed.length ? ` (${removed.map(formatSpec).join(", ")})` : ""}`;
-    return { content: [{ type: "text", text }] };
-  }
-  async handleClaimMessage(args) {
-    try {
-      if (!this.daemonClient) {
-        throw new Error("DAEMON_URL is not set \u2014 cannot claim messages");
-      }
-      const result = await this.daemonClient.claim(args.message_ts);
-      if (result.claimed) {
-        return { content: [{ type: "text", text: "Claimed \u2014 you may reply." }] };
-      }
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Already claimed by another session (:${result.claimed_by}). Do NOT reply.`
-          }
-        ]
-      };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Claim error: ${err}` }], isError: true };
-    }
-  }
-  async handleReply(args) {
-    const { channel_id, text, message_ts, thread_ts, is_dm } = args;
-    const effective_thread_ts = thread_ts ?? (is_dm === true ? void 0 : message_ts);
-    try {
-      const result = await this.web.chat.postMessage({
-        channel: channel_id,
-        text,
-        thread_ts: effective_thread_ts
-      });
-      if (message_ts) {
-        await clearThinkingAck(this.web, {
-          channel_id,
-          message_ts,
-          thread_ts: effective_thread_ts
-        });
-      }
-      return { content: [{ type: "text", text: `Sent (ts: ${result.ts})` }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleReadThread(args) {
-    const { channel_id, thread_ts, limit } = args;
-    try {
-      const result = await this.web.conversations.replies({
-        channel: channel_id,
-        ts: thread_ts,
-        limit: limit ?? 20
-      });
-      const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
-      return { content: [{ type: "text", text: messages || "No messages in thread" }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleReadChannel(args) {
-    const { channel_id, limit } = args;
-    try {
-      const result = await this.web.conversations.history({
-        channel: channel_id,
-        limit: limit ?? 20
-      });
-      const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
-      return { content: [{ type: "text", text: messages || "No messages in channel" }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleListChannels() {
-    try {
-      const result = await this.web.users.conversations({
-        types: "public_channel,private_channel",
-        limit: 100
-      });
-      const channels = (result.channels ?? []).map((c) => `#${c.name} (${c.id})`).join("\n");
-      return { content: [{ type: "text", text: channels || "No channels found" }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleListSubscriptions() {
-    const count = this.subscribedTopics.length;
-    if (count === 0) {
-      return {
-        content: [{ type: "text", text: "No active subscriptions for this session." }]
-      };
-    }
-    const lines = this.subscribedTopics.map((t, i) => `  ${i + 1}. ${formatSpec(t)}`).join("\n");
-    const json2 = JSON.stringify(this.subscribedTopics);
-    const header = this.sessionId ? `Active subscriptions (${count}) for session ${this.sessionId}:` : `Active subscriptions (${count}):`;
+  /** Build the deps bundle the subscribe/unsubscribe/list handlers need. */
+  subscribeDeps() {
     return {
-      content: [
-        {
-          type: "text",
-          text: `${header}
-${lines}
-
-JSON: ${json2}`
-        }
-      ]
+      daemonClient: this.daemonClient,
+      logger: this.logger,
+      allowedSubscribeUsers: this.allowedSubscribeUsers,
+      sessionId: this.sessionId,
+      readState: () => this.readState(),
+      writeState: (patch) => this.writeState(patch),
+      getSubscribedTopics: () => this.subscribedTopics,
+      setSubscribedTopics: (next) => {
+        this.subscribedTopics = next;
+      }
     };
+  }
+  messagingDeps() {
+    return { web: this.web, daemonClient: this.daemonClient };
+  }
+  readOnlyDeps() {
+    return { web: this.web };
+  }
+  async dispatchTool(name, args) {
+    if (name === "subscribe_slack") return handleSubscribe(args, this.subscribeDeps());
+    if (name === "unsubscribe_slack") return handleUnsubscribe(args, this.subscribeDeps());
+    if (name === "claim_message") return handleClaimMessage(args, this.messagingDeps());
+    if (name === "reply") return handleReply(args, this.messagingDeps());
+    if (name === "read_thread") return handleReadThread(args, this.readOnlyDeps());
+    if (name === "read_channel") return handleReadChannel(args, this.readOnlyDeps());
+    if (name === "list_channels") return handleListChannels(this.readOnlyDeps());
+    if (name === "list_subscriptions") {
+      return handleListSubscriptions({
+        sessionId: this.sessionId,
+        getSubscribedTopics: () => this.subscribedTopics
+      });
+    }
+    throw new Error(`Unknown tool: ${name}`);
   }
   registerOnInitialized() {
     this.mcp.oninitialized = async () => {
@@ -41674,7 +41743,7 @@ JSON: ${json2}`
       this.configWatcher.start();
       if (!topics.length) return;
       try {
-        await this.daemonClient.subscribe(topics);
+        await this.daemonClient.subscribe(topics, this.sessionId);
         this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, topics);
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} \u2014 topics=${topics.map(formatSpec).join(", ")}`
@@ -41707,7 +41776,7 @@ JSON: ${json2}`
     }
     await this.daemonClient.unsubscribe();
     if (desired.length > 0) {
-      await this.daemonClient.subscribe(desired);
+      await this.daemonClient.subscribe(desired, this.sessionId);
     }
     this.subscribedTopics = desired;
     this.logger.log(
@@ -41760,159 +41829,142 @@ JSON: ${json2}`
     });
   }
 };
-process.on("unhandledRejection", (reason) => {
-  process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}
+async function main() {
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}
 `);
-  if (reason instanceof Error) process.stderr.write(reason.stack ?? "");
-  process.stderr.write("\n");
-  process.exit(1);
-});
-process.on("uncaughtException", (err) => {
-  process.stderr.write(`[mcp] uncaughtException: ${err.message}
+    if (reason instanceof Error) process.stderr.write(reason.stack ?? "");
+    process.stderr.write("\n");
+    process.exit(1);
+  });
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(`[mcp] uncaughtException: ${err.message}
 ${err.stack ?? ""}
 `);
-  process.exit(1);
-});
-async function readClaudeSessionId(ppid) {
-  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
-  const ATTEMPTS = 10;
-  const BACKOFF_MS = 100;
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    try {
-      const raw = readFileSync2(path, "utf8");
-      const data = JSON.parse(raw);
-      if (typeof data.sessionId === "string" && data.sessionId.length > 0) {
-        return data.sessionId;
-      }
-    } catch {
+    process.exit(1);
+  });
+  const paths = new PathResolver();
+  const bootBuffer = [];
+  const captureLogger = {
+    log: (msg) => bootBuffer.push({ level: "log", msg }),
+    warn: (msg) => bootBuffer.push({ level: "warn", msg }),
+    error: (msg) => bootBuffer.push({ level: "warn", msg }),
+    debug: () => {
     }
-    if (attempt < ATTEMPTS - 1) {
-      await new Promise((resolve2) => setTimeout(resolve2, BACKOFF_MS));
-    }
+  };
+  const { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
+    process.ppid,
+    captureLogger
+  );
+  const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
+  const stateFilePath = paths.getStateFilePath(SESSION_ID);
+  const logger = new McpLogger({ sessionId: SESSION_ID, paths });
+  for (const entry of bootBuffer) {
+    if (entry.level === "warn") logger.warn(entry.msg);
+    else logger.log(entry.msg);
   }
-  return null;
-}
-var claudeSessionId = await readClaudeSessionId(process.ppid);
-var SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
-var paths = new PathResolver();
-var mcpLogPath = paths.getMcpLogPath(SESSION_ID);
-var stateFilePath = paths.getStateFilePath(SESSION_ID);
-var logger = new McpLogger({ sessionId: SESSION_ID, paths });
-if (claudeSessionId) {
-  logger.log(`claude session: ${claudeSessionId} (ppid=${process.ppid})`);
-} else {
-  logger.warn(`claude session id unavailable (ppid=${process.ppid}); using fallback`);
-}
-var botToken = process.env.SLACK_BOT_TOKEN;
-if (!botToken) {
-  logger.error("Missing SLACK_BOT_TOKEN");
-  process.exit(1);
-}
-var DAEMON_URL = resolveDaemonUrl();
-logger.log(
-  `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
-);
-function readParentCmd(ppid) {
-  try {
-    return execSync(`ps -ww -p ${ppid} -o command=`, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-  } catch {
-    return "";
+  logger.log(`session id source: ${SESSION_ID_SOURCE}`);
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  if (!botToken) {
+    logger.error("Missing SLACK_BOT_TOKEN");
+    process.exit(1);
   }
-}
-var parentCmd = readParentCmd(process.ppid);
-var hasDevChannels = parentCmd.includes("--dangerously-load-development-channels");
-logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
-if (!hasDevChannels) {
-  const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
-  logger.error(msg);
-  const { createInterface } = await import("node:readline");
-  const rl = createInterface({ input: process.stdin });
-  rl.on("line", (line) => {
-    try {
-      const req = JSON.parse(line);
-      if (req.method === "initialize" && req.id !== void 0) {
-        const resp = {
-          jsonrpc: "2.0",
-          id: req.id,
-          error: { code: -32002, message: msg }
-        };
-        process.stdout.write(`${JSON.stringify(resp)}
+  const DAEMON_URL = resolveDaemonUrl();
+  logger.log(
+    `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
+  );
+  const parentCmd = readParentCmd(process.ppid);
+  const hasDevChannels = hasDevChannelsFlag(parentCmd);
+  logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
+  if (!hasDevChannels) {
+    const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
+    logger.error(msg);
+    const { createInterface } = await import("node:readline");
+    const rl = createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      try {
+        const req = JSON.parse(line);
+        if (req.method === "initialize" && req.id !== void 0) {
+          const resp = {
+            jsonrpc: "2.0",
+            id: req.id,
+            error: { code: -32002, message: msg }
+          };
+          process.stdout.write(`${JSON.stringify(resp)}
 `);
-        setTimeout(() => process.exit(1), 50);
+          setTimeout(() => process.exit(1), 50);
+        }
+      } catch {
       }
-    } catch {
+    });
+    setTimeout(() => process.exit(1), 5e3);
+    await new Promise(() => {
+    });
+  }
+  let daemonReady = false;
+  try {
+    await ensureDaemon(
+      DAEMON_URL,
+      {
+        session: SESSION_ID,
+        pid: process.pid,
+        ppid: process.ppid,
+        cwd: process.cwd()
+      },
+      logger
+    );
+    daemonReady = true;
+    try {
+      const res = await fetch(`${DAEMON_URL}/health`);
+      const health = await res.json();
+      logger.log(
+        `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
+      );
+    } catch (err) {
+      logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+    }
+  } catch (err) {
+    logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
+  }
+  const web = new import_web_api.WebClient(botToken);
+  const webhookSrv = new WebhookServer(async (payload) => {
+    const { message } = payload;
+    logger.debug(
+      `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(",")}`
+    );
+    try {
+      await mcpServer.handleIncomingMessage(payload);
+      logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
+    } catch (err) {
+      logger.error(`[webhook] notification failed: ${err}`);
+      if (err instanceof Error) logger.error(err.stack ?? "");
+      throw err;
     }
   });
-  setTimeout(() => process.exit(1), 5e3);
-  await new Promise(() => {
-  });
-}
-var daemonReady = false;
-try {
-  await ensureDaemon(
-    DAEMON_URL,
-    {
-      session: SESSION_ID,
-      pid: process.pid,
-      ppid: process.ppid,
-      cwd: process.cwd()
-    },
-    logger
+  const webhookPort = await webhookSrv.start();
+  const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
+  const allowedSubscribeUsers = parseAllowedSubscribeUsers(
+    process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS
   );
-  daemonReady = true;
-  try {
-    const res = await fetch(`${DAEMON_URL}/health`);
-    const health = await res.json();
+  if (allowedSubscribeUsers.size > 0) {
     logger.log(
-      `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
+      `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) \u2014 Slack-originated subscribe/unsubscribe must include requested_by`
     );
-  } catch (err) {
-    logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+  } else {
+    logger.log(
+      "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
+    );
   }
-} catch (err) {
-  logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
+  const mcpServer = new McpBridgeServer({
+    web,
+    daemonClient,
+    logger,
+    stateFilePath,
+    allowedSubscribeUsers,
+    sessionId: SESSION_ID
+  });
+  await mcpServer.connect(new StdioServerTransport());
 }
-var web = new import_web_api.WebClient(botToken);
-var webhookSrv = new WebhookServer(async (payload) => {
-  const { message } = payload;
-  logger.debug(
-    `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(",")}`
-  );
-  try {
-    await mcpServer.handleIncomingMessage(payload);
-    logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
-  } catch (err) {
-    logger.error(`[webhook] notification failed: ${err}`);
-    if (err instanceof Error) logger.error(err.stack ?? "");
-    throw err;
-  }
-});
-var webhookPort = await webhookSrv.start();
-var daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-var allowedSubscribeUsers = new Set(
-  (process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS ?? "").split(",").map((s) => s.trim()).filter(Boolean)
-);
-if (allowedSubscribeUsers.size > 0) {
-  logger.log(
-    `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) \u2014 Slack-originated subscribe/unsubscribe must include requested_by`
-  );
-} else {
-  logger.log(
-    "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
-  );
-}
-var mcpServer = new McpBridgeServer({
-  web,
-  daemonClient,
-  logger,
-  stateFilePath,
-  allowedSubscribeUsers,
-  sessionId: SESSION_ID
-});
-await mcpServer.connect(new StdioServerTransport());
-export {
-  McpBridgeServer
-};
+
+// src/bin.ts
+await main();

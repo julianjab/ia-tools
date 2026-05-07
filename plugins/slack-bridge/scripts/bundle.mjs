@@ -15,7 +15,14 @@ await rm(outdir, { recursive: true, force: true });
 
 const options = {
   absWorkingDir: pluginRoot,
-  entryPoints: ['src/mcp-server.ts', 'src/daemon/index.ts'],
+  // bin.ts is the executable entry; it imports main() from mcp-server.ts.
+  // We pin the output name to `mcp-server.js` so .mcp.json and consumers
+  // don't need to change. The class + main() are still importable from
+  // source for tests, but the dist artifact is the bin-wrapped bundle.
+  entryPoints: [
+    { in: 'src/bin.ts', out: 'mcp-server' },
+    { in: 'src/daemon/index.ts', out: 'daemon/index' },
+  ],
   outdir,
   bundle: true,
   platform: 'node',

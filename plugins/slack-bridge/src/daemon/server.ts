@@ -98,8 +98,13 @@ export function createApiServer(
             return;
           }
         }
-        const sub = registry.add(body.port, normalized);
-        log(`[api] +subscriber :${body.port} topics=${JSON.stringify(sub.topics)}`);
+        const sessionId =
+          typeof body.session_id === 'string' && body.session_id.length > 0
+            ? body.session_id
+            : undefined;
+        const sub = registry.add(body.port, normalized, sessionId);
+        const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : '';
+        log(`[api] +subscriber :${body.port}${sessionSeg} topics=${JSON.stringify(sub.topics)}`);
         json(res, 200, sub);
       } catch (err) {
         json(res, 400, { error: String(err) });
@@ -114,8 +119,10 @@ export function createApiServer(
         json(res, 400, { error: 'invalid port' });
         return;
       }
+      const existing = registry.get(port);
+      const sessionSeg = existing?.session_id ? ` (session=${existing.session_id})` : '';
       const removed = registry.remove(port);
-      log(`[api] -subscriber :${port} removed=${removed}`);
+      log(`[api] -subscriber :${port}${sessionSeg} removed=${removed}`);
       json(res, 200, { removed });
       return;
     }
@@ -148,7 +155,9 @@ export function createApiServer(
 
         claims.set(messageTs, body.subscriber_port);
         const resp: ClaimResponse = { claimed: true };
-        log(`[claim] ${messageTs} → :${body.subscriber_port}`);
+        const claimer = registry.get(body.subscriber_port);
+        const sessionSeg = claimer?.session_id ? ` (session=${claimer.session_id})` : '';
+        log(`[claim] ${messageTs} → :${body.subscriber_port}${sessionSeg}`);
         onClaimed?.(messageTs);
         json(res, 200, resp);
       } catch (err) {
