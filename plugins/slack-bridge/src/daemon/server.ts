@@ -12,6 +12,7 @@
 
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import type { Logger } from '../logger.js';
 import type {
   ClaimRequest,
   ClaimResponse,
@@ -19,8 +20,14 @@ import type {
   SubscribeRequest,
 } from '../shared/types.js';
 import { normalizeTopic, parseTopic } from '../shared/types.js';
-import { log } from './logger.js';
 import type { Registry } from './registry.js';
+
+const NOOP_LOGGER: Logger = {
+  log: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+};
 
 const DAEMON_ENTRYPOINT = fileURLToPath(import.meta.url);
 
@@ -49,7 +56,9 @@ export function createApiServer(
   startedAt: number,
   getSocketStatus: () => 'connected' | 'disconnected',
   onClaimed?: (messageTs: string) => void,
+  logger: Logger = NOOP_LOGGER,
 ) {
+  const log = (msg: string) => logger.log(msg);
   // Periodic cleanup of expired claims
   setInterval(() => {
     const now = Date.now();

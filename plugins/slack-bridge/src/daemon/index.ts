@@ -24,12 +24,22 @@
 
 import { fileURLToPath } from 'node:url';
 import { buildSlackMessage } from '../shared/build-message.js';
+import { DaemonLogger } from '../shared/daemon-logger.js';
+import { PathResolver } from '../shared/path-resolver.js';
 import type { MessagePayload, SlackMessage } from '../shared/types.js';
 import { addThinkingAck } from './ack.js';
 import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
-import { error, log, logPath, warn } from './logger.js';
 import { Registry } from './registry.js';
 import { createApiServer } from './server.js';
+
+// Resolve the daemon log path once: DAEMON_LOG env wins, else PathResolver.
+const paths = new PathResolver();
+const daemonLogPath = process.env.DAEMON_LOG?.trim() || paths.getDaemonLogPath();
+const daemonLogger = new DaemonLogger({ logPath: daemonLogPath });
+const log = (msg: string) => daemonLogger.log(msg);
+const warn = (msg: string) => daemonLogger.warn(msg);
+const error = (msg: string) => daemonLogger.error(msg);
+const logPath = daemonLogger.logPath;
 
 // ─── CLI args ───────────────────────────────────────────────────────
 function arg(name: string): string | undefined {
@@ -51,7 +61,7 @@ if (!botToken || !appToken) {
   process.exit(1);
 }
 
-const registry = new Registry();
+const registry = new Registry({ logger: daemonLogger });
 const startedAt = Date.now();
 let socketStatus: 'connected' | 'disconnected' = 'disconnected';
 
@@ -92,7 +102,7 @@ function onClaimed(messageTs: string): void {
   addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
 }
 
-const api = createApiServer(registry, startedAt, () => socketStatus, onClaimed);
+const api = createApiServer(registry, startedAt, () => socketStatus, onClaimed, daemonLogger);
 await new Promise<void>((resolveListen, rejectListen) => {
   const onError = (err: NodeJS.ErrnoException) => {
     api.off('listening', onListening);

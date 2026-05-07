@@ -15,6 +15,9 @@ import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Logger } from './logger.js';
+import { PathResolver } from './shared/path-resolver.js';
+
+const defaultPaths = new PathResolver();
 
 const HEALTH_TIMEOUT_MS = 10_000;
 const HEALTH_POLL_MS = 200;
@@ -68,7 +71,7 @@ export interface Spawner {
 }
 
 function spawnDaemon(port: number, spawner: Spawner): void {
-  const logPath = process.env.DAEMON_LOG?.trim() || '/tmp/slack-bridge/daemon-logs.json';
+  const logPath = process.env.DAEMON_LOG?.trim() || defaultPaths.getDaemonLogPath();
   try {
     mkdirSync(dirname(logPath), { recursive: true });
   } catch {
@@ -126,7 +129,7 @@ export async function ensureDaemon(
   if (!ok) {
     throw new Error(
       `slack-bridge daemon did not become healthy within ${HEALTH_TIMEOUT_MS}ms. ` +
-        `Check ${process.env.DAEMON_LOG || '/tmp/slack-bridge/daemon-logs.json'} for details.`,
+        `Check ${process.env.DAEMON_LOG || defaultPaths.getDaemonLogPath()} for details.`,
     );
   }
 }

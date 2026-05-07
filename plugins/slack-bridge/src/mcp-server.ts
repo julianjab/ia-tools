@@ -12,13 +12,14 @@
  * The daemon must be started separately:
  *   SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... pnpm --filter @ia-tools/slack-bridge daemon
  *
- * On startup the MCP reads .claude/.slack-bridge.json. If subscription data exists it
- * subscribes automatically. All topic matching runs in the daemon.
+ * On startup the MCP reads /tmp/slack-bridge/<session-id>/slack-bridge.json. If
+ * subscription data exists it subscribes automatically. All topic matching runs
+ * in the daemon. Paths come from `PathResolver` (single source of truth).
  *
  * Env:
  *   SLACK_BOT_TOKEN   — Bot token for Slack API calls (reply, read)
  *   DAEMON_URL        — Daemon API URL (required to receive messages; omit to run read-only)
- *   SLACK_TOPICS      — Comma-separated topics (overrides .claude/.slack-bridge.json)
+ *   SLACK_TOPICS      — Comma-separated topics (overrides the state file)
  *                       e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,C06Q8SNF93P:*:1778078158.577219"
  */
 
@@ -32,11 +33,12 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { WebClient } from '@slack/web-api';
 import { clearThinkingAck } from './ack-client.js';
 import { ConfigWatcher } from './config-watcher.js';
-import { loadConfig, saveConfig } from './config.js';
+import { loadConfig, loadConfigFromPath, saveConfig, saveConfigAtPath } from './config.js';
 import { DaemonClient } from './daemon-client.js';
 import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
-import { createLogger } from './logger.js';
 import type { Logger } from './logger.js';
+import { McpLogger } from './shared/mcp-logger.js';
+import { PathResolver } from './shared/path-resolver.js';
 import type { MessagePayload, TopicSpec } from './shared/types.js';
 import { normalizeTopic } from './shared/types.js';
 import { WebhookServer } from './webhook-server.js';
@@ -70,6 +72,13 @@ export interface McpBridgeServerOptions {
   web: WebClient;
   daemonClient: DaemonClient | null;
   logger: Logger;
+  /**
+   * Absolute path to the persisted state file. When set, the server reads
+   * and writes this file (and watches it for external edits). When omitted,
+   * the legacy `<cwd>/.claude/.slack-bridge.json` location is used so
+   * existing tests/consumers keep working.
+   */
+  stateFilePath?: string;
 }
 
 export class McpBridgeServer {
@@ -81,13 +90,17 @@ export class McpBridgeServer {
   private subscribedTopics: TopicSpec[] = [];
   /** Reloads subscriptions when the persisted config file changes on disk. */
   private readonly configWatcher: ConfigWatcher;
+  /** Absolute path to the state file, or undefined for legacy mode. */
+  private readonly stateFilePath: string | undefined;
 
-  constructor({ web, daemonClient, logger }: McpBridgeServerOptions) {
+  constructor({ web, daemonClient, logger, stateFilePath }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
+    this.stateFilePath = stateFilePath;
+    const watchedPath = stateFilePath ?? join(process.cwd(), '.claude', '.slack-bridge.json');
     this.configWatcher = new ConfigWatcher({
-      configPath: join(process.cwd(), '.claude', '.slack-bridge.json'),
+      configPath: watchedPath,
       onChange: () => this.reloadFromConfig(),
       logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) },
     });
@@ -144,7 +157,7 @@ export class McpBridgeServer {
             '"{channel}:{user}:{thread_ts}" → thread replies from a specific user; ' +
             '"DM:{user}" → direct messages from a user. ' +
             'Use "*" as a wildcard for channel or user. ' +
-            'Subscription is persisted to .claude/.slack-bridge.json.',
+            'Subscription is persisted to /tmp/slack-bridge/<session-id>/slack-bridge.json.',
           inputSchema: {
             type: 'object' as const,
             properties: {
@@ -177,7 +190,7 @@ export class McpBridgeServer {
           description:
             'Stop listening to Slack messages. ' +
             'With `topics`, removes only those topics from the subscription and ' +
-            'persists the change to .claude/.slack-bridge.json. ' +
+            'persists the change to the state file. ' +
             'Without `topics`, unsubscribes from everything.',
           inputSchema: {
             type: 'object' as const,
@@ -308,11 +321,11 @@ export class McpBridgeServer {
       await this.daemonClient.subscribe(incoming);
       this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
 
-      // Persist merged topics to .claude/.slack-bridge.json
+      // Persist merged topics to the state file.
       try {
-        const existing = loadConfig();
+        const existing = this.readState();
         const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
-        saveConfig({ topics: mergeTopicSpecs(existingSpecs, incoming) });
+        this.writeState({ topics: mergeTopicSpecs(existingSpecs, incoming) });
       } catch (err) {
         this.logger.warn(`could not persist subscription — ${err}`);
       }
@@ -358,9 +371,9 @@ export class McpBridgeServer {
 
     this.subscribedTopics = remaining;
 
-    // Persist the new topic list (or empty) to .claude/.slack-bridge.json
+    // Persist the new topic list (or empty) to the state file.
     try {
-      saveConfig({ topics: remaining });
+      this.writeState({ topics: remaining });
     } catch (err) {
       this.logger.warn(`could not persist unsubscribe — ${err}`);
     }
@@ -482,7 +495,7 @@ export class McpBridgeServer {
         return;
       }
 
-      const fileConfig = loadConfig();
+      const fileConfig = this.readState();
       const envTopics = process.env.SLACK_TOPICS?.split(',').filter(Boolean) ?? null;
       const raw: Array<string | TopicSpec> = envTopics ?? fileConfig.topics ?? [];
       const topics = raw.map(normalizeTopic);
@@ -514,7 +527,7 @@ export class McpBridgeServer {
    */
   private async reloadFromConfig(): Promise<void> {
     if (!this.daemonClient) return;
-    const desired = (loadConfig().topics ?? []).map(normalizeTopic);
+    const desired = (this.readState().topics ?? []).map(normalizeTopic);
 
     const desiredKeys = new Set(desired.map((t) => t.topic));
     const currentKeys = new Set(this.subscribedTopics.map((t) => t.topic));
@@ -539,6 +552,27 @@ export class McpBridgeServer {
     this.logger.log(
       `config reload — +${added.length} -${removed.length} ~${relabeled.length} (total=${desired.length})`,
     );
+  }
+
+  /**
+   * Read persisted state. Routes through the explicit `stateFilePath` when
+   * provided, otherwise falls back to the legacy `<cwd>/.claude/.slack-bridge.json`
+   * via `loadConfig()`.
+   */
+  private readState(): ReturnType<typeof loadConfig> {
+    return this.stateFilePath ? loadConfigFromPath(this.stateFilePath) : loadConfig();
+  }
+
+  /**
+   * Persist state. Routes through the explicit `stateFilePath` when
+   * provided, otherwise falls back to the legacy location via `saveConfig()`.
+   */
+  private writeState(patch: Parameters<typeof saveConfig>[0]): void {
+    if (this.stateFilePath) {
+      saveConfigAtPath(this.stateFilePath, patch);
+    } else {
+      saveConfig(patch);
+    }
   }
 
   /** Called by the webhook server when a message arrives from the daemon. */
@@ -609,8 +643,10 @@ function readClaudeSessionId(ppid: number): string | null {
 
 const claudeSessionId = readClaudeSessionId(process.ppid);
 const SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
-const mcpLogPath = `/tmp/slack-bridge/${SESSION_ID}/mcp-logs.json`;
-const logger = createLogger({ logPath: mcpLogPath, label: 'mcp', stderr: true });
+const paths = new PathResolver();
+const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
+const stateFilePath = paths.getStateFilePath(SESSION_ID);
+const logger = new McpLogger({ sessionId: SESSION_ID, paths });
 if (claudeSessionId) {
   logger.log(`claude session: ${claudeSessionId} (ppid=${process.ppid})`);
 } else {
@@ -624,7 +660,9 @@ if (!botToken) {
 }
 
 const DAEMON_URL = resolveDaemonUrl();
-logger.log(`starting — session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath}`);
+logger.log(
+  `starting — session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`,
+);
 
 // slack-bridge depends on the experimental `claude/channel` capability, which
 // is only enabled when Claude is started with --dangerously-load-development-channels.
@@ -725,6 +763,6 @@ const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
 
 const webhookPort = await webhookSrv.start();
 const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-const mcpServer = new McpBridgeServer({ web, daemonClient, logger });
+const mcpServer = new McpBridgeServer({ web, daemonClient, logger, stateFilePath });
 
 await mcpServer.connect(new StdioServerTransport());

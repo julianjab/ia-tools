@@ -143,41 +143,41 @@ var require_errors = __commonJS({
       ErrorCode2["FileUploadInvalidArgumentsError"] = "slack_webapi_file_upload_invalid_args_error";
       ErrorCode2["FileUploadReadFileDataError"] = "slack_webapi_file_upload_read_file_data_error";
     })(ErrorCode || (exports.ErrorCode = ErrorCode = {}));
-    function errorWithCode(error2, code) {
-      const codedError = error2;
+    function errorWithCode(error3, code) {
+      const codedError = error3;
       codedError.code = code;
       return codedError;
     }
     function requestErrorWithOriginal(original, attachOriginal) {
-      const error2 = errorWithCode(new Error(`A request error occurred: ${original.message}`), ErrorCode.RequestError);
+      const error3 = errorWithCode(new Error(`A request error occurred: ${original.message}`), ErrorCode.RequestError);
       if (attachOriginal) {
-        error2.original = original;
+        error3.original = original;
       }
-      return error2;
+      return error3;
     }
     function httpErrorFromResponse(response) {
-      const error2 = errorWithCode(new Error(`An HTTP protocol error occurred: statusCode = ${response.status}`), ErrorCode.HTTPError);
-      error2.statusCode = response.status;
-      error2.statusMessage = response.statusText;
+      const error3 = errorWithCode(new Error(`An HTTP protocol error occurred: statusCode = ${response.status}`), ErrorCode.HTTPError);
+      error3.statusCode = response.status;
+      error3.statusMessage = response.statusText;
       const nonNullHeaders = {};
       for (const k of Object.keys(response.headers)) {
         if (k && response.headers[k]) {
           nonNullHeaders[k] = response.headers[k];
         }
       }
-      error2.headers = nonNullHeaders;
-      error2.body = response.data;
-      return error2;
+      error3.headers = nonNullHeaders;
+      error3.body = response.data;
+      return error3;
     }
     function platformErrorFromResult(result) {
-      const error2 = errorWithCode(new Error(`An API error occurred: ${result.error}`), ErrorCode.PlatformError);
-      error2.data = result;
-      return error2;
+      const error3 = errorWithCode(new Error(`An API error occurred: ${result.error}`), ErrorCode.PlatformError);
+      error3.data = result;
+      return error3;
     }
     function rateLimitedErrorWithDelay(retrySec) {
-      const error2 = errorWithCode(new Error(`A rate-limit has been reached, you may retry this request in ${retrySec} seconds`), ErrorCode.RateLimitedError);
-      error2.retryAfter = retrySec;
-      return error2;
+      const error3 = errorWithCode(new Error(`A rate-limit has been reached, you may retry this request in ${retrySec} seconds`), ErrorCode.RateLimitedError);
+      error3.retryAfter = retrySec;
+      return error3;
     }
   }
 });
@@ -9520,17 +9520,17 @@ var require_iterate = __commonJS({
     module.exports = iterate;
     function iterate(list, iterator, state, callback) {
       var key = state["keyedList"] ? state["keyedList"][state.index] : state.index;
-      state.jobs[key] = runJob(iterator, key, list[key], function(error2, output) {
+      state.jobs[key] = runJob(iterator, key, list[key], function(error3, output) {
         if (!(key in state.jobs)) {
           return;
         }
         delete state.jobs[key];
-        if (error2) {
+        if (error3) {
           abort(state);
         } else {
           state.results[key] = output;
         }
-        callback(error2, state.results);
+        callback(error3, state.results);
       });
     }
     function runJob(iterator, key, item, callback) {
@@ -9594,9 +9594,9 @@ var require_parallel = __commonJS({
     function parallel(list, iterator, callback) {
       var state = initState(list);
       while (state.index < (state["keyedList"] || list).length) {
-        iterate(list, iterator, state, function(error2, result) {
-          if (error2) {
-            callback(error2, result);
+        iterate(list, iterator, state, function(error3, result) {
+          if (error3) {
+            callback(error3, result);
             return;
           }
           if (Object.keys(state.jobs).length === 0) {
@@ -9622,9 +9622,9 @@ var require_serialOrdered = __commonJS({
     module.exports.descending = descending;
     function serialOrdered(list, iterator, sortMethod, callback) {
       var state = initState(list, sortMethod);
-      iterate(list, iterator, state, function iteratorHandler(error2, result) {
-        if (error2) {
-          callback(error2, result);
+      iterate(list, iterator, state, function iteratorHandler(error3, result) {
+        if (error3) {
+          callback(error3, result);
           return;
         }
         state.index++;
@@ -10818,10 +10818,10 @@ var require_form_data = __commonJS({
         this.pipe(request);
         if (cb) {
           var onResponse;
-          var callback = function(error2, responce) {
+          var callback = function(error3, responce) {
             request.removeListener("error", callback);
             request.removeListener("response", onResponse);
-            return cb.call(this, error2, responce);
+            return cb.call(this, error3, responce);
           };
           onResponse = callback.bind(this, null);
           request.on("error", callback);
@@ -10993,11 +10993,11 @@ var require_common = __commonJS({
         let enableOverride = null;
         let namespacesCache;
         let enabledCache;
-        function debug2(...args) {
-          if (!debug2.enabled) {
+        function debug(...args) {
+          if (!debug.enabled) {
             return;
           }
-          const self2 = debug2;
+          const self2 = debug;
           const curr = Number(/* @__PURE__ */ new Date());
           const ms = curr - (prevTime || curr);
           self2.diff = ms;
@@ -11027,12 +11027,12 @@ var require_common = __commonJS({
           const logFn = self2.log || createDebug.log;
           logFn.apply(self2, args);
         }
-        debug2.namespace = namespace;
-        debug2.useColors = createDebug.useColors();
-        debug2.color = createDebug.selectColor(namespace);
-        debug2.extend = extend;
-        debug2.destroy = createDebug.destroy;
-        Object.defineProperty(debug2, "enabled", {
+        debug.namespace = namespace;
+        debug.useColors = createDebug.useColors();
+        debug.color = createDebug.selectColor(namespace);
+        debug.extend = extend;
+        debug.destroy = createDebug.destroy;
+        Object.defineProperty(debug, "enabled", {
           enumerable: true,
           configurable: false,
           get: () => {
@@ -11050,9 +11050,9 @@ var require_common = __commonJS({
           }
         });
         if (typeof createDebug.init === "function") {
-          createDebug.init(debug2);
+          createDebug.init(debug);
         }
-        return debug2;
+        return debug;
       }
       function extend(namespace, delimiter) {
         const newDebug = createDebug(this.namespace + (typeof delimiter === "undefined" ? ":" : delimiter) + namespace);
@@ -11276,14 +11276,14 @@ var require_browser = __commonJS({
         } else {
           exports.storage.removeItem("debug");
         }
-      } catch (error2) {
+      } catch (error3) {
       }
     }
     function load() {
       let r;
       try {
         r = exports.storage.getItem("debug") || exports.storage.getItem("DEBUG");
-      } catch (error2) {
+      } catch (error3) {
       }
       if (!r && typeof process !== "undefined" && "env" in process) {
         r = process.env.DEBUG;
@@ -11293,7 +11293,7 @@ var require_browser = __commonJS({
     function localstorage() {
       try {
         return localStorage;
-      } catch (error2) {
+      } catch (error3) {
       }
     }
     module.exports = require_common()(exports);
@@ -11301,8 +11301,8 @@ var require_browser = __commonJS({
     formatters.j = function(v) {
       try {
         return JSON.stringify(v);
-      } catch (error2) {
-        return "[UnexpectedJSONParseError]: " + error2.message;
+      } catch (error3) {
+        return "[UnexpectedJSONParseError]: " + error3.message;
       }
     };
   }
@@ -11314,7 +11314,7 @@ var require_node = __commonJS({
     var tty = __require("tty");
     var util = __require("util");
     exports.init = init;
-    exports.log = log2;
+    exports.log = log3;
     exports.formatArgs = formatArgs;
     exports.save = save;
     exports.load = load;
@@ -11407,7 +11407,7 @@ var require_node = __commonJS({
           221
         ];
       }
-    } catch (error2) {
+    } catch (error3) {
     }
     exports.inspectOpts = Object.keys(process.env).filter((key) => {
       return /^debug_/i.test(key);
@@ -11449,7 +11449,7 @@ var require_node = __commonJS({
       }
       return (/* @__PURE__ */ new Date()).toISOString() + " ";
     }
-    function log2(...args) {
+    function log3(...args) {
       return process.stderr.write(util.formatWithOptions(exports.inspectOpts, ...args) + "\n");
     }
     function save(namespaces) {
@@ -11462,11 +11462,11 @@ var require_node = __commonJS({
     function load() {
       return process.env.DEBUG;
     }
-    function init(debug2) {
-      debug2.inspectOpts = {};
+    function init(debug) {
+      debug.inspectOpts = {};
       const keys = Object.keys(exports.inspectOpts);
       for (let i = 0; i < keys.length; i++) {
-        debug2.inspectOpts[keys[i]] = exports.inspectOpts[keys[i]];
+        debug.inspectOpts[keys[i]] = exports.inspectOpts[keys[i]];
       }
     }
     module.exports = require_common()(exports);
@@ -11496,19 +11496,19 @@ var require_src = __commonJS({
 // ../../node_modules/.pnpm/follow-redirects@1.16.0/node_modules/follow-redirects/debug.js
 var require_debug = __commonJS({
   "../../node_modules/.pnpm/follow-redirects@1.16.0/node_modules/follow-redirects/debug.js"(exports, module) {
-    var debug2;
+    var debug;
     module.exports = function() {
-      if (!debug2) {
+      if (!debug) {
         try {
-          debug2 = require_src()("follow-redirects");
-        } catch (error2) {
+          debug = require_src()("follow-redirects");
+        } catch (error3) {
         }
-        if (typeof debug2 !== "function") {
-          debug2 = function() {
+        if (typeof debug !== "function") {
+          debug = function() {
           };
         }
       }
-      debug2.apply(null, arguments);
+      debug.apply(null, arguments);
     };
   }
 });
@@ -11522,7 +11522,7 @@ var require_follow_redirects = __commonJS({
     var https = __require("https");
     var Writable = __require("stream").Writable;
     var assert = __require("assert");
-    var debug2 = require_debug();
+    var debug = require_debug();
     (function detectUnsupportedEnvironment() {
       var looksLikeNode = typeof process !== "undefined";
       var looksLikeBrowser = typeof window !== "undefined" && typeof document !== "undefined";
@@ -11534,8 +11534,8 @@ var require_follow_redirects = __commonJS({
     var useNativeURL = false;
     try {
       assert(new URL2(""));
-    } catch (error2) {
-      useNativeURL = error2.code === "ERR_INVALID_URL";
+    } catch (error3) {
+      useNativeURL = error3.code === "ERR_INVALID_URL";
     }
     var sensitiveHeaders = [
       "Authorization",
@@ -11615,9 +11615,9 @@ var require_follow_redirects = __commonJS({
       this._currentRequest.abort();
       this.emit("abort");
     };
-    RedirectableRequest.prototype.destroy = function(error2) {
-      destroyRequest(this._currentRequest, error2);
-      destroy.call(this, error2);
+    RedirectableRequest.prototype.destroy = function(error3) {
+      destroyRequest(this._currentRequest, error3);
+      destroy.call(this, error3);
       return this;
     };
     RedirectableRequest.prototype.write = function(data, encoding, callback) {
@@ -11787,10 +11787,10 @@ var require_follow_redirects = __commonJS({
         var i = 0;
         var self2 = this;
         var buffers = this._requestBodyBuffers;
-        (function writeNext(error2) {
+        (function writeNext(error3) {
           if (request === self2._currentRequest) {
-            if (error2) {
-              self2.emit("error", error2);
+            if (error3) {
+              self2.emit("error", error3);
             } else if (i < buffers.length) {
               var buffer = buffers[i++];
               if (!request.finished) {
@@ -11848,7 +11848,7 @@ var require_follow_redirects = __commonJS({
       var currentHost = currentHostHeader || currentUrlParts.host;
       var currentUrl = /^\w+:/.test(location) ? this._currentUrl : url.format(Object.assign(currentUrlParts, { host: currentHost }));
       var redirectUrl = resolveUrl(location, currentUrl);
-      debug2("redirecting to", redirectUrl.href);
+      debug("redirecting to", redirectUrl.href);
       this._isRedirect = true;
       spreadUrlObject(redirectUrl, this._options);
       if (redirectUrl.protocol !== currentUrlParts.protocol && redirectUrl.protocol !== "https:" || redirectUrl.host !== currentHost && !isSubdomain(redirectUrl.host, currentHost)) {
@@ -11902,7 +11902,7 @@ var require_follow_redirects = __commonJS({
             options.hostname = "::1";
           }
           assert.equal(options.protocol, protocol, "protocol mismatch");
-          debug2("options", options);
+          debug("options", options);
           return new RedirectableRequest(options, callback);
         }
         function get(input, options, callback) {
@@ -11989,12 +11989,12 @@ var require_follow_redirects = __commonJS({
       });
       return CustomError;
     }
-    function destroyRequest(request, error2) {
+    function destroyRequest(request, error3) {
       for (var event of events) {
         request.removeListener(event, eventHandlers[event]);
       }
       request.on("error", noop);
-      request.destroy(error2);
+      request.destroy(error3);
     }
     function isSubdomain(subdomain, domain) {
       assert(isString(subdomain) && isString(domain));
@@ -12480,12 +12480,12 @@ var require_axios = __commonJS({
       isIterable
     };
     var AxiosError = class _AxiosError extends Error {
-      static from(error2, code, config, request, response, customProps) {
-        const axiosError = new _AxiosError(error2.message, code || error2.code, config, request, response);
-        axiosError.cause = error2;
-        axiosError.name = error2.name;
-        if (error2.status != null && axiosError.status == null) {
-          axiosError.status = error2.status;
+      static from(error3, code, config, request, response, customProps) {
+        const axiosError = new _AxiosError(error3.message, code || error3.code, config, request, response);
+        axiosError.cause = error3;
+        axiosError.name = error3.name;
+        if (error3.status != null && axiosError.status == null) {
+          axiosError.status = error3.status;
         }
         customProps && Object.assign(axiosError, customProps);
         return axiosError;
@@ -15424,15 +15424,15 @@ var require_axios = __commonJS({
           const onRejected = requestInterceptorChain[i++];
           try {
             newConfig = onFulfilled(newConfig);
-          } catch (error2) {
-            onRejected.call(this, error2);
+          } catch (error3) {
+            onRejected.call(this, error3);
             break;
           }
         }
         try {
           promise = dispatchRequest.call(this, newConfig);
-        } catch (error2) {
-          return Promise.reject(error2);
+        } catch (error3) {
+          return Promise.reject(error3);
         }
         i = 0;
         len = responseInterceptorChain.length;
@@ -15925,8 +15925,8 @@ var require_p_timeout = __commonJS({
         if (typeof fallback === "function") {
           try {
             resolve(fallback());
-          } catch (error2) {
-            reject(error2);
+          } catch (error3) {
+            reject(error3);
           }
           return;
         }
@@ -16169,8 +16169,8 @@ var require_dist2 = __commonJS({
                 return void 0;
               });
               resolve(await operation);
-            } catch (error2) {
-              reject(error2);
+            } catch (error3) {
+              reject(error3);
             }
             this._next();
           };
@@ -16405,12 +16405,12 @@ var require_retry_operation = __commonJS({
       var mainError = null;
       var mainErrorCount = 0;
       for (var i = 0; i < this._errors.length; i++) {
-        var error2 = this._errors[i];
-        var message = error2.message;
+        var error3 = this._errors[i];
+        var message = error3.message;
         var count = (counts[message] || 0) + 1;
         counts[message] = count;
         if (count >= mainErrorCount) {
-          mainError = error2;
+          mainError = error3;
           mainErrorCount = count;
         }
       }
@@ -16541,11 +16541,11 @@ var require_p_retry = __commonJS({
         this.message = message;
       }
     };
-    var decorateErrorWithCounts = (error2, attemptNumber, options) => {
+    var decorateErrorWithCounts = (error3, attemptNumber, options) => {
       const retriesLeft = options.retries - (attemptNumber - 1);
-      error2.attemptNumber = attemptNumber;
-      error2.retriesLeft = retriesLeft;
-      return error2;
+      error3.attemptNumber = attemptNumber;
+      error3.retriesLeft = retriesLeft;
+      return error3;
     };
     var isNetworkError = (errorMessage) => networkErrorMsgs.includes(errorMessage);
     var pRetry = (input, options) => new Promise((resolve, reject) => {
@@ -16559,26 +16559,26 @@ var require_p_retry = __commonJS({
       operation.attempt(async (attemptNumber) => {
         try {
           resolve(await input(attemptNumber));
-        } catch (error2) {
-          if (!(error2 instanceof Error)) {
-            reject(new TypeError(`Non-error was thrown: "${error2}". You should only throw errors.`));
+        } catch (error3) {
+          if (!(error3 instanceof Error)) {
+            reject(new TypeError(`Non-error was thrown: "${error3}". You should only throw errors.`));
             return;
           }
-          if (error2 instanceof AbortError) {
+          if (error3 instanceof AbortError) {
             operation.stop();
-            reject(error2.originalError);
-          } else if (error2 instanceof TypeError && !isNetworkError(error2.message)) {
+            reject(error3.originalError);
+          } else if (error3 instanceof TypeError && !isNetworkError(error3.message)) {
             operation.stop();
-            reject(error2);
+            reject(error3);
           } else {
-            decorateErrorWithCounts(error2, attemptNumber, options);
+            decorateErrorWithCounts(error3, attemptNumber, options);
             try {
-              await options.onFailedAttempt(error2);
-            } catch (error3) {
-              reject(error3);
+              await options.onFailedAttempt(error3);
+            } catch (error4) {
+              reject(error4);
               return;
             }
-            if (!operation.retry(error2)) {
+            if (!operation.retry(error3)) {
               reject(operation.mainError());
             }
           }
@@ -19561,13 +19561,13 @@ var require_WebClient = __commonJS({
               throw (0, errors_1.httpErrorFromResponse)(response);
             }
             return response;
-          } catch (error2) {
-            const e = error2;
+          } catch (error3) {
+            const e = error3;
             this.logger.warn("http request failed", e.message);
             if (e.request) {
               throw (0, errors_1.requestErrorWithOriginal)(e, this.attachOriginalToWebAPIRequestError);
             }
-            throw error2;
+            throw error3;
           }
         });
         return (0, p_retry_1.default)(task, this.retryConfig);
@@ -19889,11 +19889,11 @@ var require_errors2 = __commonJS({
       }
     };
     exports.UnknownError = UnknownError;
-    function asCodedError(error2) {
-      if (error2.code !== void 0) {
-        return error2;
+    function asCodedError(error3) {
+      if (error3.code !== void 0) {
+        return error3;
       }
-      return new UnknownError(error2);
+      return new UnknownError(error3);
     }
     exports.asCodedError = asCodedError;
     var AppInitializationError = class extends Error {
@@ -20667,8 +20667,8 @@ var require_conversation_store = __commonJS({
           try {
             context.conversation = await store.get(conversationId);
             logger.debug(`Conversation context loaded for ID: ${conversationId}`);
-          } catch (error2) {
-            const e = error2;
+          } catch (error3) {
+            const e = error3;
             if (e.message !== void 0 && e.message !== "Conversation not found") {
               logger.debug(`Conversation context failed loading for ID: ${conversationId}, error: ${e.message}`);
             }
@@ -20824,9 +20824,9 @@ var require_callback_options = __commonJS({
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(htmlResponse);
     }
-    function defaultCallbackFailure(error2, _options, _req, res) {
+    function defaultCallbackFailure(error3, _options, _req, res) {
       let httpStatus;
-      switch (error2.code) {
+      switch (error3.code) {
         case errors_1.ErrorCode.MissingStateError:
         case errors_1.ErrorCode.InvalidStateError:
         case errors_1.ErrorCode.MissingCodeError:
@@ -20848,7 +20848,7 @@ var require_callback_options = __commonJS({
   </head>
   <body>
   <h2>Oops, Something Went Wrong!</h2>
-  <p>Please try again or contact the app owner (reason: ${escapeHtml(error2.code)})</p>
+  <p>Please try again or contact the app owner (reason: ${escapeHtml(error3.code)})</p>
   </body>
   </html>`;
       res.end(html);
@@ -21944,14 +21944,14 @@ var require_decode = __commonJS({
 // ../../node_modules/.pnpm/jsonwebtoken@9.0.3/node_modules/jsonwebtoken/lib/JsonWebTokenError.js
 var require_JsonWebTokenError = __commonJS({
   "../../node_modules/.pnpm/jsonwebtoken@9.0.3/node_modules/jsonwebtoken/lib/JsonWebTokenError.js"(exports, module) {
-    var JsonWebTokenError = function(message, error2) {
+    var JsonWebTokenError = function(message, error3) {
       Error.call(this, message);
       if (Error.captureStackTrace) {
         Error.captureStackTrace(this, this.constructor);
       }
       this.name = "JsonWebTokenError";
       this.message = message;
-      if (error2) this.inner = error2;
+      if (error3) this.inner = error3;
     };
     JsonWebTokenError.prototype = Object.create(Error.prototype);
     JsonWebTokenError.prototype.constructor = JsonWebTokenError;
@@ -22046,9 +22046,9 @@ var require_constants = __commonJS({
 var require_debug2 = __commonJS({
   "../../node_modules/.pnpm/semver@7.7.4/node_modules/semver/internal/debug.js"(exports, module) {
     "use strict";
-    var debug2 = typeof process === "object" && process.env && process.env.NODE_DEBUG && /\bsemver\b/i.test(process.env.NODE_DEBUG) ? (...args) => console.error("SEMVER", ...args) : () => {
+    var debug = typeof process === "object" && process.env && process.env.NODE_DEBUG && /\bsemver\b/i.test(process.env.NODE_DEBUG) ? (...args) => console.error("SEMVER", ...args) : () => {
     };
-    module.exports = debug2;
+    module.exports = debug;
   }
 });
 
@@ -22061,7 +22061,7 @@ var require_re = __commonJS({
       MAX_SAFE_BUILD_LENGTH,
       MAX_LENGTH
     } = require_constants();
-    var debug2 = require_debug2();
+    var debug = require_debug2();
     exports = module.exports = {};
     var re = exports.re = [];
     var safeRe = exports.safeRe = [];
@@ -22084,7 +22084,7 @@ var require_re = __commonJS({
     var createToken = (name, value, isGlobal) => {
       const safe = makeSafeRegex(value);
       const index = R++;
-      debug2(name, index, value);
+      debug(name, index, value);
       t[name] = index;
       src[index] = value;
       safeSrc[index] = safe;
@@ -22188,7 +22188,7 @@ var require_identifiers = __commonJS({
 var require_semver = __commonJS({
   "../../node_modules/.pnpm/semver@7.7.4/node_modules/semver/classes/semver.js"(exports, module) {
     "use strict";
-    var debug2 = require_debug2();
+    var debug = require_debug2();
     var { MAX_LENGTH, MAX_SAFE_INTEGER } = require_constants();
     var { safeRe: re, t } = require_re();
     var parseOptions = require_parse_options();
@@ -22210,7 +22210,7 @@ var require_semver = __commonJS({
             `version is longer than ${MAX_LENGTH} characters`
           );
         }
-        debug2("SemVer", version, options);
+        debug("SemVer", version, options);
         this.options = options;
         this.loose = !!options.loose;
         this.includePrerelease = !!options.includePrerelease;
@@ -22258,7 +22258,7 @@ var require_semver = __commonJS({
         return this.version;
       }
       compare(other) {
-        debug2("SemVer.compare", this.version, this.options, other);
+        debug("SemVer.compare", this.version, this.options, other);
         if (!(other instanceof _SemVer)) {
           if (typeof other === "string" && other === this.version) {
             return 0;
@@ -22309,7 +22309,7 @@ var require_semver = __commonJS({
         do {
           const a = this.prerelease[i];
           const b = other.prerelease[i];
-          debug2("prerelease compare", i, a, b);
+          debug("prerelease compare", i, a, b);
           if (a === void 0 && b === void 0) {
             return 0;
           } else if (b === void 0) {
@@ -22331,7 +22331,7 @@ var require_semver = __commonJS({
         do {
           const a = this.build[i];
           const b = other.build[i];
-          debug2("build compare", i, a, b);
+          debug("build compare", i, a, b);
           if (a === void 0 && b === void 0) {
             return 0;
           } else if (b === void 0) {
@@ -22959,21 +22959,21 @@ var require_range2 = __commonJS({
         const loose = this.options.loose;
         const hr = loose ? re[t.HYPHENRANGELOOSE] : re[t.HYPHENRANGE];
         range = range.replace(hr, hyphenReplace(this.options.includePrerelease));
-        debug2("hyphen replace", range);
+        debug("hyphen replace", range);
         range = range.replace(re[t.COMPARATORTRIM], comparatorTrimReplace);
-        debug2("comparator trim", range);
+        debug("comparator trim", range);
         range = range.replace(re[t.TILDETRIM], tildeTrimReplace);
-        debug2("tilde trim", range);
+        debug("tilde trim", range);
         range = range.replace(re[t.CARETTRIM], caretTrimReplace);
-        debug2("caret trim", range);
+        debug("caret trim", range);
         let rangeList = range.split(" ").map((comp) => parseComparator(comp, this.options)).join(" ").split(/\s+/).map((comp) => replaceGTE0(comp, this.options));
         if (loose) {
           rangeList = rangeList.filter((comp) => {
-            debug2("loose invalid filter", comp, this.options);
+            debug("loose invalid filter", comp, this.options);
             return !!comp.match(re[t.COMPARATORLOOSE]);
           });
         }
-        debug2("range list", rangeList);
+        debug("range list", rangeList);
         const rangeMap = /* @__PURE__ */ new Map();
         const comparators = rangeList.map((comp) => new Comparator(comp, this.options));
         for (const comp of comparators) {
@@ -23028,7 +23028,7 @@ var require_range2 = __commonJS({
     var cache = new LRU();
     var parseOptions = require_parse_options();
     var Comparator = require_comparator();
-    var debug2 = require_debug2();
+    var debug = require_debug2();
     var SemVer = require_semver();
     var {
       safeRe: re,
@@ -23054,15 +23054,15 @@ var require_range2 = __commonJS({
     };
     var parseComparator = (comp, options) => {
       comp = comp.replace(re[t.BUILD], "");
-      debug2("comp", comp, options);
+      debug("comp", comp, options);
       comp = replaceCarets(comp, options);
-      debug2("caret", comp);
+      debug("caret", comp);
       comp = replaceTildes(comp, options);
-      debug2("tildes", comp);
+      debug("tildes", comp);
       comp = replaceXRanges(comp, options);
-      debug2("xrange", comp);
+      debug("xrange", comp);
       comp = replaceStars(comp, options);
-      debug2("stars", comp);
+      debug("stars", comp);
       return comp;
     };
     var isX = (id) => !id || id.toLowerCase() === "x" || id === "*";
@@ -23072,7 +23072,7 @@ var require_range2 = __commonJS({
     var replaceTilde = (comp, options) => {
       const r = options.loose ? re[t.TILDELOOSE] : re[t.TILDE];
       return comp.replace(r, (_, M, m, p, pr) => {
-        debug2("tilde", comp, _, M, m, p, pr);
+        debug("tilde", comp, _, M, m, p, pr);
         let ret;
         if (isX(M)) {
           ret = "";
@@ -23081,12 +23081,12 @@ var require_range2 = __commonJS({
         } else if (isX(p)) {
           ret = `>=${M}.${m}.0 <${M}.${+m + 1}.0-0`;
         } else if (pr) {
-          debug2("replaceTilde pr", pr);
+          debug("replaceTilde pr", pr);
           ret = `>=${M}.${m}.${p}-${pr} <${M}.${+m + 1}.0-0`;
         } else {
           ret = `>=${M}.${m}.${p} <${M}.${+m + 1}.0-0`;
         }
-        debug2("tilde return", ret);
+        debug("tilde return", ret);
         return ret;
       });
     };
@@ -23094,11 +23094,11 @@ var require_range2 = __commonJS({
       return comp.trim().split(/\s+/).map((c) => replaceCaret(c, options)).join(" ");
     };
     var replaceCaret = (comp, options) => {
-      debug2("caret", comp, options);
+      debug("caret", comp, options);
       const r = options.loose ? re[t.CARETLOOSE] : re[t.CARET];
       const z = options.includePrerelease ? "-0" : "";
       return comp.replace(r, (_, M, m, p, pr) => {
-        debug2("caret", comp, _, M, m, p, pr);
+        debug("caret", comp, _, M, m, p, pr);
         let ret;
         if (isX(M)) {
           ret = "";
@@ -23111,7 +23111,7 @@ var require_range2 = __commonJS({
             ret = `>=${M}.${m}.0${z} <${+M + 1}.0.0-0`;
           }
         } else if (pr) {
-          debug2("replaceCaret pr", pr);
+          debug("replaceCaret pr", pr);
           if (M === "0") {
             if (m === "0") {
               ret = `>=${M}.${m}.${p}-${pr} <${M}.${m}.${+p + 1}-0`;
@@ -23122,7 +23122,7 @@ var require_range2 = __commonJS({
             ret = `>=${M}.${m}.${p}-${pr} <${+M + 1}.0.0-0`;
           }
         } else {
-          debug2("no pr");
+          debug("no pr");
           if (M === "0") {
             if (m === "0") {
               ret = `>=${M}.${m}.${p}${z} <${M}.${m}.${+p + 1}-0`;
@@ -23133,19 +23133,19 @@ var require_range2 = __commonJS({
             ret = `>=${M}.${m}.${p} <${+M + 1}.0.0-0`;
           }
         }
-        debug2("caret return", ret);
+        debug("caret return", ret);
         return ret;
       });
     };
     var replaceXRanges = (comp, options) => {
-      debug2("replaceXRanges", comp, options);
+      debug("replaceXRanges", comp, options);
       return comp.split(/\s+/).map((c) => replaceXRange(c, options)).join(" ");
     };
     var replaceXRange = (comp, options) => {
       comp = comp.trim();
       const r = options.loose ? re[t.XRANGELOOSE] : re[t.XRANGE];
       return comp.replace(r, (ret, gtlt, M, m, p, pr) => {
-        debug2("xRange", comp, ret, gtlt, M, m, p, pr);
+        debug("xRange", comp, ret, gtlt, M, m, p, pr);
         const xM = isX(M);
         const xm = xM || isX(m);
         const xp = xm || isX(p);
@@ -23192,16 +23192,16 @@ var require_range2 = __commonJS({
         } else if (xp) {
           ret = `>=${M}.${m}.0${pr} <${M}.${+m + 1}.0-0`;
         }
-        debug2("xRange return", ret);
+        debug("xRange return", ret);
         return ret;
       });
     };
     var replaceStars = (comp, options) => {
-      debug2("replaceStars", comp, options);
+      debug("replaceStars", comp, options);
       return comp.trim().replace(re[t.STAR], "");
     };
     var replaceGTE0 = (comp, options) => {
-      debug2("replaceGTE0", comp, options);
+      debug("replaceGTE0", comp, options);
       return comp.trim().replace(re[options.includePrerelease ? t.GTE0PRE : t.GTE0], "");
     };
     var hyphenReplace = (incPr) => ($0, from, fM, fm, fp, fpr, fb, to, tM, tm, tp, tpr) => {
@@ -23239,7 +23239,7 @@ var require_range2 = __commonJS({
       }
       if (version.prerelease.length && !options.includePrerelease) {
         for (let i = 0; i < set.length; i++) {
-          debug2(set[i].semver);
+          debug(set[i].semver);
           if (set[i].semver === Comparator.ANY) {
             continue;
           }
@@ -23276,7 +23276,7 @@ var require_comparator = __commonJS({
           }
         }
         comp = comp.trim().split(/\s+/).join(" ");
-        debug2("comparator", comp, options);
+        debug("comparator", comp, options);
         this.options = options;
         this.loose = !!options.loose;
         this.parse(comp);
@@ -23285,7 +23285,7 @@ var require_comparator = __commonJS({
         } else {
           this.value = this.operator + this.semver.version;
         }
-        debug2("comp", this);
+        debug("comp", this);
       }
       parse(comp) {
         const r = this.options.loose ? re[t.COMPARATORLOOSE] : re[t.COMPARATOR];
@@ -23307,7 +23307,7 @@ var require_comparator = __commonJS({
         return this.value;
       }
       test(version) {
-        debug2("Comparator.test", version, this.options.loose);
+        debug("Comparator.test", version, this.options.loose);
         if (this.semver === ANY || version === ANY) {
           return true;
         }
@@ -23364,7 +23364,7 @@ var require_comparator = __commonJS({
     var parseOptions = require_parse_options();
     var { safeRe: re, t } = require_re();
     var cmp = require_cmp();
-    var debug2 = require_debug2();
+    var debug = require_debug2();
     var SemVer = require_semver();
     var Range = require_range2();
   }
@@ -24787,8 +24787,8 @@ var require_sign2 = __commonJS({
       } else if (isObjectPayload) {
         try {
           validatePayload(payload);
-        } catch (error2) {
-          return failure(error2);
+        } catch (error3) {
+          return failure(error3);
         }
         if (!options.mutatePayload) {
           payload = Object.assign({}, payload);
@@ -24809,14 +24809,14 @@ var require_sign2 = __commonJS({
       }
       try {
         validateOptions(options);
-      } catch (error2) {
-        return failure(error2);
+      } catch (error3) {
+        return failure(error3);
       }
       if (!options.allowInvalidAsymmetricKeyTypes) {
         try {
           validateAsymmetricKey(header.alg, secretOrPrivateKey);
-        } catch (error2) {
-          return failure(error2);
+        } catch (error3) {
+          return failure(error3);
         }
       }
       const timestamp = payload.iat || Math.floor(Date.now() / 1e3);
@@ -25216,8 +25216,8 @@ var require_install_provider = __commonJS({
             }
           }
           return authResult;
-        } catch (error2) {
-          throw new errors_1.AuthorizationError(error2.message);
+        } catch (error3) {
+          throw new errors_1.AuthorizationError(error3.message);
         } finally {
           this.logger.debug(`Completed authorize() execution (source: ${sourceForLogging})`);
         }
@@ -25531,13 +25531,13 @@ var require_install_provider = __commonJS({
             this.logger.debug("Running built-in success function");
             (0, callback_options_1.defaultCallbackSuccess)(installation, installOptions, req, res);
           }
-        } catch (error2) {
-          this.logger.error(error2);
+        } catch (error3) {
+          this.logger.error(error3);
           if (!installOptions) {
             const emptyInstallOptions = { scopes: [] };
             installOptions = emptyInstallOptions;
           }
-          const codedError = error2;
+          const codedError = error3;
           if (codedError.code === void 0) {
             codedError.code = errors_1.ErrorCode.UnknownError;
           }
@@ -26174,7 +26174,7 @@ var require_depd = __commonJS({
       var site = callSiteLocation(stack[1]);
       var file = site[0];
       function deprecate(message) {
-        log2.call(deprecate, message);
+        log3.call(deprecate, message);
       }
       deprecate._file = file;
       deprecate._ignored = isignored(namespace);
@@ -26203,7 +26203,7 @@ var require_depd = __commonJS({
       var str = process.env.TRACE_DEPRECATION || "";
       return containsNamespace(str, namespace);
     }
-    function log2(message, site) {
+    function log3(message, site) {
       var haslisteners = eehaslisteners(process, "deprecation");
       if (!haslisteners && this._ignored) {
         return;
@@ -26343,7 +26343,7 @@ var require_depd = __commonJS({
         "message",
         "site",
         '"use strict"\nreturn function (' + args + ") {log.call(deprecate, message, site)\nreturn fn.apply(this, arguments)\n}"
-      )(fn, log2, this, message, site);
+      )(fn, log3, this, message, site);
       return deprecatedfn;
     }
     function wrapproperty(obj, prop, message) {
@@ -26368,43 +26368,43 @@ var require_depd = __commonJS({
       var set = descriptor.set;
       if (typeof get === "function") {
         descriptor.get = function getter() {
-          log2.call(deprecate, message, site);
+          log3.call(deprecate, message, site);
           return get.apply(this, arguments);
         };
       }
       if (typeof set === "function") {
         descriptor.set = function setter() {
-          log2.call(deprecate, message, site);
+          log3.call(deprecate, message, site);
           return set.apply(this, arguments);
         };
       }
       Object.defineProperty(obj, prop, descriptor);
     }
     function DeprecationError(namespace, message, stack) {
-      var error2 = new Error();
+      var error3 = new Error();
       var stackString;
-      Object.defineProperty(error2, "constructor", {
+      Object.defineProperty(error3, "constructor", {
         value: DeprecationError
       });
-      Object.defineProperty(error2, "message", {
+      Object.defineProperty(error3, "message", {
         configurable: true,
         enumerable: false,
         value: message,
         writable: true
       });
-      Object.defineProperty(error2, "name", {
+      Object.defineProperty(error3, "name", {
         enumerable: false,
         configurable: true,
         value: "DeprecationError",
         writable: true
       });
-      Object.defineProperty(error2, "namespace", {
+      Object.defineProperty(error3, "namespace", {
         configurable: true,
         enumerable: false,
         value: namespace,
         writable: true
       });
-      Object.defineProperty(error2, "stack", {
+      Object.defineProperty(error3, "stack", {
         configurable: true,
         enumerable: false,
         get: function() {
@@ -26417,7 +26417,7 @@ var require_depd = __commonJS({
           stackString = val;
         }
       });
-      return error2;
+      return error3;
     }
   }
 });
@@ -31030,9 +31030,9 @@ var require_HTTPModuleFunctions = __commonJS({
     };
     exports.buildContentResponse = buildContentResponse;
     var defaultDispatchErrorHandler = (args) => {
-      const { error: error2, logger, request, response } = args;
-      if ("code" in error2) {
-        if (error2.code === errors_1.ErrorCode.HTTPReceiverDeferredRequestError) {
+      const { error: error3, logger, request, response } = args;
+      if ("code" in error3) {
+        if (error3.code === errors_1.ErrorCode.HTTPReceiverDeferredRequestError) {
           logger.info(`Unhandled HTTP request (${request.method}) made to ${request.url}`);
           response.writeHead(404);
           response.end();
@@ -31040,7 +31040,7 @@ var require_HTTPModuleFunctions = __commonJS({
         }
       }
       logger.error(`An unexpected error occurred during a request (${request.method}) made to ${request.url}`);
-      logger.debug(`Error details: ${error2}`);
+      logger.debug(`Error details: ${error3}`);
       response.writeHead(500);
       response.end();
     };
@@ -31050,21 +31050,21 @@ var require_HTTPModuleFunctions = __commonJS({
     };
     exports.defaultAsyncDispatchErrorHandler = defaultAsyncDispatchErrorHandler;
     var defaultProcessEventErrorHandler = async (args) => {
-      const { error: error2, response, logger, storedResponse } = args;
+      const { error: error3, response, logger, storedResponse } = args;
       if (response.headersSent) {
         logger.error("An unhandled error occurred after ack() called in a listener");
-        logger.debug(`Error details: ${error2}, storedResponse: ${storedResponse}`);
+        logger.debug(`Error details: ${error3}, storedResponse: ${storedResponse}`);
         return false;
       }
-      if ("code" in error2) {
-        if (error2.code === errors_1.ErrorCode.AuthorizationError) {
+      if ("code" in error3) {
+        if (error3.code === errors_1.ErrorCode.AuthorizationError) {
           response.writeHead(401);
           response.end();
           return true;
         }
       }
       logger.error("An unhandled error occurred while Bolt processed an event");
-      logger.debug(`Error details: ${error2}, storedResponse: ${storedResponse}`);
+      logger.debug(`Error details: ${error3}, storedResponse: ${storedResponse}`);
       response.writeHead(500);
       response.end();
       return false;
@@ -31362,9 +31362,9 @@ var require_HTTPReceiver = __commonJS({
         this.processBeforeResponse = processBeforeResponse;
         this.signatureVerification = signatureVerification;
         this.logger = logger ?? (() => {
-          const defaultLogger = new logger_1.ConsoleLogger();
-          defaultLogger.setLevel(logLevel);
-          return defaultLogger;
+          const defaultLogger2 = new logger_1.ConsoleLogger();
+          defaultLogger2.setLevel(logLevel);
+          return defaultLogger2;
         })();
         this.endpoints = Array.isArray(endpoints) ? endpoints : [endpoints];
         this.port = installerOptions?.port ? installerOptions.port : port2;
@@ -31423,9 +31423,9 @@ var require_HTTPReceiver = __commonJS({
         this.server = createServerFn(serverOptions, (req, res) => {
           try {
             this.requestListener(req, res);
-          } catch (error2) {
+          } catch (error3) {
             this.dispatchErrorHandler({
-              error: error2,
+              error: error3,
               logger: this.logger,
               request: req,
               response: res
@@ -31436,12 +31436,12 @@ var require_HTTPReceiver = __commonJS({
           if (this.server === void 0) {
             throw new errors_1.ReceiverInconsistentStateError(missingServerErrorDescription);
           }
-          this.server.on("error", (error2) => {
+          this.server.on("error", (error3) => {
             if (this.server === void 0) {
               throw new errors_1.ReceiverInconsistentStateError(missingServerErrorDescription);
             }
             this.server.close();
-            reject(error2);
+            reject(error3);
           });
           this.server.on("close", () => {
             this.server = void 0;
@@ -31471,9 +31471,9 @@ var require_HTTPReceiver = __commonJS({
           return Promise.reject(new errors_1.ReceiverInconsistentStateError("The receiver cannot be stopped because it was not started."));
         }
         return new Promise((resolve, reject) => {
-          this.server?.close((error2) => {
-            if (error2 !== void 0) {
-              return reject(error2);
+          this.server?.close((error3) => {
+            if (error3 !== void 0) {
+              return reject(error3);
             }
             this.server = void 0;
             return resolve();
@@ -31566,9 +31566,9 @@ var require_HTTPReceiver = __commonJS({
               httpFunc.buildContentResponse(res, ack.storedResponse);
               this.logger.debug("stored response sent");
             }
-          } catch (error2) {
+          } catch (error3) {
             const acknowledgedByHandler = await this.processEventErrorHandler({
-              error: error2,
+              error: error3,
               logger: this.logger,
               request: req,
               response: res,
@@ -31635,20 +31635,20 @@ var require_errors4 = __commonJS({
       ErrorCode2["NoReplyReceivedError"] = "slack_socket_mode_no_reply_received_error";
       ErrorCode2["InitializationError"] = "slack_socket_mode_initialization_error";
     })(ErrorCode || (exports.ErrorCode = ErrorCode = {}));
-    function errorWithCode(error2, code) {
-      const codedError = error2;
+    function errorWithCode(error3, code) {
+      const codedError = error3;
       codedError.code = code;
       return codedError;
     }
     function websocketErrorWithOriginal(original) {
-      const error2 = errorWithCode(new Error(original.message), ErrorCode.WebsocketError);
-      error2.original = original;
-      return error2;
+      const error3 = errorWithCode(new Error(original.message), ErrorCode.WebsocketError);
+      error3.original = original;
+      return error3;
     }
     function platformErrorFromEvent(event) {
-      const error2 = errorWithCode(new Error(`An API error occurred: ${event.error.msg}`), ErrorCode.SendMessagePlatformError);
-      error2.data = event;
-      return error2;
+      const error3 = errorWithCode(new Error(`An API error occurred: ${event.error.msg}`), ErrorCode.SendMessagePlatformError);
+      error3.data = event;
+      return error3;
     }
     function noReplyReceivedError() {
       return errorWithCode(new Error("Message sent but no server acknowledgement was received. This may be caused by the client changing connection state rather than any issue with the specific message. Check before resending."), ErrorCode.NoReplyReceivedError);
@@ -32659,26 +32659,26 @@ var require_receiver = __commonJS({
         }
         const buf = this.consume(2);
         if ((buf[0] & 48) !== 0) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "RSV2 and RSV3 must be clear",
             true,
             1002,
             "WS_ERR_UNEXPECTED_RSV_2_3"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         const compressed = (buf[0] & 64) === 64;
         if (compressed && !this._extensions[PerMessageDeflate.extensionName]) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "RSV1 must be clear",
             true,
             1002,
             "WS_ERR_UNEXPECTED_RSV_1"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         this._fin = (buf[0] & 128) === 128;
@@ -32686,109 +32686,109 @@ var require_receiver = __commonJS({
         this._payloadLength = buf[1] & 127;
         if (this._opcode === 0) {
           if (compressed) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "RSV1 must be clear",
               true,
               1002,
               "WS_ERR_UNEXPECTED_RSV_1"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (!this._fragmented) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "invalid opcode 0",
               true,
               1002,
               "WS_ERR_INVALID_OPCODE"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           this._opcode = this._fragmented;
         } else if (this._opcode === 1 || this._opcode === 2) {
           if (this._fragmented) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               `invalid opcode ${this._opcode}`,
               true,
               1002,
               "WS_ERR_INVALID_OPCODE"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           this._compressed = compressed;
         } else if (this._opcode > 7 && this._opcode < 11) {
           if (!this._fin) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "FIN must be set",
               true,
               1002,
               "WS_ERR_EXPECTED_FIN"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (compressed) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "RSV1 must be clear",
               true,
               1002,
               "WS_ERR_UNEXPECTED_RSV_1"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (this._payloadLength > 125 || this._opcode === 8 && this._payloadLength === 1) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               `invalid payload length ${this._payloadLength}`,
               true,
               1002,
               "WS_ERR_INVALID_CONTROL_PAYLOAD_LENGTH"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
         } else {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             `invalid opcode ${this._opcode}`,
             true,
             1002,
             "WS_ERR_INVALID_OPCODE"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         if (!this._fin && !this._fragmented) this._fragmented = this._opcode;
         this._masked = (buf[1] & 128) === 128;
         if (this._isServer) {
           if (!this._masked) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "MASK must be set",
               true,
               1002,
               "WS_ERR_EXPECTED_MASK"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
         } else if (this._masked) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "MASK must be clear",
             true,
             1002,
             "WS_ERR_UNEXPECTED_MASK"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         if (this._payloadLength === 126) this._state = GET_PAYLOAD_LENGTH_16;
@@ -32823,14 +32823,14 @@ var require_receiver = __commonJS({
         const buf = this.consume(8);
         const num = buf.readUInt32BE(0);
         if (num > Math.pow(2, 53 - 32) - 1) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "Unsupported WebSocket frame: payload length > 2^53 - 1",
             false,
             1009,
             "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         this._payloadLength = num * Math.pow(2, 32) + buf.readUInt32BE(4);
@@ -32846,14 +32846,14 @@ var require_receiver = __commonJS({
         if (this._payloadLength && this._opcode < 8) {
           this._totalPayloadLength += this._payloadLength;
           if (this._totalPayloadLength > this._maxPayload && this._maxPayload > 0) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "Max payload size exceeded",
               false,
               1009,
               "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
         }
@@ -32920,14 +32920,14 @@ var require_receiver = __commonJS({
           if (buf.length) {
             this._messageLength += buf.length;
             if (this._messageLength > this._maxPayload && this._maxPayload > 0) {
-              const error2 = this.createError(
+              const error3 = this.createError(
                 RangeError,
                 "Max payload size exceeded",
                 false,
                 1009,
                 "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
               );
-              cb(error2);
+              cb(error3);
               return;
             }
             this._fragments.push(buf);
@@ -32978,14 +32978,14 @@ var require_receiver = __commonJS({
         } else {
           const buf = concat(fragments, messageLength);
           if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               Error,
               "invalid UTF-8 sequence",
               true,
               1007,
               "WS_ERR_INVALID_UTF8"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (this._state === INFLATING || this._allowSynchronousEvents) {
@@ -33017,14 +33017,14 @@ var require_receiver = __commonJS({
           } else {
             const code = data.readUInt16BE(0);
             if (!isValidStatusCode(code)) {
-              const error2 = this.createError(
+              const error3 = this.createError(
                 RangeError,
                 `invalid status code ${code}`,
                 true,
                 1002,
                 "WS_ERR_INVALID_CLOSE_CODE"
               );
-              cb(error2);
+              cb(error3);
               return;
             }
             const buf = new FastBuffer(
@@ -33033,14 +33033,14 @@ var require_receiver = __commonJS({
               data.length - 2
             );
             if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
-              const error2 = this.createError(
+              const error3 = this.createError(
                 Error,
                 "invalid UTF-8 sequence",
                 true,
                 1007,
                 "WS_ERR_INVALID_UTF8"
               );
-              cb(error2);
+              cb(error3);
               return;
             }
             this._loop = false;
@@ -33749,10 +33749,10 @@ var require_event_target = __commonJS({
             callListener(handler, this, event);
           };
         } else if (type === "error") {
-          wrapper = function onError(error2) {
+          wrapper = function onError(error3) {
             const event = new ErrorEvent("error", {
-              error: error2,
-              message: error2.message
+              error: error3,
+              message: error3.message
             });
             event[kTarget] = this;
             callListener(handler, this, event);
@@ -34880,7 +34880,7 @@ var require_stream = __commonJS({
         const data = !isBinary && duplex._readableState.objectMode ? msg.toString() : msg;
         if (!duplex.push(data)) ws.pause();
       });
-      ws.once("error", function error2(err) {
+      ws.once("error", function error3(err) {
         if (duplex.destroyed) return;
         terminateOnDestroy = false;
         duplex.destroy(err);
@@ -34896,7 +34896,7 @@ var require_stream = __commonJS({
           return;
         }
         let called = false;
-        ws.once("error", function error2(err2) {
+        ws.once("error", function error3(err2) {
           called = true;
           callback(err2);
         });
@@ -35842,9 +35842,9 @@ var require_SocketModeClient = __commonJS({
           this.numOfConsecutiveReconnectionFailures = 0;
           this.emit(State.Authenticated, resp);
           return resp.url;
-        } catch (error2) {
-          this.logger.error(`Failed to retrieve a new WSS URL (error: ${error2})`);
-          const err = error2;
+        } catch (error3) {
+          this.logger.error(`Failed to retrieve a new WSS URL (error: ${error3})`);
+          const err = error3;
           let isRecoverable = true;
           if (err.code === web_api_1.ErrorCode.PlatformError && Object.values(UnrecoverableSocketModeStartError_1.UnrecoverableSocketModeStartError).includes(err.data.error)) {
             isRecoverable = false;
@@ -35856,7 +35856,7 @@ var require_SocketModeClient = __commonJS({
           if (this.autoReconnectEnabled && isRecoverable) {
             return await this.delayReconnectAttempt(this.retrieveWSSURL);
           }
-          throw error2;
+          throw error3;
         }
       }
       /**
@@ -35947,10 +35947,10 @@ var require_SocketModeClient = __commonJS({
             this.emit("outgoing_message", message);
             const flatMessage = JSON.stringify(message);
             this.logger.debug(`Sending a WebSocket message: ${flatMessage}`);
-            this.websocket.send(flatMessage, (error2) => {
-              if (error2) {
-                this.logger.error(`Failed to send a WebSocket message (error: ${error2})`);
-                return reject((0, errors_1.websocketErrorWithOriginal)(error2));
+            this.websocket.send(flatMessage, (error3) => {
+              if (error3) {
+                this.logger.error(`Failed to send a WebSocket message (error: ${error3})`);
+                return reject((0, errors_1.websocketErrorWithOriginal)(error3));
               }
               return resolve();
             });
@@ -35998,10 +35998,10 @@ var require_SocketModeFunctions = __commonJS({
     exports.defaultProcessEventErrorHandler = void 0;
     var errors_1 = require_errors2();
     async function defaultProcessEventErrorHandler(args) {
-      const { error: error2, logger, event } = args;
-      logger.error(`An unhandled error occurred while Bolt processed (type: ${event.body?.type}, error: ${error2})`);
-      logger.debug(`Error details: ${error2}, retry num: ${event.retryNum}, retry reason: ${event.retryReason}`);
-      if ((0, errors_1.isCodedError)(error2) && error2.code === errors_1.ErrorCode.AuthorizationError) {
+      const { error: error3, logger, event } = args;
+      logger.error(`An unhandled error occurred while Bolt processed (type: ${event.body?.type}, error: ${error3})`);
+      logger.debug(`Error details: ${error3}, retry num: ${event.retryNum}, retry reason: ${event.retryReason}`);
+      if ((0, errors_1.isCodedError)(error3) && error3.code === errors_1.ErrorCode.AuthorizationError) {
         return true;
       }
       return false;
@@ -36080,9 +36080,9 @@ var require_SocketModeReceiver = __commonJS({
           clientOptions: installerOptions.clientOptions
         });
         this.logger = logger ?? (() => {
-          const defaultLogger = new logger_1.ConsoleLogger();
-          defaultLogger.setLevel(logLevel);
-          return defaultLogger;
+          const defaultLogger2 = new logger_1.ConsoleLogger();
+          defaultLogger2.setLevel(logLevel);
+          return defaultLogger2;
         })();
         this.routes = (0, custom_routes_1.buildReceiverRoutes)(customRoutes);
         this.processEventErrorHandler = processEventErrorHandler;
@@ -36173,9 +36173,9 @@ var require_SocketModeReceiver = __commonJS({
           };
           try {
             await this.app?.processEvent(event);
-          } catch (error2) {
+          } catch (error3) {
             const shouldBeAcked = await this.processEventErrorHandler({
-              error: error2,
+              error: error3,
               logger: this.logger,
               event
             });
@@ -36196,17 +36196,17 @@ var require_SocketModeReceiver = __commonJS({
       }
       stop() {
         if (this.httpServer !== void 0) {
-          this.httpServer.close((error2) => {
-            if (error2)
-              this.logger.error(`Failed to shutdown the HTTP server for OAuth flow: ${error2}`);
+          this.httpServer.close((error3) => {
+            if (error3)
+              this.logger.error(`Failed to shutdown the HTTP server for OAuth flow: ${error3}`);
           });
         }
         return new Promise((resolve, reject) => {
           try {
             this.client.disconnect();
             resolve();
-          } catch (error2) {
-            reject(error2);
+          } catch (error3) {
+            reject(error3);
           }
         });
       }
@@ -36645,10 +36645,10 @@ var require_App = __commonJS({
         if (this.developerMode && this.installerOptions && (typeof this.installerOptions.callbackOptions === "undefined" || typeof this.installerOptions.callbackOptions !== "undefined" && typeof this.installerOptions.callbackOptions.failure === "undefined")) {
           this.logger.debug("adding Developer Mode custom OAuth failure handler");
           this.installerOptions.callbackOptions = {
-            failure: (error2, _installOptions, _req, res) => {
-              this.logger.debug(error2);
+            failure: (error3, _installOptions, _req, res) => {
+              this.logger.debug(error3);
               res.writeHead(500, { "Content-Type": "text/html" });
-              res.end(`<html><body><h1>OAuth failed!</h1><div>${escapeHtml(error2.code)}</div></body></html>`);
+              res.end(`<html><body><h1>OAuth failed!</h1><div>${escapeHtml(error3.code)}</div></body></html>`);
             }
           };
         }
@@ -36889,8 +36889,8 @@ var require_App = __commonJS({
         } else {
           try {
             authorizeResult = await this.authorize(source, bodyArg);
-          } catch (error2) {
-            const e = error2;
+          } catch (error3) {
+            const e = error3;
             this.logger.warn("Authorization of incoming event did not succeed. No listeners will be called.");
             e.code = errors_1.ErrorCode.AuthorizationError;
             await this.handleError({
@@ -37082,8 +37082,8 @@ var require_App = __commonJS({
               throw new errors_1.MultipleListenerError(rejectedListenerResults.map((rlr) => rlr.reason));
             }
           });
-        } catch (error2) {
-          const e = error2;
+        } catch (error3) {
+          const e = error3;
           return this.handleError({
             context,
             error: e,
@@ -37096,8 +37096,8 @@ var require_App = __commonJS({
        * Global error handler. The final destination for all errors (hopefully).
        */
       handleError(args) {
-        const { error: error2, ...rest } = args;
-        return this.extendedErrorHandler && this.hasCustomErrorHandler ? this.errorHandler({ error: (0, errors_1.asCodedError)(error2), ...rest }) : this.errorHandler((0, errors_1.asCodedError)(error2));
+        const { error: error3, ...rest } = args;
+        return this.extendedErrorHandler && this.hasCustomErrorHandler ? this.errorHandler({ error: (0, errors_1.asCodedError)(error3), ...rest }) : this.errorHandler((0, errors_1.asCodedError)(error3));
       }
       // ---------------------
       // Private methods for initialization
@@ -37192,9 +37192,9 @@ Since you have not provided a token or authorize, you might be missing one or mo
     };
     exports.default = App2;
     function defaultErrorHandler(logger) {
-      return (error2) => {
-        logger.error(error2);
-        return Promise.reject(error2);
+      return (error3) => {
+        logger.error(error3);
+        return Promise.reject(error3);
       };
     }
     function runAuthTestForBotToken(client, authorization) {
@@ -37372,9 +37372,9 @@ var require_AwsLambdaReceiver = __commonJS({
         this.signatureVerification = signatureVerification;
         this.unhandledRequestTimeoutMillis = unhandledRequestTimeoutMillis;
         this._logger = logger ?? (() => {
-          const defaultLogger = new logger_1.ConsoleLogger();
-          defaultLogger.setLevel(logLevel);
-          return defaultLogger;
+          const defaultLogger2 = new logger_1.ConsoleLogger();
+          defaultLogger2.setLevel(logLevel);
+          return defaultLogger2;
         })();
         this.customPropertiesExtractor = customPropertiesExtractor;
         if (invalidRequestSignatureHandler) {
@@ -37392,8 +37392,8 @@ var require_AwsLambdaReceiver = __commonJS({
           try {
             const handler = this.toHandler();
             resolve(handler);
-          } catch (error2) {
-            reject(error2);
+          } catch (error3) {
+            reject(error3);
           }
         });
       }
@@ -37627,11 +37627,11 @@ var require_on_finished = __commonJS({
       var eeMsg;
       var eeSocket;
       var finished = false;
-      function onFinish(error2) {
+      function onFinish(error3) {
         eeMsg.cancel();
         eeSocket.cancel();
         finished = true;
-        callback(error2);
+        callback(error3);
       }
       eeMsg = eeSocket = first([[msg, "end", "finish"]], onFinish);
       function onSocket(socket) {
@@ -47534,9 +47534,9 @@ var require_read = __commonJS({
     var hasBody = require_type_is().hasBody;
     var { getCharset } = require_utils();
     module.exports = read;
-    function read(req, res, next, parse, debug2, options) {
+    function read(req, res, next, parse, debug, options) {
       if (onFinished.isFinished(req)) {
-        debug2("body already parsed");
+        debug("body already parsed");
         next();
         return;
       }
@@ -47544,13 +47544,13 @@ var require_read = __commonJS({
         req.body = void 0;
       }
       if (!hasBody(req)) {
-        debug2("skip empty body");
+        debug("skip empty body");
         next();
         return;
       }
-      debug2("content-type %j", req.headers["content-type"]);
+      debug("content-type %j", req.headers["content-type"]);
       if (!options.shouldParse(req)) {
-        debug2("skip parsing");
+        debug("skip parsing");
         next();
         return;
       }
@@ -47558,7 +47558,7 @@ var require_read = __commonJS({
       if (options?.skipCharset !== true) {
         encoding = getCharset(req) || options.defaultCharset;
         if (!!options?.isValidCharset && !options.isValidCharset(encoding)) {
-          debug2("invalid charset");
+          debug("invalid charset");
           next(createError(415, 'unsupported charset "' + encoding.toUpperCase() + '"', {
             charset: encoding,
             type: "charset.unsupported"
@@ -47571,7 +47571,7 @@ var require_read = __commonJS({
       var stream;
       var verify = opts.verify;
       try {
-        stream = contentstream(req, debug2, opts.inflate);
+        stream = contentstream(req, debug, opts.inflate);
         length = stream.length;
         stream.length = void 0;
       } catch (err) {
@@ -47585,17 +47585,17 @@ var require_read = __commonJS({
           type: "charset.unsupported"
         }));
       }
-      debug2("read body");
-      getBody(stream, opts, function(error2, body) {
-        if (error2) {
+      debug("read body");
+      getBody(stream, opts, function(error3, body) {
+        if (error3) {
           var _error;
-          if (error2.type === "encoding.unsupported") {
+          if (error3.type === "encoding.unsupported") {
             _error = createError(415, 'unsupported charset "' + encoding.toUpperCase() + '"', {
               charset: encoding.toLowerCase(),
               type: "charset.unsupported"
             });
           } else {
-            _error = createError(400, error2);
+            _error = createError(400, error3);
           }
           if (stream !== req) {
             req.unpipe();
@@ -47608,7 +47608,7 @@ var require_read = __commonJS({
         }
         if (verify) {
           try {
-            debug2("verify body");
+            debug("verify body");
             verify(req, res, body, encoding);
           } catch (err) {
             next(createError(403, err, {
@@ -47620,7 +47620,7 @@ var require_read = __commonJS({
         }
         var str = body;
         try {
-          debug2("parse body");
+          debug("parse body");
           str = typeof body !== "string" && encoding !== null ? iconv.decode(body, encoding) : body;
           req.body = parse(str, encoding);
         } catch (err) {
@@ -47633,10 +47633,10 @@ var require_read = __commonJS({
         next();
       });
     }
-    function contentstream(req, debug2, inflate) {
+    function contentstream(req, debug, inflate) {
       var encoding = (req.headers["content-encoding"] || "identity").toLowerCase();
       var length = req.headers["content-length"];
-      debug2('content-encoding "%s"', encoding);
+      debug('content-encoding "%s"', encoding);
       if (inflate === false && encoding !== "identity") {
         throw createError(415, "content encoding unsupported", {
           encoding,
@@ -47647,20 +47647,20 @@ var require_read = __commonJS({
         req.length = length;
         return req;
       }
-      var stream = createDecompressionStream(encoding, debug2);
+      var stream = createDecompressionStream(encoding, debug);
       req.pipe(stream);
       return stream;
     }
-    function createDecompressionStream(encoding, debug2) {
+    function createDecompressionStream(encoding, debug) {
       switch (encoding) {
         case "deflate":
-          debug2("inflate body");
+          debug("inflate body");
           return zlib.createInflate();
         case "gzip":
-          debug2("gunzip body");
+          debug("gunzip body");
           return zlib.createGunzip();
         case "br":
-          debug2("brotli decompress body");
+          debug("brotli decompress body");
           return zlib.createBrotliDecompress();
         default:
           throw createError(415, 'unsupported content encoding "' + encoding + '"', {
@@ -47684,7 +47684,7 @@ var require_read = __commonJS({
 var require_json = __commonJS({
   "../../node_modules/.pnpm/body-parser@2.2.2/node_modules/body-parser/lib/types/json.js"(exports, module) {
     "use strict";
-    var debug2 = require_src()("body-parser:json");
+    var debug = require_src()("body-parser:json");
     var read = require_read();
     var { normalizeOptions } = require_utils();
     module.exports = json2;
@@ -47702,12 +47702,12 @@ var require_json = __commonJS({
         if (strict) {
           var first = firstchar(body);
           if (first !== "{" && first !== "[") {
-            debug2("strict violation");
+            debug("strict violation");
             throw createStrictSyntaxError(body, first);
           }
         }
         try {
-          debug2("parse json");
+          debug("parse json");
           return JSON.parse(body, reviver);
         } catch (e) {
           throw normalizeJsonSyntaxError(e, {
@@ -47722,7 +47722,7 @@ var require_json = __commonJS({
         isValidCharset: (charset) => charset.slice(0, 4) === "utf-"
       };
       return function jsonParser(req, res, next) {
-        read(req, res, next, parse, debug2, readOptions);
+        read(req, res, next, parse, debug, readOptions);
       };
     }
     function createStrictSyntaxError(str, char) {
@@ -47747,17 +47747,17 @@ var require_json = __commonJS({
       var match = FIRST_CHAR_REGEXP.exec(str);
       return match ? match[1] : void 0;
     }
-    function normalizeJsonSyntaxError(error2, obj) {
-      var keys = Object.getOwnPropertyNames(error2);
+    function normalizeJsonSyntaxError(error3, obj) {
+      var keys = Object.getOwnPropertyNames(error3);
       for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
         if (key !== "stack" && key !== "message") {
-          delete error2[key];
+          delete error3[key];
         }
       }
-      error2.stack = obj.stack.replace(error2.message, obj.message);
-      error2.message = obj.message;
-      return error2;
+      error3.stack = obj.stack.replace(error3.message, obj.message);
+      error3.message = obj.message;
+      return error3;
     }
   }
 });
@@ -47766,7 +47766,7 @@ var require_json = __commonJS({
 var require_raw = __commonJS({
   "../../node_modules/.pnpm/body-parser@2.2.2/node_modules/body-parser/lib/types/raw.js"(exports, module) {
     "use strict";
-    var debug2 = require_src()("body-parser:raw");
+    var debug = require_src()("body-parser:raw");
     var read = require_read();
     var { normalizeOptions, passthrough } = require_utils();
     module.exports = raw;
@@ -47778,7 +47778,7 @@ var require_raw = __commonJS({
         skipCharset: true
       };
       return function rawParser(req, res, next) {
-        read(req, res, next, passthrough, debug2, readOptions);
+        read(req, res, next, passthrough, debug, readOptions);
       };
     }
   }
@@ -47788,14 +47788,14 @@ var require_raw = __commonJS({
 var require_text = __commonJS({
   "../../node_modules/.pnpm/body-parser@2.2.2/node_modules/body-parser/lib/types/text.js"(exports, module) {
     "use strict";
-    var debug2 = require_src()("body-parser:text");
+    var debug = require_src()("body-parser:text");
     var read = require_read();
     var { normalizeOptions, passthrough } = require_utils();
     module.exports = text;
     function text(options) {
       const normalizedOptions = normalizeOptions(options, "text/plain");
       return function textParser(req, res, next) {
-        read(req, res, next, passthrough, debug2, normalizedOptions);
+        read(req, res, next, passthrough, debug, normalizedOptions);
       };
     }
   }
@@ -49515,7 +49515,7 @@ var require_urlencoded = __commonJS({
   "../../node_modules/.pnpm/body-parser@2.2.2/node_modules/body-parser/lib/types/urlencoded.js"(exports, module) {
     "use strict";
     var createError = require_http_errors();
-    var debug2 = require_src()("body-parser:urlencoded");
+    var debug = require_src()("body-parser:urlencoded");
     var read = require_read();
     var qs = require_lib3();
     var { normalizeOptions } = require_utils();
@@ -49535,7 +49535,7 @@ var require_urlencoded = __commonJS({
         isValidCharset: (charset) => charset === "utf-8" || charset === "iso-8859-1"
       };
       return function urlencodedParser(req, res, next) {
-        read(req, res, next, parse, debug2, readOptions);
+        read(req, res, next, parse, debug, readOptions);
       };
     }
     function createQueryParser(options) {
@@ -49556,13 +49556,13 @@ var require_urlencoded = __commonJS({
       return function queryparse(body, encoding) {
         var paramCount = parameterCount(body, parameterLimit);
         if (paramCount === void 0) {
-          debug2("too many parameters");
+          debug("too many parameters");
           throw createError(413, "too many parameters", {
             type: "parameters.too.many"
           });
         }
         var arrayLimit = extended ? Math.max(100, paramCount) : paramCount;
-        debug2("parse " + (extended ? "extended " : "") + "urlencoding");
+        debug("parse " + (extended ? "extended " : "") + "urlencoding");
         try {
           return qs.parse(body, {
             allowPrototypes: true,
@@ -49802,7 +49802,7 @@ var require_parseurl = __commonJS({
 var require_finalhandler = __commonJS({
   "../../node_modules/.pnpm/finalhandler@2.1.1/node_modules/finalhandler/index.js"(exports, module) {
     "use strict";
-    var debug2 = require_src()("finalhandler");
+    var debug = require_src()("finalhandler");
     var encodeUrl = require_encodeurl();
     var escapeHtml = require_escape_html();
     var onFinished = require_on_finished();
@@ -49823,7 +49823,7 @@ var require_finalhandler = __commonJS({
         var msg;
         var status;
         if (!err && res.headersSent) {
-          debug2("cannot 404 after headers sent");
+          debug("cannot 404 after headers sent");
           return;
         }
         if (err) {
@@ -49838,12 +49838,12 @@ var require_finalhandler = __commonJS({
           status = 404;
           msg = "Cannot " + req.method + " " + encodeUrl(getResourceName(req));
         }
-        debug2("default %s", status);
+        debug("default %s", status);
         if (err && onerror) {
           setImmediate(onerror, err, req, res);
         }
         if (res.headersSent) {
-          debug2("cannot %d after headers sent", status);
+          debug("cannot %d after headers sent", status);
           if (req.socket) {
             req.socket.destroy();
           }
@@ -49929,13 +49929,13 @@ var require_finalhandler = __commonJS({
 var require_view2 = __commonJS({
   "../../node_modules/.pnpm/express@5.2.1/node_modules/express/lib/view.js"(exports, module) {
     "use strict";
-    var debug2 = require_src()("express:view");
+    var debug = require_src()("express:view");
     var path = __require("node:path");
     var fs = __require("node:fs");
     var dirname2 = path.dirname;
     var basename = path.basename;
     var extname = path.extname;
-    var join = path.join;
+    var join2 = path.join;
     var resolve = path.resolve;
     module.exports = View;
     function View(name, options) {
@@ -49954,7 +49954,7 @@ var require_view2 = __commonJS({
       }
       if (!opts.engines[this.ext]) {
         var mod = this.ext.slice(1);
-        debug2('require "%s"', mod);
+        debug('require "%s"', mod);
         var fn = __require(mod).__express;
         if (typeof fn !== "function") {
           throw new Error('Module "' + mod + '" does not provide a view engine.');
@@ -49967,7 +49967,7 @@ var require_view2 = __commonJS({
     View.prototype.lookup = function lookup(name) {
       var path2;
       var roots = [].concat(this.root);
-      debug2('lookup "%s"', name);
+      debug('lookup "%s"', name);
       for (var i = 0; i < roots.length && !path2; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
@@ -49979,7 +49979,7 @@ var require_view2 = __commonJS({
     };
     View.prototype.render = function render(options, callback) {
       var sync = true;
-      debug2('render "%s"', this.path);
+      debug('render "%s"', this.path);
       this.engine(this.path, options, function onRender() {
         if (!sync) {
           return callback.apply(this, arguments);
@@ -49997,19 +49997,19 @@ var require_view2 = __commonJS({
     };
     View.prototype.resolve = function resolve2(dir, file) {
       var ext = this.ext;
-      var path2 = join(dir, file);
+      var path2 = join2(dir, file);
       var stat = tryStat(path2);
       if (stat && stat.isFile()) {
         return path2;
       }
-      path2 = join(dir, basename(file, ext), "index" + ext);
+      path2 = join2(dir, basename(file, ext), "index" + ext);
       stat = tryStat(path2);
       if (stat && stat.isFile()) {
         return path2;
       }
     };
     function tryStat(path2) {
-      debug2('stat "%s"', path2);
+      debug('stat "%s"', path2);
       try {
         return fs.statSync(path2);
       } catch (e) {
@@ -50629,7 +50629,7 @@ var require_ipaddr = __commonJS({
         return new this(octets);
       };
       ipaddr.IPv4.broadcastAddressFromCIDR = function(string) {
-        var cidr, error2, i, ipInterfaceOctets, octets, subnetMaskOctets;
+        var cidr, error3, i, ipInterfaceOctets, octets, subnetMaskOctets;
         try {
           cidr = this.parseCIDR(string);
           ipInterfaceOctets = cidr[0].toByteArray();
@@ -50642,12 +50642,12 @@ var require_ipaddr = __commonJS({
           }
           return new this(octets);
         } catch (error1) {
-          error2 = error1;
+          error3 = error1;
           throw new Error("ipaddr: the address does not have IPv4 CIDR format");
         }
       };
       ipaddr.IPv4.networkAddressFromCIDR = function(string) {
-        var cidr, error2, i, ipInterfaceOctets, octets, subnetMaskOctets;
+        var cidr, error3, i, ipInterfaceOctets, octets, subnetMaskOctets;
         try {
           cidr = this.parseCIDR(string);
           ipInterfaceOctets = cidr[0].toByteArray();
@@ -50660,7 +50660,7 @@ var require_ipaddr = __commonJS({
           }
           return new this(octets);
         } catch (error1) {
-          error2 = error1;
+          error3 = error1;
           throw new Error("ipaddr: the address does not have IPv4 CIDR format");
         }
       };
@@ -51107,7 +51107,7 @@ var require_layer = __commonJS({
     "use strict";
     var isPromise = require_is_promise();
     var pathRegexp = require_dist6();
-    var debug2 = require_src()("router:layer");
+    var debug = require_src()("router:layer");
     var deprecate = require_depd()("router");
     var TRAILING_SLASH_REGEXP = /\/+$/;
     var MATCHING_GROUP_REGEXP = /\((?:\?<(.*?)>)?(?!\?)/g;
@@ -51116,7 +51116,7 @@ var require_layer = __commonJS({
       if (!(this instanceof Layer)) {
         return new Layer(path, options, fn);
       }
-      debug2("new %o", path);
+      debug("new %o", path);
       const opts = options || {};
       this.handle = fn;
       this.keys = [];
@@ -51164,19 +51164,19 @@ var require_layer = __commonJS({
       }
       this.matchers = Array.isArray(path) ? path.map(matcher) : [matcher(path)];
     }
-    Layer.prototype.handleError = function handleError(error2, req, res, next) {
+    Layer.prototype.handleError = function handleError(error3, req, res, next) {
       const fn = this.handle;
       if (fn.length !== 4) {
-        return next(error2);
+        return next(error3);
       }
       try {
-        const ret = fn(error2, req, res, next);
+        const ret = fn(error3, req, res, next);
         if (isPromise(ret)) {
           if (!(ret instanceof Promise)) {
             deprecate("handlers that are Promise-like are deprecated, use a native Promise instead");
           }
-          ret.then(null, function(error3) {
-            next(error3 || new Error("Rejected promise"));
+          ret.then(null, function(error4) {
+            next(error4 || new Error("Rejected promise"));
           });
         }
       } catch (err) {
@@ -51194,8 +51194,8 @@ var require_layer = __commonJS({
           if (!(ret instanceof Promise)) {
             deprecate("handlers that are Promise-like are deprecated, use a native Promise instead");
           }
-          ret.then(null, function(error2) {
-            next(error2 || new Error("Rejected promise"));
+          ret.then(null, function(error3) {
+            next(error3 || new Error("Rejected promise"));
           });
         }
       } catch (err) {
@@ -51255,7 +51255,7 @@ var require_layer = __commonJS({
 var require_route = __commonJS({
   "../../node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js"(exports, module) {
     "use strict";
-    var debug2 = require_src()("router:route");
+    var debug = require_src()("router:route");
     var Layer = require_layer();
     var { METHODS } = __require("node:http");
     var slice = Array.prototype.slice;
@@ -51263,7 +51263,7 @@ var require_route = __commonJS({
     var methods = METHODS.map((method) => method.toLowerCase());
     module.exports = Route;
     function Route(path) {
-      debug2("new %o", path);
+      debug("new %o", path);
       this.path = path;
       this.stack = [];
       this.methods = /* @__PURE__ */ Object.create(null);
@@ -51359,7 +51359,7 @@ var require_route = __commonJS({
           if (typeof fn !== "function") {
             throw new TypeError("argument handler must be a function");
           }
-          debug2("%s %s", method, this.path);
+          debug("%s %s", method, this.path);
           const layer = Layer("/", {}, fn);
           layer.method = method;
           this.methods[method] = true;
@@ -51380,7 +51380,7 @@ var require_router = __commonJS({
     var { METHODS } = __require("node:http");
     var parseUrl = require_parseurl();
     var Route = require_route();
-    var debug2 = require_src()("router");
+    var debug = require_src()("router");
     var deprecate = require_depd()("router");
     var slice = Array.prototype.slice;
     var flatten = Array.prototype.flat;
@@ -51429,7 +51429,7 @@ var require_router = __commonJS({
       if (!callback) {
         throw new TypeError("argument callback is required");
       }
-      debug2("dispatching %s %s", req.method, req.url);
+      debug("dispatching %s %s", req.method, req.url);
       let idx = 0;
       let methods2;
       const protohost = getProtohost(req.url) || "";
@@ -51535,7 +51535,7 @@ var require_router = __commonJS({
             next(layerError);
             return;
           }
-          debug2("trim prefix (%s) from url %s", layerPath, req.url);
+          debug("trim prefix (%s) from url %s", layerPath, req.url);
           removed = layerPath;
           req.url = protohost + req.url.slice(protohost.length + removed.length);
           if (!protohost && req.url[0] !== "/") {
@@ -51544,7 +51544,7 @@ var require_router = __commonJS({
           }
           req.baseUrl = parentUrl + (removed[removed.length - 1] === "/" ? removed.substring(0, removed.length - 1) : removed);
         }
-        debug2("%s %s : %s", layer.name, layerPath, req.originalUrl);
+        debug("%s %s : %s", layer.name, layerPath, req.originalUrl);
         if (layerError) {
           layer.handleError(layerError, req, res, next);
         } else {
@@ -51574,7 +51574,7 @@ var require_router = __commonJS({
         if (typeof fn !== "function") {
           throw new TypeError("argument handler must be a function");
         }
-        debug2("use %o %s", path, fn.name || "<anonymous>");
+        debug("use %o %s", path, fn.name || "<anonymous>");
         const layer = new Layer(path, {
           sensitive: this.caseSensitive,
           strict: false,
@@ -51713,8 +51713,8 @@ var require_router = __commonJS({
             if (!(ret instanceof Promise)) {
               deprecate("parameters that are Promise-like are deprecated, use a native Promise instead");
             }
-            ret.then(null, function(error2) {
-              paramCallback(error2 || new Error("Rejected promise"));
+            ret.then(null, function(error3) {
+              paramCallback(error3 || new Error("Rejected promise"));
             });
           }
         } catch (e) {
@@ -51774,7 +51774,7 @@ var require_application = __commonJS({
   "../../node_modules/.pnpm/express@5.2.1/node_modules/express/lib/application.js"(exports, module) {
     "use strict";
     var finalhandler = require_finalhandler();
-    var debug2 = require_src()("express:application");
+    var debug = require_src()("express:application");
     var View = require_view2();
     var http = __require("node:http");
     var methods = require_utils3().methods;
@@ -51820,7 +51820,7 @@ var require_application = __commonJS({
         configurable: true,
         value: true
       });
-      debug2("booting in %s mode", env);
+      debug("booting in %s mode", env);
       this.on("mount", function onmount(parent) {
         if (this.settings[trustProxyDefaultSymbol] === true && typeof parent.settings["trust proxy fn"] === "function") {
           delete this.settings["trust proxy"];
@@ -51880,7 +51880,7 @@ var require_application = __commonJS({
         if (!fn2 || !fn2.handle || !fn2.set) {
           return router.use(path, fn2);
         }
-        debug2(".use app under %s", path);
+        debug(".use app under %s", path);
         fn2.mountpath = path;
         fn2.parent = this;
         router.use(path, function mounted_app(req, res, next) {
@@ -51920,7 +51920,7 @@ var require_application = __commonJS({
       if (arguments.length === 1) {
         return this.settings[setting];
       }
-      debug2('set "%s" to %o', setting, val);
+      debug('set "%s" to %o', setting, val);
       this.settings[setting] = val;
       switch (setting) {
         case "etag":
@@ -53323,7 +53323,7 @@ var require_send = __commonJS({
   "../../node_modules/.pnpm/send@1.2.1/node_modules/send/index.js"(exports, module) {
     "use strict";
     var createError = require_http_errors();
-    var debug2 = require_src()("send");
+    var debug = require_src()("send");
     var encodeUrl = require_encodeurl();
     var escapeHtml = require_escape_html();
     var etag = require_etag();
@@ -53338,7 +53338,7 @@ var require_send = __commonJS({
     var Stream = __require("stream");
     var util = __require("util");
     var extname = path.extname;
-    var join = path.join;
+    var join2 = path.join;
     var normalize = path.normalize;
     var resolve = path.resolve;
     var sep = path.sep;
@@ -53372,7 +53372,7 @@ var require_send = __commonJS({
       this._root = opts.root ? resolve(opts.root) : null;
     }
     util.inherits(SendStream, Stream);
-    SendStream.prototype.error = function error2(status, err) {
+    SendStream.prototype.error = function error3(status, err) {
       if (hasListeners(this, "error")) {
         return this.emit("error", createHttpError(status, err));
       }
@@ -53423,29 +53423,29 @@ var require_send = __commonJS({
     };
     SendStream.prototype.notModified = function notModified() {
       var res = this.res;
-      debug2("not modified");
+      debug("not modified");
       this.removeContentHeaderFields();
       res.statusCode = 304;
       res.end();
     };
     SendStream.prototype.headersAlreadySent = function headersAlreadySent() {
       var err = new Error("Can't set headers after they are sent.");
-      debug2("headers already sent");
+      debug("headers already sent");
       this.error(500, err);
     };
     SendStream.prototype.isCachable = function isCachable() {
       var statusCode = this.res.statusCode;
       return statusCode >= 200 && statusCode < 300 || statusCode === 304;
     };
-    SendStream.prototype.onStatError = function onStatError(error2) {
-      switch (error2.code) {
+    SendStream.prototype.onStatError = function onStatError(error3) {
+      switch (error3.code) {
         case "ENAMETOOLONG":
         case "ENOENT":
         case "ENOTDIR":
-          this.error(404, error2);
+          this.error(404, error3);
           break;
         default:
-          this.error(500, error2);
+          this.error(500, error3);
           break;
       }
     };
@@ -53505,15 +53505,15 @@ var require_send = __commonJS({
           path2 = normalize("." + sep + path2);
         }
         if (UP_PATH_REGEXP.test(path2)) {
-          debug2('malicious path "%s"', path2);
+          debug('malicious path "%s"', path2);
           this.error(403);
           return res;
         }
         parts = path2.split(sep);
-        path2 = normalize(join(root, path2));
+        path2 = normalize(join2(root, path2));
       } else {
         if (UP_PATH_REGEXP.test(path2)) {
-          debug2('malicious path "%s"', path2);
+          debug('malicious path "%s"', path2);
           this.error(403);
           return res;
         }
@@ -53521,7 +53521,7 @@ var require_send = __commonJS({
         path2 = resolve(path2);
       }
       if (containsDotFile(parts)) {
-        debug2('%s dotfile "%s"', this._dotfiles, path2);
+        debug('%s dotfile "%s"', this._dotfiles, path2);
         switch (this._dotfiles) {
           case "allow":
             break;
@@ -53553,7 +53553,7 @@ var require_send = __commonJS({
         this.headersAlreadySent();
         return;
       }
-      debug2('pipe "%s"', path2);
+      debug('pipe "%s"', path2);
       this.setHeader(path2, stat);
       this.type(path2);
       if (this.isConditionalGET()) {
@@ -53576,18 +53576,18 @@ var require_send = __commonJS({
           combine: true
         });
         if (!this.isRangeFresh()) {
-          debug2("range stale");
+          debug("range stale");
           ranges = -2;
         }
         if (ranges === -1) {
-          debug2("range unsatisfiable");
+          debug("range unsatisfiable");
           res.setHeader("Content-Range", contentRange("bytes", len));
           return this.error(416, {
             headers: { "Content-Range": res.getHeader("Content-Range") }
           });
         }
         if (ranges !== -2 && ranges.length === 1) {
-          debug2("range %j", ranges);
+          debug("range %j", ranges);
           res.statusCode = 206;
           res.setHeader("Content-Range", contentRange("bytes", len, ranges[0]));
           offset += ranges[0].start;
@@ -53609,7 +53609,7 @@ var require_send = __commonJS({
     SendStream.prototype.sendFile = function sendFile(path2) {
       var i = 0;
       var self2 = this;
-      debug2('stat "%s"', path2);
+      debug('stat "%s"', path2);
       fs.stat(path2, function onstat(err, stat) {
         var pathEndsWithSep = path2[path2.length - 1] === sep;
         if (err && err.code === "ENOENT" && !extname(path2) && !pathEndsWithSep) {
@@ -53626,7 +53626,7 @@ var require_send = __commonJS({
           return err ? self2.onStatError(err) : self2.error(404);
         }
         var p = path2 + "." + self2._extensions[i++];
-        debug2('stat "%s"', p);
+        debug('stat "%s"', p);
         fs.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
@@ -53643,8 +53643,8 @@ var require_send = __commonJS({
           if (err) return self2.onStatError(err);
           return self2.error(404);
         }
-        var p = join(path2, self2._index[i]);
-        debug2('stat "%s"', p);
+        var p = join2(path2, self2._index[i]);
+        debug('stat "%s"', p);
         fs.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
@@ -53677,14 +53677,14 @@ var require_send = __commonJS({
       if (res.getHeader("Content-Type")) return;
       var ext = extname(path2);
       var type2 = mime.contentType(ext) || "application/octet-stream";
-      debug2("content-type %s", type2);
+      debug("content-type %s", type2);
       res.setHeader("Content-Type", type2);
     };
     SendStream.prototype.setHeader = function setHeader(path2, stat) {
       var res = this.res;
       this.emit("headers", res, path2, stat);
       if (this._acceptRanges && !res.getHeader("Accept-Ranges")) {
-        debug2("accept ranges");
+        debug("accept ranges");
         res.setHeader("Accept-Ranges", "bytes");
       }
       if (this._cacheControl && !res.getHeader("Cache-Control")) {
@@ -53692,17 +53692,17 @@ var require_send = __commonJS({
         if (this._immutable) {
           cacheControl += ", immutable";
         }
-        debug2("cache-control %s", cacheControl);
+        debug("cache-control %s", cacheControl);
         res.setHeader("Cache-Control", cacheControl);
       }
       if (this._lastModified && !res.getHeader("Last-Modified")) {
         var modified = stat.mtime.toUTCString();
-        debug2("modified %s", modified);
+        debug("modified %s", modified);
         res.setHeader("Last-Modified", modified);
       }
       if (this._etag && !res.getHeader("ETag")) {
         var val = etag(stat);
-        debug2("etag %s", val);
+        debug("etag %s", val);
         res.setHeader("ETag", val);
       }
     };
@@ -54399,7 +54399,7 @@ var require_serve_static = __commonJS({
             forwardError = true;
           });
         }
-        stream.on("error", function error2(err) {
+        stream.on("error", function error3(err) {
           if (forwardError || !(err.statusCode < 500)) {
             next(err);
             return;
@@ -54692,8 +54692,8 @@ var require_ExpressReceiver = __commonJS({
             try {
               try {
                 await installer.handleInstallPath(req, res, installPathOptions, installUrlOptions);
-              } catch (error2) {
-                next(error2);
+              } catch (error3) {
+                next(error3);
               }
             } catch (e) {
               await this.dispatchErrorHandler({
@@ -54759,12 +54759,12 @@ var require_ExpressReceiver = __commonJS({
           if (this.server === void 0) {
             throw new errors_1.ReceiverInconsistentStateError(missingServerErrorDescription);
           }
-          this.server.on("error", (error2) => {
+          this.server.on("error", (error3) => {
             if (this.server === void 0) {
               throw new errors_1.ReceiverInconsistentStateError(missingServerErrorDescription);
             }
             this.server.close();
-            reject(error2);
+            reject(error3);
           });
           this.server.on("close", () => {
             this.server = void 0;
@@ -54784,9 +54784,9 @@ var require_ExpressReceiver = __commonJS({
           return Promise.reject(new errors_1.ReceiverInconsistentStateError("The receiver cannot be stopped because it was not started."));
         }
         return new Promise((resolve, reject) => {
-          this.server?.close((error2) => {
-            if (error2 !== void 0) {
-              return reject(error2);
+          this.server?.close((error3) => {
+            if (error3 !== void 0) {
+              return reject(error3);
             }
             this.server = void 0;
             return resolve();
@@ -54804,14 +54804,14 @@ var require_ExpressReceiver = __commonJS({
         const stringBody = await parseExpressRequestRawBody(req);
         try {
           req.body = verifySignatureAndParseBody(typeof signingSecret === "string" ? signingSecret : await signingSecret(), stringBody, req.headers);
-        } catch (error2) {
-          if (error2) {
-            if (error2 instanceof errors_1.ReceiverAuthenticityError) {
-              logError(logger, "Request verification failed", error2);
+        } catch (error3) {
+          if (error3) {
+            if (error3 instanceof errors_1.ReceiverAuthenticityError) {
+              logError(logger, "Request verification failed", error3);
               res.status(401).send();
               return;
             }
-            logError(logger, "Parsing request body failed", error2);
+            logError(logger, "Parsing request body failed", error3);
             res.status(400).send();
             return;
           }
@@ -54819,8 +54819,8 @@ var require_ExpressReceiver = __commonJS({
         next();
       };
     }
-    function logError(logger, message, error2) {
-      const logMessage = "code" in error2 ? `${message} (code: ${error2.code}, message: ${error2.message})` : `${message} (error: ${error2})`;
+    function logError(logger, message, error3) {
+      const logMessage = "code" in error3 ? `${message} (code: ${error3.code}, message: ${error3.message})` : `${message} (error: ${error3})`;
       logger.warn(logMessage);
     }
     function verifyRequestSignature(signingSecret, body, signature, requestTimestamp) {
@@ -54854,9 +54854,9 @@ var require_ExpressReceiver = __commonJS({
         try {
           const { "content-type": contentType } = req.headers;
           req.body = parseRequestBody(stringBody, contentType);
-        } catch (error2) {
-          if (error2) {
-            logError(logger, "Parsing request body failed", error2);
+        } catch (error3) {
+          if (error3) {
+            logError(logger, "Parsing request body failed", error3);
             res.status(400).send();
             return;
           }
@@ -55317,11 +55317,11 @@ var require_WorkflowStep = __commonJS({
       const { context, client, payload: { workflow_step: { workflow_step_execute_id } } } = args;
       const token = selectToken(context);
       return (params) => {
-        const { error: error2 } = params;
+        const { error: error3 } = params;
         return client.workflows.stepFailed({
           token,
           workflow_step_execute_id,
-          error: error2
+          error: error3
         });
       };
     }
@@ -55483,11 +55483,11 @@ function now() {
   };
 }
 function createLogger(opts) {
-  const { logPath: logPath2, label, stderr: allStderr = false, debugNamespace } = opts;
+  const { logPath: logPath3, label, stderr: allStderr = false, debugNamespace } = opts;
   const namespace = debugNamespace ?? `slack-bridge:${label}`;
   const nodeDebug = debuglog(namespace);
   try {
-    mkdirSync(dirname(logPath2), { recursive: true });
+    mkdirSync(dirname(logPath3), { recursive: true });
   } catch {
   }
   function writeToFile(level, msg) {
@@ -55495,7 +55495,7 @@ function createLogger(opts) {
     const line = `[${date} ${time}] ${level.toUpperCase().padEnd(5)} [${label}] ${msg}
 `;
     try {
-      appendFileSync(logPath2, line);
+      appendFileSync(logPath3, line);
     } catch {
     }
   }
@@ -55504,7 +55504,7 @@ function createLogger(opts) {
     const line = `[${date} ${time}] ${level.toUpperCase().padEnd(5)} [${label}] ${msg}
 `;
     try {
-      appendFileSync(logPath2, line);
+      appendFileSync(logPath3, line);
     } catch {
     }
     if (allStderr || level === "error" || level === "warn") {
@@ -55521,22 +55521,93 @@ function createLogger(opts) {
       writeToFile("debug", msg);
       nodeDebug("%s", msg);
     },
-    logPath: logPath2
+    logPath: logPath3
   };
 }
 
+// src/shared/daemon-logger.ts
+var DaemonLogger = class {
+  inner;
+  constructor(opts) {
+    if (typeof opts.logPath !== "string" || opts.logPath.length === 0) {
+      throw new Error("DaemonLogger: logPath must be a non-empty string");
+    }
+    this.inner = createLogger({
+      logPath: opts.logPath,
+      label: "daemon"
+    });
+  }
+  get logPath() {
+    return this.inner.logPath ?? "";
+  }
+  log(msg) {
+    this.inner.log(msg);
+  }
+  warn(msg) {
+    this.inner.warn(msg);
+  }
+  error(msg) {
+    this.inner.error(msg);
+  }
+  debug(msg) {
+    this.inner.debug(msg);
+  }
+};
+
+// src/shared/path-resolver.ts
+import { join } from "node:path";
+var DEFAULT_BASE_DIR = "/tmp/slack-bridge";
+var STATE_FILE_NAME = "slack-bridge.json";
+var MCP_LOG_FILE_NAME = "mcp-logs.json";
+var DAEMON_LOG_FILE_NAME = "daemon-logs.json";
+var PathResolver = class {
+  baseDir;
+  constructor(opts = {}) {
+    const raw = opts.baseDir?.trim();
+    const base = raw && raw.length > 0 ? raw : DEFAULT_BASE_DIR;
+    this.baseDir = base.endsWith("/") ? base.slice(0, -1) : base;
+  }
+  /** The base directory all other paths derive from. */
+  getBaseDir() {
+    return this.baseDir;
+  }
+  /** `<base>/<sessionId>` — per-session directory. */
+  getSessionDir(sessionId) {
+    requireSessionId(sessionId);
+    return join(this.baseDir, sessionId);
+  }
+  /** `<base>/<sessionId>/slack-bridge.json` — persisted subscriptions. */
+  getStateFilePath(sessionId) {
+    requireSessionId(sessionId);
+    return join(this.baseDir, sessionId, STATE_FILE_NAME);
+  }
+  /** `<base>/<sessionId>/mcp-logs.json` — per-session MCP log. */
+  getMcpLogPath(sessionId) {
+    requireSessionId(sessionId);
+    return join(this.baseDir, sessionId, MCP_LOG_FILE_NAME);
+  }
+  /** `<base>/daemon-logs.json` — daemon-wide log (no session). */
+  getDaemonLogPath() {
+    return join(this.baseDir, DAEMON_LOG_FILE_NAME);
+  }
+};
+function requireSessionId(sessionId) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new Error("PathResolver: sessionId must be a non-empty string");
+  }
+}
+
 // src/daemon/logger.ts
-var logPath = process.env.DAEMON_LOG?.trim() || "/tmp/slack-bridge/daemon-logs.json";
-var {
-  log,
-  warn,
-  error,
-  debug,
-  logPath: resolvedPath
-} = createLogger({
-  logPath,
-  label: "daemon"
-});
+function resolveDefaultLogPath() {
+  const fromEnv = process.env.DAEMON_LOG?.trim();
+  if (fromEnv) return fromEnv;
+  return new PathResolver().getDaemonLogPath();
+}
+var defaultLogger = new DaemonLogger({ logPath: resolveDefaultLogPath() });
+var log = (msg) => defaultLogger.log(msg);
+var warn = (msg) => defaultLogger.warn(msg);
+var error = (msg) => defaultLogger.error(msg);
+var logPath = defaultLogger.logPath;
 
 // src/daemon/ack.ts
 async function addThinkingAck(app2, msg, opts) {
@@ -55602,8 +55673,8 @@ async function startListener(config, onMessage) {
       thread_ts: event.thread_ts ?? void 0
     });
   });
-  app2.error(async (error2) => {
-    error(`[bolt] ${error2}`);
+  app2.error(async (error3) => {
+    error(`[bolt] ${error3}`);
   });
   app2._userCache = userCache;
   app2._channelCache = channelCache;
@@ -55680,13 +55751,30 @@ function mergeTopics(existing, incoming) {
   }
   return [...map.values()];
 }
-var Registry = class {
-  constructor(healthCheckMs = 3e4) {
-    this.healthCheckMs = healthCheckMs;
+var NOOP_LOGGER = {
+  log: () => {
+  },
+  warn: () => {
+  },
+  error: () => {
+  },
+  debug: () => {
   }
-  healthCheckMs;
+};
+var Registry = class {
   subscribers = /* @__PURE__ */ new Map();
   healthInterval;
+  logger;
+  healthCheckMs;
+  constructor(opts = {}) {
+    if (typeof opts === "number") {
+      this.healthCheckMs = opts;
+      this.logger = NOOP_LOGGER;
+    } else {
+      this.healthCheckMs = opts.healthCheckMs ?? 3e4;
+      this.logger = opts.logger ?? NOOP_LOGGER;
+    }
+  }
   add(port2, topics) {
     const existing = this.subscribers.get(port2);
     if (existing) {
@@ -55753,7 +55841,9 @@ var Registry = class {
       for (const [port2, sub] of this.subscribers) {
         const alive = await checkFn(port2);
         if (!alive) {
-          log(`[registry] removing dead subscriber :${port2} (${sub.topics.length} topics)`);
+          this.logger.log(
+            `[registry] removing dead subscriber :${port2} (${sub.topics.length} topics)`
+          );
           this.subscribers.delete(port2);
         }
       }
@@ -55767,6 +55857,16 @@ var Registry = class {
 // src/daemon/server.ts
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+var NOOP_LOGGER2 = {
+  log: () => {
+  },
+  warn: () => {
+  },
+  error: () => {
+  },
+  debug: () => {
+  }
+};
 var DAEMON_ENTRYPOINT = fileURLToPath(import.meta.url);
 var claims = /* @__PURE__ */ new Map();
 var CLAIM_TTL_MS = 5 * 60 * 1e3;
@@ -55782,7 +55882,8 @@ function json(res, status, data) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
 }
-function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
+function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2, logger = NOOP_LOGGER2) {
+  const log3 = (msg) => logger.log(msg);
   setInterval(() => {
     const now2 = Date.now();
     for (const [ts] of claims) {
@@ -55818,7 +55919,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
           }
         }
         const sub = registry2.add(body.port, normalized);
-        log(`[api] +subscriber :${body.port} topics=${JSON.stringify(sub.topics)}`);
+        log3(`[api] +subscriber :${body.port} topics=${JSON.stringify(sub.topics)}`);
         json(res, 200, sub);
       } catch (err) {
         json(res, 400, { error: String(err) });
@@ -55832,7 +55933,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
         return;
       }
       const removed = registry2.remove(port2);
-      log(`[api] -subscriber :${port2} removed=${removed}`);
+      log3(`[api] -subscriber :${port2} removed=${removed}`);
       json(res, 200, { removed });
       return;
     }
@@ -55851,7 +55952,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
         const existing = claims.get(messageTs);
         if (existing !== void 0) {
           const resp2 = { claimed: false, claimed_by: existing };
-          log(
+          log3(
             `[claim] ${messageTs} already claimed by :${existing}, rejected :${body.subscriber_port}`
           );
           json(res, 409, resp2);
@@ -55859,7 +55960,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
         }
         claims.set(messageTs, body.subscriber_port);
         const resp = { claimed: true };
-        log(`[claim] ${messageTs} \u2192 :${body.subscriber_port}`);
+        log3(`[claim] ${messageTs} \u2192 :${body.subscriber_port}`);
         onClaimed2?.(messageTs);
         json(res, 200, resp);
       } catch (err) {
@@ -55868,7 +55969,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
       return;
     }
     if (req.method === "POST" && path === "/shutdown") {
-      log("[api] /shutdown requested \u2014 exiting");
+      log3("[api] /shutdown requested \u2014 exiting");
       json(res, 200, { status: "shutting-down", pid: process.pid });
       res.on("finish", () => {
         setImmediate(() => process.exit(0));
@@ -55893,6 +55994,13 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
 }
 
 // src/daemon/index.ts
+var paths = new PathResolver();
+var daemonLogPath = process.env.DAEMON_LOG?.trim() || paths.getDaemonLogPath();
+var daemonLogger = new DaemonLogger({ logPath: daemonLogPath });
+var log2 = (msg) => daemonLogger.log(msg);
+var warn2 = (msg) => daemonLogger.warn(msg);
+var error2 = (msg) => daemonLogger.error(msg);
+var logPath2 = daemonLogger.logPath;
 function arg(name) {
   const flag = `--${name}`;
   const idx = process.argv.indexOf(flag);
@@ -55904,21 +56012,21 @@ var port = Number.parseInt(process.env.DAEMON_PORT ?? "3800", 10);
 var ACK_EMOJI = process.env.SLACK_ACK_EMOJI ?? "eyes";
 var ACK_STATUS = process.env.SLACK_ACK_STATUS ?? "thinking...";
 if (!botToken || !appToken) {
-  error("Missing --bot-token / SLACK_BOT_TOKEN or --app-token / SLACK_APP_TOKEN");
+  error2("Missing --bot-token / SLACK_BOT_TOKEN or --app-token / SLACK_APP_TOKEN");
   process.exit(1);
 }
-var registry = new Registry();
+var registry = new Registry({ logger: daemonLogger });
 var startedAt = Date.now();
 var socketStatus = "disconnected";
 var entrypoint = fileURLToPath2(import.meta.url);
-log(`[daemon] starting \u2014 pid=${process.pid} port=${port} entrypoint=${entrypoint} log=${resolvedPath}`);
+log2(`[daemon] starting \u2014 pid=${process.pid} port=${port} entrypoint=${entrypoint} log=${logPath2}`);
 var spawnerSession = process.env.DAEMON_SPAWNER_SESSION;
 if (spawnerSession) {
-  log(
+  log2(
     `[daemon] spawned by mcp \u2014 session=${spawnerSession} pid=${process.env.DAEMON_SPAWNER_PID ?? "?"} ppid=${process.env.DAEMON_SPAWNER_PPID ?? "?"} cwd=${process.env.DAEMON_SPAWNER_CWD ?? "?"} ts=${process.env.DAEMON_SPAWNER_TS ?? "?"}`
   );
 } else {
-  log("[daemon] spawned manually (no DAEMON_SPAWNER_* env)");
+  log2("[daemon] spawned manually (no DAEMON_SPAWNER_* env)");
 }
 var RECENT_MSG_TTL_MS = 5 * 60 * 1e3;
 var recentMessages = /* @__PURE__ */ new Map();
@@ -55931,7 +56039,7 @@ function onClaimed(messageTs) {
   if (!msg) return;
   addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
 }
-var api = createApiServer(registry, startedAt, () => socketStatus, onClaimed);
+var api = createApiServer(registry, startedAt, () => socketStatus, onClaimed, daemonLogger);
 await new Promise((resolveListen, rejectListen) => {
   const onError = (err) => {
     api.off("listening", onListening);
@@ -55939,7 +56047,7 @@ await new Promise((resolveListen, rejectListen) => {
   };
   const onListening = () => {
     api.off("error", onError);
-    log(`[daemon] API listening on :${port}`);
+    log2(`[daemon] API listening on :${port}`);
     resolveListen();
   };
   api.once("error", onError);
@@ -55947,10 +56055,10 @@ await new Promise((resolveListen, rejectListen) => {
   api.listen(port);
 }).catch((err) => {
   if (err.code === "EADDRINUSE") {
-    warn(`[daemon] port ${port} already bound \u2014 another daemon is running. Exiting.`);
+    warn2(`[daemon] port ${port} already bound \u2014 another daemon is running. Exiting.`);
     process.exit(0);
   }
-  error(`[daemon] failed to bind :${port} \u2014 ${err.message}`);
+  error2(`[daemon] failed to bind :${port} \u2014 ${err.message}`);
   process.exit(1);
 });
 registry.startHealthChecks(async (subscriberPort) => {
@@ -55967,7 +56075,7 @@ var IDLE_SHUTDOWN_MS = Number.parseInt(
 );
 var lastActiveAt = Date.now();
 if (IDLE_SHUTDOWN_MS > 0) {
-  log(`[daemon] idle auto-shutdown enabled \u2014 ${Math.round(IDLE_SHUTDOWN_MS / 1e3)}s`);
+  log2(`[daemon] idle auto-shutdown enabled \u2014 ${Math.round(IDLE_SHUTDOWN_MS / 1e3)}s`);
   setInterval(() => {
     if (registry.all().length > 0) {
       lastActiveAt = Date.now();
@@ -55975,7 +56083,7 @@ if (IDLE_SHUTDOWN_MS > 0) {
     }
     const idleMs = Date.now() - lastActiveAt;
     if (idleMs >= IDLE_SHUTDOWN_MS) {
-      log(
+      log2(
         `[daemon] no subscribers for ${Math.round(idleMs / 1e3)}s \u2014 shutting down (set DAEMON_IDLE_SHUTDOWN_MS=0 to disable)`
       );
       registry.stopHealthChecks();
@@ -55984,7 +56092,7 @@ if (IDLE_SHUTDOWN_MS > 0) {
     }
   }, 6e4);
 } else {
-  log("[daemon] idle auto-shutdown disabled (DAEMON_IDLE_SHUTDOWN_MS=0) \u2014 persistent mode");
+  log2("[daemon] idle auto-shutdown disabled (DAEMON_IDLE_SHUTDOWN_MS=0) \u2014 persistent mode");
 }
 var app = await startListener({ botToken, appToken }, async (event) => {
   socketStatus = "connected";
@@ -56003,10 +56111,10 @@ var app = await startListener({ botToken, appToken }, async (event) => {
   });
   const targets = registry.match(msg);
   if (targets.length === 0) {
-    log(`[route] no subscribers for #${channelName} from ${userName} \u2014 dropping`);
+    log2(`[route] no subscribers for #${channelName} from ${userName} \u2014 dropping`);
     return;
   }
-  log(
+  log2(
     `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" \u2192 ${targets.length} subscriber(s)`
   );
   rememberMessage(msg);
@@ -56024,13 +56132,13 @@ var app = await startListener({ botToken, appToken }, async (event) => {
           body: JSON.stringify(payload)
         });
         if (!res.ok) {
-          warn(`[route] subscriber :${sub.port} responded ${res.status} \u2014 removing`);
+          warn2(`[route] subscriber :${sub.port} responded ${res.status} \u2014 removing`);
           registry.remove(sub.port);
           return;
         }
         registry.markSeen(sub.port);
       } catch (_err) {
-        warn(`[route] subscriber :${sub.port} unreachable \u2014 removing`);
+        warn2(`[route] subscriber :${sub.port} unreachable \u2014 removing`);
         registry.remove(sub.port);
       }
     })
@@ -56038,13 +56146,13 @@ var app = await startListener({ botToken, appToken }, async (event) => {
 });
 socketStatus = "connected";
 process.on("SIGINT", () => {
-  log("[daemon] shutting down...");
+  log2("[daemon] shutting down...");
   registry.stopHealthChecks();
   api.close();
   process.exit(0);
 });
 process.on("SIGTERM", () => {
-  log("[daemon] shutting down...");
+  log2("[daemon] shutting down...");
   registry.stopHealthChecks();
   api.close();
   process.exit(0);

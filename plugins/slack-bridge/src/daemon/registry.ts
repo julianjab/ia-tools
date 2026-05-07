@@ -13,9 +13,9 @@
  *   "DM:{user}"                  → DMs from a specific user
  */
 
+import type { Logger } from '../logger.js';
 import type { SlackMessage, Subscriber, TopicSpec } from '../shared/types.js';
 import { matchesTopic, parseTopic } from '../shared/types.js';
-import { log } from './logger.js';
 
 /**
  * Merge two TopicSpec lists by `topic` string. Later entries' labels win
@@ -34,11 +34,40 @@ function mergeTopics(existing: TopicSpec[], incoming: TopicSpec[]): TopicSpec[] 
   return [...map.values()];
 }
 
+/**
+ * No-op Logger — used when callers don't supply one. Keeps the Registry
+ * usable in tests without setting up a real logger.
+ */
+const NOOP_LOGGER: Logger = {
+  log: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+};
+
+export interface RegistryOptions {
+  /** Logger for registry events (subscriber removal). Defaults to a no-op. */
+  logger?: Logger;
+  /** Health check interval in ms. Defaults to 30s. */
+  healthCheckMs?: number;
+}
+
 export class Registry {
   private subscribers = new Map<number, Subscriber>();
   private healthInterval: ReturnType<typeof setInterval> | undefined;
+  private readonly logger: Logger;
+  private readonly healthCheckMs: number;
 
-  constructor(private healthCheckMs = 30_000) {}
+  constructor(opts: RegistryOptions | number = {}) {
+    // Back-compat: `new Registry(30_000)` still works.
+    if (typeof opts === 'number') {
+      this.healthCheckMs = opts;
+      this.logger = NOOP_LOGGER;
+    } else {
+      this.healthCheckMs = opts.healthCheckMs ?? 30_000;
+      this.logger = opts.logger ?? NOOP_LOGGER;
+    }
+  }
 
   add(port: number, topics: TopicSpec[]): Subscriber {
     const existing = this.subscribers.get(port);
@@ -114,7 +143,9 @@ export class Registry {
       for (const [port, sub] of this.subscribers) {
         const alive = await checkFn(port);
         if (!alive) {
-          log(`[registry] removing dead subscriber :${port} (${sub.topics.length} topics)`);
+          this.logger.log(
+            `[registry] removing dead subscriber :${port} (${sub.topics.length} topics)`,
+          );
           this.subscribers.delete(port);
         }
       }
