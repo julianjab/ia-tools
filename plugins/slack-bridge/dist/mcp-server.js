@@ -41119,7 +41119,7 @@ Agent(
       - QA gate is waived. Security gate still applies for tracked files.
       - If mid-flight the scope grows, STOP and report \u2014 I will upgrade to new-session.
 
-    [Slack: thread=<ts>, channel=<channel-id>]  # omit if terminal input"
+    [Slack: topic=<channel>:*:<thread_ts> | DM:<user>]  # omit if terminal input"
 )
 \`\`\`
 
@@ -41186,21 +41186,20 @@ La tarea pinta as\xED:
    - PR review ("revisa PR #N") \u2192 \`review/pr-<N>\`
    - Otherwise \u2192 \`chore/<slug>\`
 
-2. **Slack mode only:** post a brief acknowledgment in the original thread. The \`ts\` of this reply becomes \`session_thread_ts\` \u2014 the anchor for the sub-session's Slack communication.
+2. **Slack mode only:** post a brief acknowledgment in the original thread. The reply's \`ts\` plus the channel id form the topic \`<channel>:*:<reply_ts>\` \u2014 that string becomes the \`session_topic\` and is the anchor for the sub-session's Slack subscription. (For a DM-driven session, use \`DM:<user>\` instead.)
 
 3. **Call \`/session\`:**
 
    \`\`\`
    /session <branch-name> \\
-     [--thread <session_thread_ts>] \\
-     [--channel <channel-id>] \\
+     [--topic <session_topic>] \\
      [--review <pr-number>] \\
      --description "<raw user message>"
    \`\`\`
 
    \`/session\` creates the tmux window and boots Claude with \`IA_TOOLS_ROLE=orchestrator\`. The orchestrator creates its own worktree once inside the session \u2014 you do not create branches or worktrees here.
 
-4. **Forget the task.** The sub-session owns \`session_thread_ts\` from now on.
+4. **Forget the task.** The sub-session owns \`session_topic\` from now on.
 
 ## Classifier decision tree
 
@@ -41241,7 +41240,7 @@ New message arrives (Slack DM / channel / terminal)
 | \`/session\` fails | Post the failure reason in the thread. Do not retry automatically. |
 | Slack subscription dies | Re-subscribe via \`subscribe_slack\` \u2014 the daemon-side state is the source of truth. |
 | User asks you to edit a file directly | Refuse: "No edito directo \u2014 te lo paso a orchestrator inline o abro sesi\xF3n." Route accordingly. |
-| Terminal input on \`new-session\` (no thread_ts) | Call \`/session\` without \`--thread\`/\`--channel\`. Sub-session will use \`AskUserQuestion\` for approval. |
+| Terminal input on \`new-session\` (no Slack origin) | Call \`/session\` without \`--topic\`. Sub-session will use \`AskUserQuestion\` for approval. |
 
 ## Contract
 

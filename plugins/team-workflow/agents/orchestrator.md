@@ -29,18 +29,35 @@ State lives in three places: plan mode (Claude Code persists plans at
 
 ## Context
 
-The SessionStart hook injects these values into your prompt header. Use
+`/session` exports these values into the sub-session's environment. Use
 them directly when calling tools.
 
 | Value | Meaning |
 |-------|---------|
 | `SESSION_NAME` | Label of this session. Used as the tmux session name and the branch name for every worktree. |
 | `REQUEST` | The user's raw request, also delivered as your first message. |
-| `MODE` | `slack` if Slack coordinates were present at boot, else `local`. |
-| `SLACK_THREADS` / `SLACK_CHANNEL` | Present in slack mode. |
+| `MODE` | `slack` if `SLACK_TOPIC` is set at boot, else `local`. |
+| `SLACK_TOPIC` | Single slack-bridge topic string. Present in slack mode only. |
+
+`SLACK_TOPIC` is a slack-bridge topic string. Common shapes:
+
+- `<channel>:*:<thread_ts>` — thread (most common; that's what `session-manager` posts to anchor the session)
+- `<channel>` — entire channel
+- `DM:<user>` — a direct-message conversation
+
+Parse it once at boot to derive the channel and (optional) thread_ts you
+will pass to `reply`:
+
+```
+case "$SLACK_TOPIC" in
+  DM:*)   user="${SLACK_TOPIC#DM:}"; channel="<resolve via list_channels or read_channel>" ;;
+  *:*:*)  channel="${SLACK_TOPIC%%:*}"; thread_ts="${SLACK_TOPIC##*:}" ;;
+  *)      channel="$SLACK_TOPIC" ;;  # channel-wide topic, no thread
+esac
+```
 
 Examples of direct use: `/worktree init $SESSION_NAME`,
-`reply(thread_ts=$SLACK_THREADS, channel=$SLACK_CHANNEL, …)`.
+`reply(channel_id=<channel>, thread_ts=<thread_ts if any>, …)`.
 
 ## Boot CWD shape
 
@@ -61,7 +78,7 @@ Always pass absolute paths to tools. For git operations use
 
 | Mode | Plan approval | Communication channel |
 |------|---------------|-----------------------|
-| `slack` | ✅ reaction on the plan message | slack-bridge MCP `reply` in the thread |
+| `slack` | ✅ reaction on the plan message | slack-bridge MCP `reply` in the topic resolved from `$SLACK_TOPIC` |
 | `local` | `ExitPlanMode` returns true | this session's chat (and `AskUserQuestion` for follow-ups) |
 
 The mode is fixed at boot.
@@ -125,10 +142,13 @@ under Scope.
 
 #### Slack mode
 
-1. Publish the plan to the thread:
+1. Publish the plan to the topic. Parse `$SLACK_TOPIC` once at boot (see
+   the Context section), then reply with the channel and (optional) thread:
    ```
-   reply(thread_ts=$SLACK_THREADS, channel=$SLACK_CHANNEL, text=
+   # If $SLACK_TOPIC matches <channel>:*:<thread_ts>:
+   reply(channel_id=<channel>, thread_ts=<thread_ts>, text=
      "📋 Plan propuesto:\n\n<plan content>\n\n👉 Reacciona ✅ para ejecutar, ❌ para cancelar, o responde con texto para editar.")
+   # If $SLACK_TOPIC is "DM:<user>" or "<channel>", omit thread_ts.
    ```
 2. Block waiting for:
 
@@ -365,7 +385,7 @@ so future reads can grep by date or name.
 
 ## Contract
 
-- **Input**: context values (`SESSION_NAME`, `REQUEST`, `MODE`, optional `SLACK_THREADS` / `SLACK_CHANNEL`) injected by the SessionStart hook.
+- **Input**: env vars (`SESSION_NAME`, `REQUEST`, `MODE`, optional `SLACK_TOPIC`) exported by `/session`.
 - **Output**: one PR per touched consumer repo, each GREEN + security APPROVED. Slack mode leaves a thread documenting the flow; local mode prints a summary in the chat.
 - **Side effects**:
   - One tmux session.

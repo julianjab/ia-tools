@@ -4,28 +4,31 @@
 #
 # Opens a fresh tmux session (name = session-name) and launches Claude with
 # `--agent team-workflow:orchestrator`. Runtime context is passed via env
-# vars (SESSION_NAME, SLACK_THREADS, SLACK_CHANNEL); the user's request is
-# passed as the prompt POSITIONAL ARG to claude — never via shell parsing.
-# The orchestrator creates its own worktree on boot — this script does NOT
+# vars (SESSION_NAME, SLACK_TOPIC); the user's request is passed as the
+# prompt POSITIONAL ARG to claude — never via shell parsing. The
+# orchestrator creates its own worktree on boot — this script does NOT
 # touch git.
 #
 # Usage:
-#   bash start-session.sh <session-name> <slack-ts|""> <slack-channel|""> <request>
+#   bash start-session.sh <session-name> <slack-topic|""> <request>
 #
 # Positional args:
 #   $1  session-name   Label for the session; also the tmux session name.
 #                      Must not contain '.' or ':' (breaks tmux target syntax).
-#   $2  slack-ts       Slack thread timestamp. Empty string = local mode.
-#   $3  slack-channel  Slack channel id.       Empty string = local mode.
-#   $4  request        User's raw request. Passed as the prompt argument to
+#   $2  slack-topic    Single slack-bridge topic string. Empty = local mode.
+#                      Common shapes: "<channel>:*:<thread_ts>",
+#                      "<channel>", "DM:<user>". The script does NOT parse
+#                      or validate the topic format — slack-bridge's
+#                      parseTopic is the source of truth. We only reject
+#                      newlines / CR (execve hygiene).
+#   $3  request        User's raw request. Passed as the prompt argument to
 #                      claude (positional, NOT via shell — survives any
 #                      quoting, backticks, $-vars, ampersands, semicolons,
 #                      parentheses, long text).
 #
 # Mode detection:
-#   slack-ts + slack-channel both non-empty → slack mode
-#   both empty                              → local mode
-#   exactly one set                         → error
+#   slack-topic non-empty → slack mode
+#   slack-topic empty     → local mode
 # =============================================================================
 set -euo pipefail
 
@@ -39,8 +42,7 @@ die()  { printf "${RED}✗ ERROR:${RESET} %s\n" "$1" >&2; exit 1; }
 
 # ── globals populated by parse_args / detect_mode / build_* ───────────────────
 SESSION_NAME=""
-SLACK_TS=""
-SLACK_CHANNEL_ARG=""
+SLACK_TOPIC=""
 REQUEST=""
 MODE=""
 CWD=""
@@ -56,19 +58,17 @@ _reject_unsafe() {
   esac
 }
 
-# parse_args — validate positional args, populate the SESSION_NAME/SLACK_*/REQUEST globals.
+# parse_args — validate positional args, populate the SESSION_NAME/SLACK_TOPIC/REQUEST globals.
 # input:  "$@" from main
-# output: SESSION_NAME, SLACK_TS, SLACK_CHANNEL_ARG, REQUEST set
+# output: SESSION_NAME, SLACK_TOPIC, REQUEST set
 parse_args() {
-  SESSION_NAME="${1:?Usage: start-session.sh <session-name> <slack-ts|\"\"> <slack-channel|\"\"> <request>}"
-  SLACK_TS="${2:-}"
-  SLACK_CHANNEL_ARG="${3:-}"
-  REQUEST="${4:-}"
+  SESSION_NAME="${1:?Usage: start-session.sh <session-name> <slack-topic|\"\"> <request>}"
+  SLACK_TOPIC="${2:-}"
+  REQUEST="${3:-}"
 
-  _reject_unsafe "session-name"  "$SESSION_NAME"
-  _reject_unsafe "slack-ts"      "$SLACK_TS"
-  _reject_unsafe "slack-channel" "$SLACK_CHANNEL_ARG"
-  _reject_unsafe "request"       "$REQUEST"
+  _reject_unsafe "session-name" "$SESSION_NAME"
+  _reject_unsafe "slack-topic"  "$SLACK_TOPIC"
+  _reject_unsafe "request"      "$REQUEST"
 
   [ -n "$SESSION_NAME" ] || die "session-name cannot be empty"
 
@@ -77,16 +77,14 @@ parse_args() {
   esac
 }
 
-# detect_mode — derive MODE from the slack-ts / slack-channel pair.
-# input:  SLACK_TS, SLACK_CHANNEL_ARG
-# output: MODE = "slack" | "local" (dies if exactly one is set)
+# detect_mode — derive MODE from SLACK_TOPIC.
+# input:  SLACK_TOPIC
+# output: MODE = "slack" | "local"
 detect_mode() {
-  if [ -n "$SLACK_TS" ] && [ -n "$SLACK_CHANNEL_ARG" ]; then
+  if [ -n "$SLACK_TOPIC" ]; then
     MODE="slack"
-  elif [ -z "$SLACK_TS" ] && [ -z "$SLACK_CHANNEL_ARG" ]; then
-    MODE="local"
   else
-    die "slack-ts and slack-channel must both be set or both be empty"
+    MODE="local"
   fi
 }
 
@@ -113,7 +111,7 @@ resolve_oauth() {
 }
 
 # build_env_vars — assemble the K=V pairs that env(1) will set for claude.
-# input:  SESSION_NAME, MODE, SLACK_TS, SLACK_CHANNEL_ARG, resolve_oauth
+# input:  SESSION_NAME, MODE, SLACK_TOPIC, resolve_oauth
 # output: ENV_ARGS array filled
 build_env_vars() {
   ENV_ARGS=(
@@ -121,8 +119,7 @@ build_env_vars() {
     "SESSION_NAME=${SESSION_NAME}"
   )
   if [ "$MODE" = "slack" ]; then
-    ENV_ARGS+=("SLACK_THREADS=${SLACK_TS}")
-    ENV_ARGS+=("SLACK_CHANNEL=${SLACK_CHANNEL_ARG}")
+    ENV_ARGS+=("SLACK_TOPIC=${SLACK_TOPIC}")
   fi
   local token
   token="$(resolve_oauth)"
@@ -184,8 +181,7 @@ print_header() {
   printf "  Session: ${CYAN}%s${RESET}\n" "$SESSION_NAME"
   printf "  Mode:    ${CYAN}%s${RESET}\n" "$MODE"
   if [ "$MODE" = "slack" ]; then
-    printf "  Thread:  ${CYAN}%s${RESET}\n" "$SLACK_TS"
-    printf "  Channel: ${CYAN}%s${RESET}\n" "$SLACK_CHANNEL_ARG"
+    printf "  Topic:   ${CYAN}%s${RESET}\n" "$SLACK_TOPIC"
   fi
   printf "  Request: ${CYAN}%s${RESET}\n\n" "$REQUEST"
 }
@@ -201,7 +197,7 @@ report() {
   printf "  Mode:    ${CYAN}%s${RESET}\n" "$MODE"
   printf "  CWD:     ${CYAN}%s${RESET}\n" "$CWD"
   if [ "$MODE" = "slack" ]; then
-    printf "  Slack:   thread=${CYAN}%s${RESET} channel=${CYAN}%s${RESET}\n" "$SLACK_TS" "$SLACK_CHANNEL_ARG"
+    printf "  Topic:   ${CYAN}%s${RESET}\n" "$SLACK_TOPIC"
   fi
   printf "\nAttach with: ${BOLD}tmux attach -t %s${RESET}\n" "$SESSION_NAME"
 }
