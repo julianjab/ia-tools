@@ -247,7 +247,16 @@ the orchestrator provisions a worktree for a touched repo, it:
    stack-agnostic fallback is used.
 
 `qa` and `security` are always the plugin's own agents — they enforce
-workflow invariants and must not be overridden by repos.
+workflow invariants (RED-first tests, security audit) and must not be
+overridden by repos.
+
+That said, the plugin `qa` **complements itself** with repo-local
+helpers. During discovery the orchestrator also classifies any
+repo-local agent whose name matches `qa`, `tester`, `qa-*`, or
+`tester-*` as a QA helper and forwards the list to the spawned plugin
+`qa`. The plugin `qa` keeps the RED-first contract and final GREEN
+verdict; it calls the helpers via `Agent()` for repo-specific
+framework, runner, fixture, and naming guidance.
 
 The orchestrator also delegates the Phase-1 pre-analysis pass to
 Claude Code's built-in `general-purpose` agent before drafting the

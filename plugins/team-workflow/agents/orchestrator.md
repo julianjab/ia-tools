@@ -239,13 +239,23 @@ If `API contract: none`, skip this phase.
       Glob <worktree-path>/.claude/agents/*.md
       ```
       For each match, read the frontmatter (`name`, `description`) and
-      add it to the per-repo agent map.
+      classify into:
+      - **Implementers**: agents whose `description` aligns with the
+        stack/role declared for that repo in the plan.
+      - **QA helpers**: agents whose `name` matches `qa`, `tester`,
+        `qa-*`, or `tester-*`. They DO NOT replace the plugin `qa`;
+        they are consulted by it for framework-specific guidance.
+      - **Other**: ignore for this session unless the plan explicitly
+        names them.
    4. Pick the implementer for that repo:
-      - If a repo-local agent's `description` matches the stack/role
-        declared for that repo in the plan, prefer it.
+      - If a repo-local implementer matches, prefer it.
       - Otherwise fall back to the plugin's stack-agnostic teammate
         (`backend` / `frontend` / `mobile`) per the plan's `Stack
         touched`.
+   5. The plugin `qa` is always the workflow-invariant gate (RED-first).
+      When you spawn it, include in its prompt a `Repo QA helpers`
+      section listing any matched helper names so it can call them via
+      `Agent(...)` for repo conventions, runners, and fixtures.
 
    Repo-local agents are auto-loaded by Claude Code from the directory
    added by `/add-dir`, so you can refer to them by `name` when
@@ -450,7 +460,9 @@ so future reads can grep by date or name.
 - You own worktree creation AND the `/add-dir` of every worktree.
   Teammates use the absolute paths you give them.
 - Repo-local agents are preferred over stack-agnostic fallbacks when
-  they exist; `qa` and `security` are always sourced from this plugin.
+  they exist. `qa` and `security` are always sourced from this plugin
+  (workflow invariants), but `qa` consults repo-local `qa`/`tester`
+  helpers via `Agent()` for framework-specific guidance.
 - Only the lead cleans up the team.
 
 ## Error handling
