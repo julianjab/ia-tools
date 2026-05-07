@@ -23,15 +23,16 @@
  *   SLACK_TOPICS                          — Comma-separated topics (overrides the
  *                                           state file on auto-subscribe)
  *                                           e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,..."
- *   SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS  — Comma-separated Slack user IDs that
- *                                           are authorized to request topic
- *                                           subscription changes. When set,
- *                                           subscribe_slack and unsubscribe_slack
- *                                           require a `requested_by: <user_id>`
- *                                           argument and reject any value not in
- *                                           this list. When empty / unset → no
- *                                           gate (backward-compatible default).
- *                                           Example: "U02M1QFA0AF,U03ABCDEF"
+ *   ALLOWED_USERS_MENTIONS — Comma-separated Slack user IDs whose @mentions the
+ *                            bot processes. Unset / empty → process all @mentions.
+ *                            Example: "U02M1QFA0AF,U03ABCDEF"
+ *   ALLOWED_USERS_DM       — Comma-separated Slack user IDs who can DM the bot
+ *                            (Agent split-view). Unset / empty → accept all DMs.
+ *                            Example: "U02M1QFA0AF"
+ *
+ * Note: subscribe_slack / unsubscribe_slack are unconditionally blocked when
+ * the request originates from a Slack message (requested_by present). Only
+ * local Claude Code sessions can change subscriptions.
  */
 
 import { join } from 'node:path';
@@ -39,7 +40,6 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
-import { parseAllowedSubscribeUsers } from './auth-gate.js';
 import { ConfigWatcher } from './config-watcher.js';
 import { loadConfig, loadConfigFromPath, saveConfig, saveConfigAtPath } from './config.js';
 import { DaemonClient } from './daemon-client.js';
@@ -85,13 +85,6 @@ export interface McpBridgeServerOptions {
    */
   stateFilePath?: string;
   /**
-   * Slack user IDs authorized to request subscribe/unsubscribe changes via
-   * the agent. Empty set = no gate (any caller passes). When non-empty,
-   * subscribe_slack / unsubscribe_slack must receive a `requested_by`
-   * argument that is in this set, otherwise the call is rejected.
-   */
-  allowedSubscribeUsers: Set<string>;
-  /**
    * Optional session id used purely for display in the `list_subscriptions`
    * output so the operator can correlate the response with the Claude session
    * directory under `/tmp/slack-bridge/<session-id>/`.
@@ -104,7 +97,6 @@ export class McpBridgeServer {
   private readonly web: WebClient;
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
-  private readonly allowedSubscribeUsers: Set<string>;
   /** Display-only session id surfaced in list_subscriptions output. */
   private readonly sessionId: string | undefined;
   /** All topic specs this subscriber is currently registered for. */
@@ -119,14 +111,12 @@ export class McpBridgeServer {
     daemonClient,
     logger,
     stateFilePath,
-    allowedSubscribeUsers,
     sessionId,
   }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
     this.stateFilePath = stateFilePath;
-    this.allowedSubscribeUsers = allowedSubscribeUsers;
     this.sessionId = sessionId;
     const watchedPath = stateFilePath ?? join(process.cwd(), '.claude', '.slack-bridge.json');
     this.configWatcher = new ConfigWatcher({
@@ -363,7 +353,6 @@ export class McpBridgeServer {
     return {
       daemonClient: this.daemonClient,
       logger: this.logger,
-      allowedSubscribeUsers: this.allowedSubscribeUsers,
       sessionId: this.sessionId,
       readState: () => this.readState(),
       writeState: (patch) => this.writeState(patch),
@@ -670,25 +659,11 @@ export async function main(): Promise<void> {
 
   const webhookPort = await webhookSrv.start();
   const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-  const allowedSubscribeUsers = parseAllowedSubscribeUsers(
-    process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS,
-  );
-  if (allowedSubscribeUsers.size > 0) {
-    logger.log(
-      `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) — Slack-originated subscribe/unsubscribe must include requested_by`,
-    );
-  } else {
-    logger.log(
-      'subscribe gate: no allowlist — Slack-originated subscribe/unsubscribe will be REJECTED',
-    );
-  }
-
   const mcpServer = new McpBridgeServer({
     web,
     daemonClient,
     logger,
     stateFilePath,
-    allowedSubscribeUsers,
     sessionId: SESSION_ID,
   });
 

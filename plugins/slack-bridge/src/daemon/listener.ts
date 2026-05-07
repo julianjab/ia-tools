@@ -4,13 +4,20 @@
  */
 
 import pkg from '@slack/bolt';
+import { parseAllowedUsers } from '../auth-gate.js';
 import { log, error as logError } from './logger.js';
 
 const { App, Assistant, LogLevel } = pkg;
 
+export { parseAllowedUsers };
+
 export interface ListenerConfig {
   botToken: string;
   appToken: string;
+  /** ALLOWED_USERS_DM — user IDs allowed to DM the bot. Empty = allow all. */
+  allowedUsersDm: Set<string>;
+  /** ALLOWED_USERS_MENTIONS — user IDs whose @mentions the bot processes. Empty = allow all. */
+  allowedUsersMentions: Set<string>;
 }
 
 export interface SlackEvent {
@@ -31,6 +38,8 @@ export async function startListener(
   config: ListenerConfig,
   onMessage: MessageHandler,
 ): Promise<InstanceType<typeof App>> {
+  const { allowedUsersDm, allowedUsersMentions } = config;
+
   const app = new App({
     token: config.botToken,
     appToken: config.appToken,
@@ -58,10 +67,16 @@ export async function startListener(
       await saveThreadContext();
     },
 
-    userMessage: async ({ event, setStatus }) => {
+    userMessage: async ({ event, setStatus, say }) => {
       const msg = event as unknown as Record<string, unknown>;
       const text = msg.text as string | undefined;
       if (!text || msg.subtype) return;
+
+      const userId = (msg.user as string) ?? '';
+      if (allowedUsersDm.size > 0 && !allowedUsersDm.has(userId)) {
+        await say('No tienes permiso para interactuar con este bot.');
+        return;
+      }
 
       // Immediate feedback — fires before the daemon routes to a subscriber
       await setStatus('está pensando...');
@@ -84,7 +99,8 @@ export async function startListener(
 
   // ── Channel @mentions ─────────────────────────────────────────────────────
   app.event('app_mention', async ({ event }) => {
-    if (!event.text) return;
+    if (!event.text || !event.user) return;
+    if (allowedUsersMentions.size > 0 && !allowedUsersMentions.has(event.user)) return;
     try {
       await onMessage({
         channel_id: event.channel,
