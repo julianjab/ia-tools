@@ -26,16 +26,18 @@
 > to spawn, in what order, and with what parallelism — see
 > `plugins/team-workflow/agents/orchestrator.md`.
 >
-> **Role injection and hook enforcement.**
-> - The **session-manager role** is supplied by the `slack-bridge` MCP at
->   boot. The MCP reads `${CLAUDE_PLUGIN_ROOT}/agents/session-manager.md`
->   and surfaces it as its `instructions` — but ONLY when the parent
->   Claude process was launched without `--agent <name>`. When the operator
->   passed `--agent` (e.g. sub-sessions started by `/session` use
->   `--agent team-workflow:orchestrator`), the MCP detects the flag in the
->   parent's argv and skips the session-manager injection so the chosen
->   agent prompt remains the active personality. There is no
->   `SessionStart` hook and no `IA_TOOLS_ROLE` env var.
+> **Role selection and hook enforcement.**
+> - **slack-bridge is a pure I/O transport.** It exposes Slack tools and a
+>   short mechanical guide as its `instructions`, but does NOT inject any
+>   role prompt and does NOT sniff the parent argv. The persona of the
+>   Claude session is whatever the operator selected with
+>   `claude --agent <plugin>:<name>`. By convention:
+>   - Main session (Slack router): `claude --agent team-workflow:session-manager`
+>   - Sub-sessions (executor): `claude --agent team-workflow:orchestrator`
+>     (this is what `/session` boots)
+>   - No `--agent` flag: Claude runs without a role; only the slack-bridge
+>     tools and its short mechanical guide are visible.
+>   There is no `SessionStart` hook and no `IA_TOOLS_ROLE` env var.
 > - **`PreToolUse` hook** (`plugins/team-workflow/hooks/scripts/enforce-worktree.sh`)
 >   blocks `Edit`/`Write`/`MultiEdit` on protected paths when the current
 >   branch is `main`/`master`. If you see `Pipeline violation: you are on
@@ -89,10 +91,15 @@ as a one-shot subagent, not as a teammate).
 ## Structure
 
 - `plugins/team-workflow/agents/` — 8 stack-agnostic agent definitions (session-manager, orchestrator,
-  architect, backend, frontend, mobile, qa, security). `orchestrator` is a
-  main-thread agent that acts as an **agent-team lead**; qa/backend/frontend/mobile
-  are its default teammates; architect/security are one-shot subagents by
-  default. `session-manager` is the only main session in the plugin.
+  architect, backend, frontend, mobile, qa, security). `session-manager`
+  is the main-session router (load it with
+  `claude --agent team-workflow:session-manager`). `orchestrator` is the
+  sub-session executor + **agent-team lead** (booted by `/session`); `qa`
+  is its default teammate, `architect`/`security` are one-shot subagents.
+  `backend`/`frontend`/`mobile` are **fallback** implementers — the
+  orchestrator prefers per-repo agents from `<repo>/.claude/agents/`
+  when they exist (discovered after `/add-dir <worktree>`), and uses
+  `general-purpose` for the Phase-1 pre-analysis pass.
 - `plugins/team-workflow/skills/` — Reusable Claude Code skills (session, worktree, commit, review, pr,
   ship, sync-docs, pr-review, security-audit, test-generation, scope-check)
 - `plugins/team-workflow/hooks/` — PreToolUse enforcement script (worktree guard)
@@ -102,21 +109,21 @@ as a one-shot subagent, not as a teammate).
 
 ## Session model
 
-Every Claude session in this plugin is **either** a `session-manager` main
-session **or** a sub-session. The discriminator is the `--agent` flag in
-the parent Claude argv (the slack-bridge MCP inspects `ps -ww -p $PPID`
-at boot):
+Roles are decided by the operator at boot via `--agent <plugin>:<name>`.
+slack-bridge does NOT inject a role and does NOT inspect argv. Common
+configurations:
 
-| Parent argv | Role | Prompt source |
-|-------------|------|---------------|
-| no `--agent` | session-manager | `plugins/slack-bridge/agents/session-manager.md` (loaded at runtime by the slack-bridge MCP and surfaced as its `instructions`) |
-| `--agent team-workflow:orchestrator` | orchestrator | `plugins/team-workflow/agents/orchestrator.md` (loaded natively by Claude Code from the team-workflow plugin) |
+| Boot command | Role | Prompt source |
+|--------------|------|---------------|
+| `claude --agent team-workflow:session-manager` | main router | `plugins/team-workflow/agents/session-manager.md` |
+| `claude --agent team-workflow:orchestrator` | sub-session executor (booted by `/session`) | `plugins/team-workflow/agents/orchestrator.md` |
+| `claude` (no `--agent`) | unspecialised | none — slack-bridge surfaces only its tools and mechanical lifecycle guide |
 
-The main session starts without `--agent` → session-manager. `/session`
-launches `claude --agent team-workflow:orchestrator …` → orchestrator.
-The slack-bridge MCP detects the `--agent` flag and skips the
-session-manager injection so the orchestrator's prompt isn't shadowed.
-No `IA_TOOLS_ROLE` env var, no `SessionStart` hook.
+The main router is started by the operator (typically once per machine
+or as a long-lived tmux window). `/session` launches sub-sessions with
+`--agent team-workflow:orchestrator`. Both agent files are normal plugin
+agents — the team-workflow plugin loads them via Claude Code's native
+agent discovery.
 
 ## Development
 
@@ -129,14 +136,17 @@ No `IA_TOOLS_ROLE` env var, no `SessionStart` hook.
 
 ## MCP Servers
 
-The Slack bridge is a self-contained Claude plugin at `plugins/slack-bridge/`.
+The Slack bridge is a self-contained Claude plugin at `plugins/slack-bridge/`,
+acting as **pure I/O transport** — no role injection, no argv sniffing.
 Its `.mcp.json` points at `${CLAUDE_PLUGIN_ROOT}/dist/mcp-server.js`, and the
 plugin's own `package.json` / `tsconfig.json` / `src/` / `dist/` all live inside
 that directory. The built `dist/` is committed so marketplace consumers don't
 need a build step; `scripts/check-slack-bridge-dist.sh` enforces it stays in
 sync with the sources. Running the bridge requires the daemon
 (`pnpm --filter @ia-tools/slack-bridge daemon`) and
-`SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` env vars.
+`SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` env vars. The router agent
+(`session-manager`) lives in `plugins/team-workflow/agents/`; load it
+explicitly with `claude --agent team-workflow:session-manager`.
 
 ## Skills
 
