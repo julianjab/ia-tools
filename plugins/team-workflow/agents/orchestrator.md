@@ -6,7 +6,7 @@ color: purple
 effort: high
 maxTurns: 200
 memory: project
-tools: Read, Grep, Glob, Bash, SlashCommand, AskUserQuestion, ExitPlanMode, Agent(architect, qa, backend, frontend, mobile, security)
+tools: Read, Grep, Glob, Bash, SlashCommand, AskUserQuestion, ExitPlanMode, Agent(general-purpose, architect, qa, backend, frontend, mobile, security), mcp__slack-bridge__*
 ---
 
 # Orchestrator — Team Lead
@@ -101,17 +101,51 @@ dependencies + plan approval mode, not by manual gates here.
 2. Read your memory: `cat .claude/agent-memory/orchestrator/MEMORY.md`
    if it exists. Note prior compositions and escalation patterns that
    apply to a request shaped like `$REQUEST`.
-3. Single-repo only: create your worktree via `/worktree init $SESSION_NAME`.
+3. Single-repo only: create your worktree via `/worktree init $SESSION_NAME`,
+   then expose it to the session with `/add-dir <WORKTREE_PATH>`.
    Record `WORKTREE_PATH=<cwd>/.worktrees/$SESSION_NAME`.
-   Multi-repo: per-repo worktrees come in Phase 3.
+   Multi-repo: per-repo worktrees come in Phase 3 (each one is `add-dir`'d
+   the moment it is created).
 4. Announce yourself:
    - **[slack]** `reply("📋 Analizando la tarea, publico el plan en breve.")`
    - **[local]** Print `📋 Analizando la tarea, preparo el plan.`
 5. Go to Phase 1.
 
-### Phase 1 — Plan + Approval gate (BLOCKING)
+### Phase 1 — Pre-analysis + Plan + Approval gate (BLOCKING)
 
-The plan content uses this schema regardless of mode:
+#### 1a. Pre-analysis via `general-purpose` subagent
+
+Before drafting the plan yourself, delegate the exploratory pass to
+Claude Code's built-in `general-purpose` agent. It has full read tools
+and can scan multiple repos efficiently without polluting your context.
+
+Skip this step if `IA_TOOLS_SESSION_DIR` is set and contains a
+`plan-draft.md` (`--resume-from` mode) — use that draft as the seed
+instead.
+
+```
+Agent(
+  subagent_type: "general-purpose",
+  description: "Pre-analyze $REQUEST",
+  prompt: "Working dir: <abs CWD>. Request: <verbatim $REQUEST>.
+           Explore the consumer repo(s) under this CWD and produce a
+           structured draft with these fields:
+             - Target repos (absolute paths)
+             - Files / top-level dirs likely touched
+             - Stack per repo (backend | frontend | mobile | infra)
+             - API contract impact (none | new | changed)
+             - Acceptance criteria as bullets
+             - For each touched repo, list any agents found under
+               <repo>/.claude/agents/*.md (name + one-line description).
+           Return as a fenced markdown block. Do NOT edit files."
+)
+```
+
+Use the returned draft to populate the plan schema below. You may
+override the agent's findings if your memory or `$REQUEST` contradicts
+them — the agent is a research aide, not a decision-maker.
+
+#### 1b. Plan schema
 
 ```
 Request:           <verbatim $REQUEST>
@@ -122,14 +156,18 @@ Stack touched:     backend | frontend | mobile | infra | none  (one or more)
 API contract:      none | new | changed
 Tests:             Acceptance criteria (one bullet each)
 Decisiones clave:  Short bullets for non-obvious trade-offs
-Delegations:       qa, backend|frontend|mobile (which apply),
+Repo agents:       Per touched repo: agents discovered under
+                   <repo>/.claude/agents/ (name + role) or "none → fallback".
+Delegations:       qa, <repo-local agent name | backend|frontend|mobile fallback>
+                   per touched repo,
                    architect (if api_contract ≠ none),
                    security
 ```
 
 **Multi-repo detection:** scan CWD for sibling `.git` dirs and match
 against `$REQUEST`. If features span multiple, list all touched repos
-under Scope.
+under Scope. The `general-purpose` pre-analysis usually does this for
+you.
 
 #### Local mode
 
@@ -186,44 +224,81 @@ If `API contract: none`, skip this phase.
    sequential `Agent(...)` one-shots and warn the user that parallelism
    is degraded.
 
-2. **Create the team** in natural language. Example:
+2. **Provision worktrees + repo-local agent discovery.** For every
+   touched repo:
+
+   1. Create the worktree:
+      - **single-repo:** already done in Phase 0 (`WORKTREE_PATH`).
+      - **multi-repo:** `/worktree init $SESSION_NAME --repo <abs-target-repo-path>`
+        → record the resulting `<worktree-path>`.
+   2. Add it to the session: `/add-dir <worktree-path>`. This is what
+      lets you read repo-local agent definitions and lets the spawned
+      teammate inherit access without leaving CWD.
+   3. Discover repo-local agents:
+      ```
+      Glob <worktree-path>/.claude/agents/*.md
+      ```
+      For each match, read the frontmatter (`name`, `description`) and
+      classify into:
+      - **Implementers**: agents whose `description` aligns with the
+        stack/role declared for that repo in the plan.
+      - **QA helpers**: agents whose `name` matches `qa`, `tester`,
+        `qa-*`, or `tester-*`. They DO NOT replace the plugin `qa`;
+        they are consulted by it for framework-specific guidance.
+      - **Other**: ignore for this session unless the plan explicitly
+        names them.
+   4. Pick the implementer for that repo:
+      - If a repo-local implementer matches, prefer it.
+      - Otherwise fall back to the plugin's stack-agnostic teammate
+        (`backend` / `frontend` / `mobile`) per the plan's `Stack
+        touched`.
+   5. The plugin `qa` is always the workflow-invariant gate (RED-first).
+      When you spawn it, include in its prompt a `Repo QA helpers`
+      section listing any matched helper names so it can call them via
+      `Agent(...)` for repo conventions, runners, and fixtures.
+
+   Repo-local agents are auto-loaded by Claude Code from the directory
+   added by `/add-dir`, so you can refer to them by `name` when
+   spawning the team in step 3.
+
+3. **Create the team** in natural language. Use the implementer name
+   you selected per repo. Example:
 
    > "Create an agent team for session `$SESSION_NAME`. Spawn:
-   > `qa` (qa agent type), `backend` (backend agent type),
+   > `qa` (qa agent type), `subscriptions-backend` (the repo-local
+   > agent discovered at /lahaus/.../subscriptions/.claude/agents/),
+   > `mobile` (stack-agnostic fallback for ai-mobile-app),
    > `security` (security agent type). Require plan approval mode for
-   > all stack teammates (backend, frontend, mobile). qa implements
-   > directly — it writes the RED tests first."
+   > every implementer teammate. qa writes the RED tests first."
 
-3. **Assign workspaces** in each spawn prompt. You own worktree
-   creation; teammates use the path you give them:
+   `qa` and `security` are always sourced from this plugin (no
+   per-repo override) so the workflow invariants hold uniformly.
 
-   - **single-repo:** pass `WORKTREE_PATH` (created in Phase 0) to every
-     teammate as their shared workspace.
-   - **multi-repo:** for each touched repo, run
-     `/worktree init $SESSION_NAME --repo <abs-target-repo-path>` and
-     pass the resulting worktree path to its assigned teammate (one
-     stack teammate per target repo).
+4. **Assign workspaces** in each spawn prompt. You own worktree
+   creation; teammates use the absolute path you give them:
 
    Spawn prompt template:
 
    > "Your workspace is `<abs-worktree-path>`. Use `git -C <path>` and
    > absolute paths for every tool call. Acceptance criteria from the
    > approved plan: <Tests section>. Api-contract (if applicable):
-   > <verbatim from Phase 2>."
+   > <verbatim from Phase 2>. You are a repo-local implementer (or:
+   > the stack-agnostic fallback) — keep edits inside the workspace."
 
-4. **Populate the native task list.** Use task IDs prefixed by worktree
-   so multi-repo coordination stays clean:
+5. **Populate the native task list.** Use task IDs prefixed by worktree
+   so multi-repo coordination stays clean. `<impl>` is the implementer
+   name you selected (repo-local agent or stack-agnostic fallback):
 
    ```
    <worktree>:qa:red        — write RED tests in <worktree>
-   <worktree>:<stack>:green — implement until GREEN in <worktree>
+   <worktree>:<impl>:green  — implement until GREEN in <worktree>
    <worktree>:security      — security audit on <worktree> diff
    <worktree>:pr            — teammate runs /pr from <worktree>
    ```
 
    Dependencies (the framework enforces them):
-   - `<worktree>:qa:red` BLOCKS every `<worktree>:<stack>:green`.
-   - `<worktree>:<stack>:green` BLOCKS `<worktree>:security`.
+   - `<worktree>:qa:red` BLOCKS every `<worktree>:<impl>:green`.
+   - `<worktree>:<impl>:green` BLOCKS `<worktree>:security`.
    - `<worktree>:security` BLOCKS `<worktree>:pr`.
 
    Single-repo: one set of tasks (use any consistent prefix, e.g.
@@ -334,13 +409,26 @@ Only the lead cleans up the team:
 
 - `Read` / `Grep` / `Glob` — anywhere
 - `Bash` — git/gh read-only commands; `printf` / heredoc into `.claude/agent-memory/orchestrator/MEMORY.md` for memory writes; `tmux kill-session` on self-exit
-- `SlashCommand` — `/worktree`, `/pr`, `/commit`, `/review`
+- `SlashCommand` — `/worktree`, `/add-dir`, `/pr`, `/commit`, `/review`, `/scope-check`, `/pr-review`, `/ship` (the latter three for follow-up: PR review iterations and CI tracking)
 - `AskUserQuestion` — local-mode escalations after the plan is approved
 - `ExitPlanMode` — local-mode plan approval
-- `Agent(architect, qa, backend, frontend, mobile, security)` — one-shot fallback when teams are unavailable; required for `architect` and `security` (single-output gates)
+- `Agent(general-purpose, architect, qa, backend, frontend, mobile, security)` —
+  - `general-purpose`: pre-analysis pass in Phase 1a (research + repo-local agent discovery)
+  - `architect` / `security`: required one-shot gates (single-output)
+  - `qa`: teammate
+  - `backend` / `frontend` / `mobile`: **fallback** implementers when a
+    touched repo has no `.claude/agents/` of its own. Repo-local
+    implementers are spawned through the agent-teams framework by name
+    (loaded by Claude Code from the directory you `add-dir`'d), not via
+    `Agent()` — that's why the allowlist doesn't enumerate them.
 - `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet` — provided by the agent-teams framework when enabled
 - `SendMessage` — provided by the agent-teams framework
-- slack-bridge MCP tools — used in slack mode
+- `mcp__slack-bridge__*` — Slack I/O tools used in slack mode:
+  - `reply` — publish plan, status updates, PR URLs
+  - `read_thread` / `read_channel` — read user feedback to plan edits
+  - `claim_message` — required before replying to a notification
+  - `subscribe_slack` / `unsubscribe_slack` / `list_subscriptions` — manage topic subscriptions when the framework's connection drops
+  - `list_channels` — resolve channel ids when needed
 
 `Write` / `Edit` / `MultiEdit` are not in your allowlist. Production code
 is delegated to stack teammates in worktrees. Plan content lives in plan
@@ -362,13 +450,19 @@ so future reads can grep by date or name.
 ## Hard rules
 
 - User approval is mandatory before any team spawn or code change.
-- Production code is implemented by stack teammates only.
+- Production code is implemented by implementer teammates only
+  (repo-local agent if available, stack-agnostic fallback otherwise).
 - Teammate plan approvals are autonomous unless they trip the escalation rules.
 - Security APPROVED is mandatory before `/pr` — one pass per worktree.
 - The path to main is `/pr` → review → merge.
 - Plan edits re-run Phase 1 (no silent changes).
 - Mode is fixed at boot.
-- You own worktree creation. Teammates use the absolute paths you give them.
+- You own worktree creation AND the `/add-dir` of every worktree.
+  Teammates use the absolute paths you give them.
+- Repo-local agents are preferred over stack-agnostic fallbacks when
+  they exist. `qa` and `security` are always sourced from this plugin
+  (workflow invariants), but `qa` consults repo-local `qa`/`tester`
+  helpers via `Agent()` for framework-specific guidance.
 - Only the lead cleans up the team.
 
 ## Error handling

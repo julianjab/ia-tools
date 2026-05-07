@@ -6,46 +6,47 @@ Devin. Claude Code imports it via `@AGENTS.md` in `CLAUDE.md`.
 
 ## Session model — main vs sub
 
-The ia-tools plugin runs in **two distinct Claude Code session modes**. The
-discriminator is the `--agent` flag on the parent Claude process, detected
-by the slack-bridge MCP at boot via `ps -ww -p $PPID`:
+The operator picks the persona at boot via `claude --agent <plugin>:<name>`.
+slack-bridge is pure I/O transport — it does NOT inject any role and does
+NOT inspect argv.
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ MAIN SESSION  (no --agent flag → session-manager)        │
-│ - Always alive, listens to Slack DMs + subscribed chans  │
-│ - Prompt: plugins/slack-bridge/agents/session-manager.md │
-│   loaded at runtime by the slack-bridge MCP and surfaced │
-│   as its `instructions` field                            │
-│ - Tool whitelist: read-only (Read/Grep/Glob/Bash-ro)     │
-│ - Classifies every message into 5 intents:               │
-│     read-only       → reply inline in the thread         │
-│     trivial-config  → Agent(orchestrator), no branch     │
-│     small-change    → branch + Agent(orchestrator)       │
-│     scope-check     → /scope-check → verdict → route     │
-│     change          → /session → spawn sub-session       │
-│ - NEVER plans, NEVER edits without delegating            │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│ MAIN SESSION  (claude --agent team-workflow:session-manager)│
+│ - Always alive, listens to Slack DMs + subscribed chans    │
+│ - Prompt: plugins/team-workflow/agents/session-manager.md  │
+│   (loaded natively by Claude Code from the team-workflow   │
+│   plugin — same mechanism as any other plugin agent)       │
+│ - Tool whitelist: read-only (Read/Grep/Glob/Bash-ro)       │
+│ - Classifies every message into 5 intents:                 │
+│     read-only       → reply inline in the thread           │
+│     trivial-config  → Agent(orchestrator), no branch       │
+│     small-change    → branch + Agent(orchestrator)         │
+│     scope-check     → /scope-check → verdict → route       │
+│     change          → /session → spawn sub-session         │
+│ - NEVER plans, NEVER edits without delegating              │
+└────────────────────────────────────────────────────────────┘
          │ /scope-check (inline, no tmux)    │ /session
          ▼                                   ▼
 ┌──────────────────────┐     ┌────────────────────────────────────────────┐
-│ SCOPE-CHECK (inline) │     │ SUB-SESSION (--agent team-workflow:        │
-│ orchestrator subagent│     │              orchestrator)                 │
-│ mode=scope-check     │     │ - One per Slack topic / session            │
-│ Writes:              │     │ - Prompt: plugins/team-workflow/agents/    │
-│   .sessions/         │     │   orchestrator.md (loaded by Claude Code   │
-│     scope.md         │     │   natively from the team-workflow plugin)  │
-│     plan-draft.md    │     │ - slack-bridge MCP detects --agent in the  │
-│     verdict.json     │     │   parent argv and skips the session-       │
-│ Returns verdict JSON │     │   manager injection                        │
+│ SCOPE-CHECK (inline) │     │ SUB-SESSION (claude --agent                │
+│ orchestrator subagent│     │   team-workflow:orchestrator, booted by    │
+│ mode=scope-check     │     │   /session)                                │
+│ Writes:              │     │ - One per Slack topic / session            │
+│   .sessions/         │     │ - Prompt: plugins/team-workflow/agents/    │
+│     scope.md         │     │   orchestrator.md (plugin agent)           │
+│     plan-draft.md    │     │ - slack-bridge surfaces only its tools     │
+│     verdict.json     │     │   and a short lifecycle guide; the         │
+│ Returns verdict JSON │     │   orchestrator prompt is the personality   │
 │                      │     │ - Standard: dedicated worktree + tmux      │
 │                      │     │ - Subscribed to one Slack topic (slack)    │
 └──────────────────────┘     └────────────────────────────────────────────┘
 ```
 
-A Claude session is either a session-manager main session or a sub-session.
-The presence (or absence) of `--agent` on the parent process is the only
-switch — there is no `IA_TOOLS_ROLE` env var.
+There is no `IA_TOOLS_ROLE` env var, no `SessionStart` hook, and no
+argv-sniffing. Personas come from `--agent`; without it Claude runs
+unspecialised and only slack-bridge tools + their mechanical guide are
+visible.
 
 ## Invariants — not negotiable
 
@@ -112,10 +113,14 @@ SESSION-MANAGER classifies (main session)
                  ↓
              DECIDE DELEGATIONS: orchestrator picks teammates, creates
              the agent team. In multi-repo mode, orchestrator creates one
-             worktree per target repo via /worktree init --repo <path>, then
-             assigns each worktree to a stack teammate. Task dependencies:
-               qa:red BLOCKS every stack:* task
-               stack:* GREEN (no PR yet) BLOCKS security:audit (per worktree)
+             worktree per target repo via /worktree init --repo <path>,
+             /add-dir's each worktree, scans <worktree>/.claude/agents/*.md
+             to discover repo-local implementers, and assigns each
+             worktree to either its repo-local agent (preferred) or the
+             stack-agnostic fallback (backend|frontend|mobile).
+             Task dependencies:
+               qa:red BLOCKS every <impl>:* task
+               <impl>:* GREEN (no PR yet) BLOCKS security:audit (per worktree)
                security:audit APPROVED BLOCKS pr:open (per worktree)
                  ↓
              TEAM RUNS (each stack teammate works in its assigned worktree;
@@ -171,18 +176,22 @@ ORCHESTRATOR (resume-from mode)
 APPROVAL (✅)
     ↓
 SPEC → DELEGATE
-  orchestrator creates worktrees:
+  orchestrator creates worktrees + add-dir + discovers repo agents:
     /worktree init feat/payment-tracking --repo /lahaus/backend/python/subscriptions
+    /add-dir /lahaus/backend/python/subscriptions/.worktrees/feat-payment-tracking
+    Glob .../.claude/agents/*.md → finds "subscriptions-backend"
     /worktree init feat/payment-tracking --repo /lahaus/mobile/ai-mobile-app
-  orchestrator creates team: qa, backend, mobile
-  backend receives: "Work in /lahaus/backend/python/subscriptions/.worktrees/feat-payment-tracking"
-  mobile receives:  "Work in /lahaus/mobile/ai-mobile-app/.worktrees/feat-payment-tracking"
+    /add-dir /lahaus/mobile/ai-mobile-app/.worktrees/feat-payment-tracking
+    Glob .../.claude/agents/*.md → none → fallback to plugin "mobile"
+  orchestrator creates team: qa, subscriptions-backend (repo-local), mobile (fallback)
+  subscriptions-backend receives: "Work in /lahaus/backend/python/subscriptions/.worktrees/feat-payment-tracking"
+  mobile receives:                "Work in /lahaus/mobile/ai-mobile-app/.worktrees/feat-payment-tracking"
     ↓
 qa writes RED tests → ✅ RED confirmed
     ↓
-backend + mobile (unblocked, parallel):
-  each /worktree init feat/payment-tracking --repo <target_repo>
-  each implement + tests GREEN (local, PR not yet opened)
+subscriptions-backend + mobile (unblocked, parallel):
+  each works in the worktree the orchestrator already provisioned
+  each implements + runs tests GREEN (local, PR not yet opened)
     ↓
 SECURITY (per teammate, before /pr):
   orchestrator → Agent(security, worktree_path=backend-worktree) → APPROVED
@@ -212,7 +221,7 @@ Key points:
 
 | Agent          | File                    | Primary mode                              | Model  | Color  | Why that mode                                                                 |
 |----------------|-------------------------|-------------------------------------------|--------|--------|-------------------------------------------------------------------------------|
-| `session-manager` | `plugins/team-workflow/agents/session-manager.md` | main-thread subagent               | sonnet | cyan   | Router, single session, no parallelism needed.                                |
+| `session-manager` | `plugins/team-workflow/agents/session-manager.md` | main session (load with `--agent team-workflow:session-manager`) | sonnet | cyan   | Router, single session, no parallelism needed.                                |
 | `orchestrator` | `plugins/team-workflow/agents/orchestrator.md`| main-thread subagent + **team lead**      | opus   | purple | Only session allowed to spawn specialists + create the team.                  |
 | `architect`    | `plugins/team-workflow/agents/architect.md`   | one-shot subagent (optional teammate)     | opus   | orange | Produces a single `api-contract.md` and exits.                                |
 | `qa`           | `plugins/team-workflow/agents/qa.md`          | **teammate**                              | sonnet | yellow | Persistent context across RED → verify GREEN → re-test follow-ups.            |
@@ -223,6 +232,36 @@ Key points:
 
 All 6 non-main agents carry `memory: project` so they accumulate project
 patterns across tasks in `.claude/agent-memory/<agent>/`.
+
+### Repo-local implementer discovery
+
+`backend`, `frontend`, and `mobile` are **fallback** implementers. When
+the orchestrator provisions a worktree for a touched repo, it:
+
+1. Runs `/add-dir <worktree>` so Claude Code loads agents from
+   `<worktree>/.claude/agents/`.
+2. Globs `<worktree>/.claude/agents/*.md` and reads frontmatter `name`
+   and `description`.
+3. If a repo-local agent matches the role declared in the plan, it
+   becomes the implementer for that worktree; otherwise the
+   stack-agnostic fallback is used.
+
+`qa` and `security` are always the plugin's own agents — they enforce
+workflow invariants (RED-first tests, security audit) and must not be
+overridden by repos.
+
+That said, the plugin `qa` **complements itself** with repo-local
+helpers. During discovery the orchestrator also classifies any
+repo-local agent whose name matches `qa`, `tester`, `qa-*`, or
+`tester-*` as a QA helper and forwards the list to the spawned plugin
+`qa`. The plugin `qa` keeps the RED-first contract and final GREEN
+verdict; it calls the helpers via `Agent()` for repo-specific
+framework, runner, fixture, and naming guidance.
+
+The orchestrator also delegates the Phase-1 pre-analysis pass to
+Claude Code's built-in `general-purpose` agent before drafting the
+plan. Repo discovery, stack detection, and acceptance-criteria
+extraction run there to keep the orchestrator's context lean.
 
 **Removed in the April 2026 reorganization:** `issue-refiner`, `backend-lead`,
 `frontend-lead`, `mobile-lead`, `api-agent`, `domain-agent`, `ui-agent`,

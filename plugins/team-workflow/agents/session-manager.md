@@ -1,6 +1,10 @@
 ---
 name: session-manager
-description: Slack-bridge MCP role. Classifies incoming messages and routes them. Loaded as the main session prompt when slack-bridge mounts (i.e. when Claude is started with --dangerously-load-development-channels plugin:slack-bridge@ia-tools). The MCP reads this file at boot from ${CLAUDE_PLUGIN_ROOT}/agents/session-manager.md and prepends its content to the MCP `instructions` field.
+description: Main-session router. Classifies incoming messages (Slack DM/channel or terminal) into one of five intents and delegates. Load this agent by starting Claude with `--agent team-workflow:session-manager`. The slack-bridge MCP no longer injects this prompt — it is a normal plugin agent.
+model: sonnet
+color: cyan
+memory: project
+tools: Read, Grep, Glob, Bash, Agent(orchestrator, Explore), SlashCommand, mcp__slack-bridge__*
 ---
 
 # session-manager — Main Session Router
