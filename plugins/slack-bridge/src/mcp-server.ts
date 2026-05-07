@@ -37,6 +37,7 @@
  */
 
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -534,177 +535,195 @@ export class McpBridgeServer {
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
+//
+// Everything below this line is bootstrap with side effects: process-level
+// signal handlers, session-id resolution (3 s retry), `/tmp/slack-bridge/<id>/`
+// directory creation, daemon ensure, port allocation, stdio transport
+// connection. Wrapping it in an entry-point guard means importing this
+// module from tests (or other tooling) only loads the class definition —
+// no log dirs leak, no daemon probe, no JSON-RPC reject path. The standard
+// ESM check `process.argv[1] === fileURLToPath(import.meta.url)` is true
+// only when this file was invoked as `node mcp-server.js` (or via the
+// bundled `dist/mcp-server.js`), false on every `import` path.
 
-process.on('unhandledRejection', (reason) => {
-  process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}\n`);
-  if (reason instanceof Error) process.stderr.write(reason.stack ?? '');
-  process.stderr.write('\n');
-  process.exit(1);
-});
+const isEntryPoint = process.argv[1] === fileURLToPath(import.meta.url);
+if (isEntryPoint) {
+  await (async () => {
+    process.on('unhandledRejection', (reason) => {
+      process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}\n`);
+      if (reason instanceof Error) process.stderr.write(reason.stack ?? '');
+      process.stderr.write('\n');
+      process.exit(1);
+    });
 
-process.on('uncaughtException', (err) => {
-  process.stderr.write(`[mcp] uncaughtException: ${err.message}\n${err.stack ?? ''}\n`);
-  process.exit(1);
-});
+    process.on('uncaughtException', (err) => {
+      process.stderr.write(`[mcp] uncaughtException: ${err.message}\n${err.stack ?? ''}\n`);
+      process.exit(1);
+    });
 
-const paths = new PathResolver();
-// Capture log lines from resolveSessionId until the real logger exists, then
-// replay them so the resolution outcome lands in the per-session log file.
-const bootBuffer: Array<{ level: 'log' | 'warn'; msg: string }> = [];
-const captureLogger: Logger = {
-  log: (msg: string) => bootBuffer.push({ level: 'log', msg }),
-  warn: (msg: string) => bootBuffer.push({ level: 'warn', msg }),
-  error: (msg: string) => bootBuffer.push({ level: 'warn', msg }),
-  debug: () => {},
-};
-const { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
-  process.ppid,
-  captureLogger,
-);
-const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
-const stateFilePath = paths.getStateFilePath(SESSION_ID);
-const logger = new McpLogger({ sessionId: SESSION_ID, paths });
-for (const entry of bootBuffer) {
-  if (entry.level === 'warn') logger.warn(entry.msg);
-  else logger.log(entry.msg);
-}
-logger.log(`session id source: ${SESSION_ID_SOURCE}`);
-
-const botToken = process.env.SLACK_BOT_TOKEN;
-if (!botToken) {
-  logger.error('Missing SLACK_BOT_TOKEN');
-  process.exit(1);
-}
-
-const DAEMON_URL = resolveDaemonUrl();
-logger.log(
-  `starting — session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`,
-);
-
-// slack-bridge depends on the experimental `claude/channel` capability, which
-// is only enabled when Claude is started with --dangerously-load-development-channels.
-// That flag is not propagated to MCP child processes via env, but the parent
-// process (Claude itself) preserves it in its argv — readable via `ps`.
-const parentCmd = readParentCmd(process.ppid);
-const hasDevChannels = hasDevChannelsFlag(parentCmd);
-// Detecting `--agent <name>` (with the trailing space) lets us tell whether
-// the operator picked a specific agent at boot. When they did, we leave that
-// agent's prompt as the active personality and skip the session-manager role
-// injection. When they didn't, we load the .md file at startup and surface
-// it as the MCP `instructions` so the main session adopts session-manager.
-const agentFlagPresent = hasAgentFlag(parentCmd);
-logger.log(`parent argv: ${parentCmd || '(unavailable)'}`);
-if (!hasDevChannels) {
-  const msg =
-    'slack-bridge requires Claude to be started with --dangerously-load-development-channels. ' +
-    'Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools';
-  logger.error(msg);
-
-  // Reply to the JSON-RPC `initialize` request with an error so Claude marks
-  // the MCP as failed and the user cannot invoke its tools. The reason is
-  // surfaced in Claude's debug log (~/.claude/debug/<session>.txt) and in
-  // /tmp/slack-bridge/<session>/mcp-logs.json.
-  const { createInterface } = await import('node:readline');
-  const rl = createInterface({ input: process.stdin });
-  rl.on('line', (line) => {
-    try {
-      const req = JSON.parse(line) as { id?: number | string; method?: string };
-      if (req.method === 'initialize' && req.id !== undefined) {
-        const resp = {
-          jsonrpc: '2.0',
-          id: req.id,
-          error: { code: -32002, message: msg },
-        };
-        process.stdout.write(`${JSON.stringify(resp)}\n`);
-        // Give stdout a tick to flush before exit.
-        setTimeout(() => process.exit(1), 50);
-      }
-    } catch {
-      // Ignore non-JSON lines.
-    }
-  });
-  // Safety timeout: if `initialize` never arrives, exit anyway.
-  setTimeout(() => process.exit(1), 5000);
-  // Block top-level await so the rest of the file doesn't run.
-  await new Promise<never>(() => {});
-}
-
-let daemonReady = false;
-try {
-  await ensureDaemon(
-    DAEMON_URL,
-    {
-      session: SESSION_ID,
-      pid: process.pid,
-      ppid: process.ppid,
-      cwd: process.cwd(),
-    },
-    logger,
-  );
-  daemonReady = true;
-  try {
-    const res = await fetch(`${DAEMON_URL}/health`);
-    const health = (await res.json()) as { pid?: number; entrypoint?: string };
-    logger.log(
-      `daemon ready at ${DAEMON_URL} — pid=${health.pid ?? '?'} entrypoint=${health.entrypoint ?? '?'}`,
+    const paths = new PathResolver();
+    // Capture log lines from resolveSessionId until the real logger exists,
+    // then replay them so the resolution outcome lands in the per-session log.
+    const bootBuffer: Array<{ level: 'log' | 'warn'; msg: string }> = [];
+    const captureLogger: Logger = {
+      log: (msg: string) => bootBuffer.push({ level: 'log', msg }),
+      warn: (msg: string) => bootBuffer.push({ level: 'warn', msg }),
+      error: (msg: string) => bootBuffer.push({ level: 'warn', msg }),
+      debug: () => {},
+    };
+    const { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
+      process.ppid,
+      captureLogger,
     );
-  } catch (err) {
-    logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
-  }
-} catch (err) {
-  logger.warn(`ensureDaemon failed — continuing in read-only mode: ${err}`);
+    const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
+    const stateFilePath = paths.getStateFilePath(SESSION_ID);
+    const logger = new McpLogger({ sessionId: SESSION_ID, paths });
+    for (const entry of bootBuffer) {
+      if (entry.level === 'warn') logger.warn(entry.msg);
+      else logger.log(entry.msg);
+    }
+    logger.log(`session id source: ${SESSION_ID_SOURCE}`);
+
+    const botToken = process.env.SLACK_BOT_TOKEN;
+    if (!botToken) {
+      logger.error('Missing SLACK_BOT_TOKEN');
+      process.exit(1);
+    }
+
+    const DAEMON_URL = resolveDaemonUrl();
+    logger.log(
+      `starting — session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`,
+    );
+
+    // slack-bridge depends on the experimental `claude/channel` capability,
+    // which is only enabled when Claude is started with
+    // --dangerously-load-development-channels. That flag is not propagated
+    // to MCP child processes via env, but the parent process (Claude itself)
+    // preserves it in its argv — readable via `ps`.
+    const parentCmd = readParentCmd(process.ppid);
+    const hasDevChannels = hasDevChannelsFlag(parentCmd);
+    // Detecting `--agent <name>` (with the trailing space) lets us tell
+    // whether the operator picked a specific agent at boot. When they did,
+    // we leave that agent's prompt as the active personality and skip the
+    // session-manager role injection. When they didn't, we load the .md
+    // file at startup and surface it as the MCP `instructions` so the main
+    // session adopts session-manager.
+    const agentFlagPresent = hasAgentFlag(parentCmd);
+    logger.log(`parent argv: ${parentCmd || '(unavailable)'}`);
+    if (!hasDevChannels) {
+      const msg =
+        'slack-bridge requires Claude to be started with --dangerously-load-development-channels. ' +
+        'Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools';
+      logger.error(msg);
+
+      // Reply to the JSON-RPC `initialize` request with an error so Claude
+      // marks the MCP as failed and the user cannot invoke its tools. The
+      // reason is surfaced in Claude's debug log
+      // (~/.claude/debug/<session>.txt) and in
+      // /tmp/slack-bridge/<session>/mcp-logs.json.
+      const { createInterface } = await import('node:readline');
+      const rl = createInterface({ input: process.stdin });
+      rl.on('line', (line) => {
+        try {
+          const req = JSON.parse(line) as { id?: number | string; method?: string };
+          if (req.method === 'initialize' && req.id !== undefined) {
+            const resp = {
+              jsonrpc: '2.0',
+              id: req.id,
+              error: { code: -32002, message: msg },
+            };
+            process.stdout.write(`${JSON.stringify(resp)}\n`);
+            // Give stdout a tick to flush before exit.
+            setTimeout(() => process.exit(1), 50);
+          }
+        } catch {
+          // Ignore non-JSON lines.
+        }
+      });
+      // Safety timeout: if `initialize` never arrives, exit anyway.
+      setTimeout(() => process.exit(1), 5000);
+      // Block until exit so the rest of bootstrap doesn't run.
+      await new Promise<never>(() => {});
+    }
+
+    let daemonReady = false;
+    try {
+      await ensureDaemon(
+        DAEMON_URL,
+        {
+          session: SESSION_ID,
+          pid: process.pid,
+          ppid: process.ppid,
+          cwd: process.cwd(),
+        },
+        logger,
+      );
+      daemonReady = true;
+      try {
+        const res = await fetch(`${DAEMON_URL}/health`);
+        const health = (await res.json()) as { pid?: number; entrypoint?: string };
+        logger.log(
+          `daemon ready at ${DAEMON_URL} — pid=${health.pid ?? '?'} entrypoint=${health.entrypoint ?? '?'}`,
+        );
+      } catch (err) {
+        logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+      }
+    } catch (err) {
+      logger.warn(`ensureDaemon failed — continuing in read-only mode: ${err}`);
+    }
+
+    const web = new WebClient(botToken);
+
+    // Build server first so the webhook callback can reference it safely
+    const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
+      const { message } = payload;
+      logger.debug(
+        `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(',')}`,
+      );
+      try {
+        await mcpServer.handleIncomingMessage(payload);
+        logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
+      } catch (err) {
+        logger.error(`[webhook] notification failed: ${err}`);
+        if (err instanceof Error) logger.error(err.stack ?? '');
+        throw err;
+      }
+    });
+
+    const webhookPort = await webhookSrv.start();
+    const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
+    const allowedSubscribeUsers = parseAllowedSubscribeUsers(
+      process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS,
+    );
+    if (allowedSubscribeUsers.size > 0) {
+      logger.log(
+        `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) — Slack-originated subscribe/unsubscribe must include requested_by`,
+      );
+    } else {
+      logger.log(
+        'subscribe gate: no allowlist — Slack-originated subscribe/unsubscribe will be REJECTED',
+      );
+    }
+
+    // Decide once at startup. If the parent Claude was started with
+    // `--agent`, the operator picked a specific persona — leave it alone.
+    // Otherwise the main session is unspecialised and slack-bridge supplies
+    // the session-manager role via the MCP `instructions` field.
+    const sessionManagerPrompt = agentFlagPresent ? '' : loadSessionManagerPrompt(logger);
+    if (agentFlagPresent) {
+      logger.log('agent flag detected in parent argv — skipping session-manager prompt injection');
+    }
+
+    const mcpServer = new McpBridgeServer({
+      web,
+      daemonClient,
+      logger,
+      stateFilePath,
+      allowedSubscribeUsers,
+      sessionId: SESSION_ID,
+      sessionManagerPrompt,
+    });
+
+    await mcpServer.connect(new StdioServerTransport());
+  })();
 }
-
-const web = new WebClient(botToken);
-
-// Build server first so the webhook callback can reference it safely
-const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
-  const { message } = payload;
-  logger.debug(
-    `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(',')}`,
-  );
-  try {
-    await mcpServer.handleIncomingMessage(payload);
-    logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
-  } catch (err) {
-    logger.error(`[webhook] notification failed: ${err}`);
-    if (err instanceof Error) logger.error(err.stack ?? '');
-    throw err;
-  }
-});
-
-const webhookPort = await webhookSrv.start();
-const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-const allowedSubscribeUsers = parseAllowedSubscribeUsers(
-  process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS,
-);
-if (allowedSubscribeUsers.size > 0) {
-  logger.log(
-    `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) — Slack-originated subscribe/unsubscribe must include requested_by`,
-  );
-} else {
-  logger.log(
-    'subscribe gate: no allowlist — Slack-originated subscribe/unsubscribe will be REJECTED',
-  );
-}
-
-// Decide once at startup. If the parent Claude was started with `--agent`,
-// the operator picked a specific persona — leave it alone. Otherwise the
-// main session is unspecialised and slack-bridge supplies the session-manager
-// role via the MCP `instructions` field.
-const sessionManagerPrompt = agentFlagPresent ? '' : loadSessionManagerPrompt(logger);
-if (agentFlagPresent) {
-  logger.log('agent flag detected in parent argv — skipping session-manager prompt injection');
-}
-
-const mcpServer = new McpBridgeServer({
-  web,
-  daemonClient,
-  logger,
-  stateFilePath,
-  allowedSubscribeUsers,
-  sessionId: SESSION_ID,
-  sessionManagerPrompt,
-});
-
-await mcpServer.connect(new StdioServerTransport());

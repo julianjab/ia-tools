@@ -4371,13 +4371,13 @@ var require_core = __commonJS({
     }, warn() {
     }, error() {
     } };
-    function getLogger(logger2) {
-      if (logger2 === false)
+    function getLogger(logger) {
+      if (logger === false)
         return noLogs;
-      if (logger2 === void 0)
+      if (logger === void 0)
         return console;
-      if (logger2.log && logger2.warn && logger2.error)
-        return logger2;
+      if (logger.log && logger.warn && logger.error)
+        return logger;
       throw new Error("logger must implement log, warn and error methods");
     }
     var KEYWORD_NAME = /^[a-z_$][a-z0-9_$:-]*$/i;
@@ -7115,17 +7115,17 @@ var require_logger = __commonJS({
     function getLogger(name, level, existingLogger) {
       const instanceId = instanceCount;
       instanceCount += 1;
-      const logger2 = (() => {
+      const logger = (() => {
         if (existingLogger !== void 0) {
           return existingLogger;
         }
         return new logger_1.ConsoleLogger();
       })();
-      logger2.setName(`web-api:${name}:${instanceId}`);
+      logger.setName(`web-api:${name}:${instanceId}`);
       if (level !== void 0) {
-        logger2.setLevel(level);
+        logger.setLevel(level);
       }
-      return logger2;
+      return logger;
     }
   }
 });
@@ -7214,11 +7214,11 @@ var require_chat_stream = __commonJS({
        * @see {@link https://docs.slack.dev/reference/methods/chat.appendStream}
        * @see {@link https://docs.slack.dev/reference/methods/chat.stopStream}
        */
-      constructor(client, logger2, args, options) {
+      constructor(client, logger, args, options) {
         var _a2;
         this.buffer = "";
         this.client = client;
-        this.logger = logger2;
+        this.logger = logger;
         this.options = {
           buffer_size: (_a2 = options.buffer_size) !== null && _a2 !== void 0 ? _a2 : 256
         };
@@ -23395,12 +23395,12 @@ var require_file_upload = __commonJS({
     var node_fs_1 = __require("node:fs");
     var node_stream_1 = __require("node:stream");
     var errors_1 = require_errors2();
-    async function getFileUploadJob(options, logger2) {
+    async function getFileUploadJob(options, logger) {
       var _a2, _b, _c, _d;
-      warnIfLegacyFileType(options, logger2);
-      warnIfChannels(options, logger2);
+      warnIfLegacyFileType(options, logger);
+      warnIfChannels(options, logger);
       errorIfChannelsCsv(options);
-      const fileName = warnIfMissingOrInvalidFileNameAndDefault(options, logger2);
+      const fileName = warnIfMissingOrInvalidFileNameAndDefault(options, logger);
       const fileData = await getFileData(options);
       const fileDataBytesLength = getFileDataLength(fileData);
       const fileUploadJob = {
@@ -23431,7 +23431,7 @@ var require_file_upload = __commonJS({
       }
       throw (0, errors_1.errorWithCode)(new Error("Either a file or content field is required for valid file upload. You must supply one"), errors_1.ErrorCode.FileUploadInvalidArgumentsError);
     }
-    async function getMultipleFileUploadJobs(options, logger2) {
+    async function getMultipleFileUploadJobs(options, logger) {
       if ("file_uploads" in options) {
         return Promise.all(options.file_uploads.map((upload) => {
           const { blocks, channel_id, channels, initial_comment, thread_ts } = upload;
@@ -23446,10 +23446,10 @@ var require_file_upload = __commonJS({
             uploadJobArgs.token = options.token;
           }
           if ("content" in upload) {
-            return getFileUploadJob(Object.assign({ content: upload.content }, uploadJobArgs), logger2);
+            return getFileUploadJob(Object.assign({ content: upload.content }, uploadJobArgs), logger);
           }
           if ("file" in upload) {
-            return getFileUploadJob(Object.assign({ file: upload.file }, uploadJobArgs), logger2);
+            return getFileUploadJob(Object.assign({ file: upload.file }, uploadJobArgs), logger);
           }
           throw (0, errors_1.errorWithCode)(new Error("Either a file or content field is required for valid file upload. You must supply one"), errors_1.ErrorCode.FileUploadInvalidArgumentsError);
         }));
@@ -23539,17 +23539,17 @@ var require_file_upload = __commonJS({
       }
       return toComplete;
     }
-    function warnIfNotUsingFilesUploadV2(method, logger2) {
+    function warnIfNotUsingFilesUploadV2(method, logger) {
       const targetMethods = ["files.upload"];
       const isTargetMethod = targetMethods.includes(method);
       if (method === "files.upload")
-        logger2.warn(buildLegacyMethodWarning(method));
+        logger.warn(buildLegacyMethodWarning(method));
       if (isTargetMethod)
-        logger2.info(buildGeneralFilesUploadWarning());
+        logger.info(buildGeneralFilesUploadWarning());
     }
-    function warnIfChannels(options, logger2) {
+    function warnIfChannels(options, logger) {
       if (options.channels)
-        logger2.warn(buildChannelsWarning());
+        logger.warn(buildChannelsWarning());
     }
     function errorIfChannelsCsv(options) {
       const channels = options.channels ? options.channels.split(",") : [];
@@ -23573,23 +23573,23 @@ var require_file_upload = __commonJS({
         throw (0, errors_1.errorWithCode)(new Error("content must be a string"), errors_1.ErrorCode.FileUploadInvalidArgumentsError);
       }
     }
-    function warnIfMissingOrInvalidFileNameAndDefault(options, logger2) {
+    function warnIfMissingOrInvalidFileNameAndDefault(options, logger) {
       var _a2;
       const DEFAULT_FILETYPE = "txt";
       const DEFAULT_FILENAME = `file.${(_a2 = options.filetype) !== null && _a2 !== void 0 ? _a2 : DEFAULT_FILETYPE}`;
       const { filename } = options;
       if (!filename) {
-        logger2.warn(buildMissingFileNameWarning());
+        logger.warn(buildMissingFileNameWarning());
         return DEFAULT_FILENAME;
       }
       if (filename.split(".").length < 2) {
-        logger2.warn(buildMissingExtensionWarning(filename));
+        logger.warn(buildMissingExtensionWarning(filename));
       }
       return filename;
     }
-    function warnIfLegacyFileType(options, logger2) {
+    function warnIfLegacyFileType(options, logger) {
       if (options.filetype) {
-        logger2.warn(buildLegacyFileTypeWarning());
+        logger.warn(buildLegacyFileTypeWarning());
       }
     }
     function buildMissingFileIdError() {
@@ -26002,7 +26002,7 @@ var require_WebClient = __commonJS({
        * @param {Function} [webClientOptions.requestInterceptor] - An interceptor to mutate outgoing requests. See {@link https://axios-http.com/docs/interceptors Axios interceptors}
        * @param {Function} [webClientOptions.adapter] - An adapter to allow custom handling of requests. Useful if you would like to use a pre-configured http client. See {@link https://github.com/axios/axios/blob/v1.x/README.md?plain=1#L586 Axios adapter}
        */
-      constructor(token, { slackApiUrl = "https://slack.com/api/", logger: logger2 = void 0, logLevel = void 0, maxRequestConcurrency = 100, retryConfig = retry_policies_1.tenRetriesInAboutThirtyMinutes, agent = void 0, tls = void 0, timeout = 0, rejectRateLimitedCalls = false, headers = {}, teamId = void 0, allowAbsoluteUrls = true, attachOriginalToWebAPIRequestError = true, requestInterceptor = void 0, adapter = void 0 } = {}) {
+      constructor(token, { slackApiUrl = "https://slack.com/api/", logger = void 0, logLevel = void 0, maxRequestConcurrency = 100, retryConfig = retry_policies_1.tenRetriesInAboutThirtyMinutes, agent = void 0, tls = void 0, timeout = 0, rejectRateLimitedCalls = false, headers = {}, teamId = void 0, allowAbsoluteUrls = true, attachOriginalToWebAPIRequestError = true, requestInterceptor = void 0, adapter = void 0 } = {}) {
         super();
         this.token = token;
         this.slackApiUrl = slackApiUrl;
@@ -26016,13 +26016,13 @@ var require_WebClient = __commonJS({
         this.teamId = teamId;
         this.allowAbsoluteUrls = allowAbsoluteUrls;
         this.attachOriginalToWebAPIRequestError = attachOriginalToWebAPIRequestError;
-        if (typeof logger2 !== "undefined") {
-          this.logger = logger2;
+        if (typeof logger !== "undefined") {
+          this.logger = logger;
           if (typeof logLevel !== "undefined") {
             this.logger.debug("The logLevel given to WebClient was ignored as you also gave logger");
           }
         } else {
-          this.logger = (0, logger_1.getLogger)(_WebClient.loggerName, logLevel !== null && logLevel !== void 0 ? logLevel : logger_1.LogLevel.INFO, logger2);
+          this.logger = (0, logger_1.getLogger)(_WebClient.loggerName, logLevel !== null && logLevel !== void 0 ? logLevel : logger_1.LogLevel.INFO, logger);
         }
         if (this.token && !headers.Authorization)
           headers.Authorization = `Bearer ${this.token}`;
@@ -26499,17 +26499,17 @@ var require_WebClient = __commonJS({
       }
       return void 0;
     }
-    function warnDeprecations(method, logger2) {
+    function warnDeprecations(method, logger) {
       const deprecatedMethods = ["workflows.stepCompleted", "workflows.stepFailed", "workflows.updateStep"];
       const isDeprecated = deprecatedMethods.some((depMethod) => {
         const re = new RegExp(`^${depMethod}`);
         return re.test(method);
       });
       if (isDeprecated) {
-        logger2.warn(`${method} is deprecated. Please check on https://docs.slack.dev/reference/methods for an alternative.`);
+        logger.warn(`${method} is deprecated. Please check on https://docs.slack.dev/reference/methods for an alternative.`);
       }
     }
-    function warnIfFallbackIsMissing(method, logger2, options) {
+    function warnIfFallbackIsMissing(method, logger, options) {
       const targetMethods = ["chat.postEphemeral", "chat.postMessage", "chat.scheduleMessage"];
       const isTargetMethod = targetMethods.includes(method);
       const hasAttachments = (args) => Array.isArray(args.attachments) && args.attachments.length;
@@ -26520,19 +26520,19 @@ var require_WebClient = __commonJS({
       if (isTargetMethod && typeof options === "object") {
         if (hasAttachments(options)) {
           if (missingAttachmentFallbackDetected(options) && isEmptyText(options)) {
-            logger2.warn(buildMissingTextWarning());
-            logger2.warn(buildMissingFallbackWarning());
+            logger.warn(buildMissingTextWarning());
+            logger.warn(buildMissingFallbackWarning());
           }
         } else if (isEmptyText(options)) {
-          logger2.warn(buildMissingTextWarning());
+          logger.warn(buildMissingTextWarning());
         }
       }
     }
-    function warnIfThreadTsIsNotString(method, logger2, options) {
+    function warnIfThreadTsIsNotString(method, logger, options) {
       const targetMethods = ["chat.postEphemeral", "chat.postMessage", "chat.scheduleMessage", "files.upload"];
       const isTargetMethod = targetMethods.includes(method);
       if (isTargetMethod && (options === null || options === void 0 ? void 0 : options.thread_ts) !== void 0 && typeof (options === null || options === void 0 ? void 0 : options.thread_ts) !== "string") {
-        logger2.warn(buildThreadTsWarningMessage(method));
+        logger.warn(buildThreadTsWarningMessage(method));
       }
     }
     function buildThreadTsWarningMessage(method) {
@@ -26625,6 +26625,7 @@ var require_dist5 = __commonJS({
 
 // src/mcp-server.ts
 import { join as join4 } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -40663,14 +40664,14 @@ function parseAllowedSubscribeUsers(envValue) {
     (envValue ?? "").split(",").map((s) => s.trim()).filter(Boolean)
   );
 }
-function gateSubscribeChange(args, op, allowedSubscribeUsers2, logger2) {
+function gateSubscribeChange(args, op, allowedSubscribeUsers, logger) {
   const raw = args.requested_by;
   const requestedBy = typeof raw === "string" && raw.length > 0 ? raw : null;
   if (!requestedBy) {
     return null;
   }
-  if (allowedSubscribeUsers2.size === 0) {
-    logger2.warn(`[gate] ${op} rejected \u2014 Slack-originated, no allowlist configured`);
+  if (allowedSubscribeUsers.size === 0) {
+    logger.warn(`[gate] ${op} rejected \u2014 Slack-originated, no allowlist configured`);
     return {
       content: [
         {
@@ -40681,13 +40682,13 @@ function gateSubscribeChange(args, op, allowedSubscribeUsers2, logger2) {
       isError: true
     };
   }
-  if (!allowedSubscribeUsers2.has(requestedBy)) {
-    logger2.warn(`[gate] ${op} rejected \u2014 ${requestedBy} not in allowlist`);
+  if (!allowedSubscribeUsers.has(requestedBy)) {
+    logger.warn(`[gate] ${op} rejected \u2014 ${requestedBy} not in allowlist`);
     return {
       content: [
         {
           type: "text",
-          text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...allowedSubscribeUsers2].join(", ")}.`
+          text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...allowedSubscribeUsers].join(", ")}.`
         }
       ],
       isError: true
@@ -40812,8 +40813,8 @@ function loadConfig(cwd) {
   if (raw === null) return {};
   return projectAllowed(raw.slack);
 }
-function loadConfigFromPath(stateFilePath2) {
-  const raw = readRawFile(stateFilePath2);
+function loadConfigFromPath(stateFilePath) {
+  const raw = readRawFile(stateFilePath);
   if (raw === null) return {};
   return projectAllowed(raw.slack);
 }
@@ -40842,17 +40843,17 @@ function writeMerged(filePath, patch) {
 function saveConfig(patch, cwd) {
   writeMerged(legacyConfigFilePath(cwd ?? process.cwd()), patch);
 }
-function saveConfigAtPath(stateFilePath2, patch) {
-  writeMerged(stateFilePath2, patch);
+function saveConfigAtPath(stateFilePath, patch) {
+  writeMerged(stateFilePath, patch);
 }
 
 // src/daemon-client.ts
 import { debuglog } from "node:util";
 var debug = debuglog("slack-bridge:mcp");
 var DaemonClient = class {
-  constructor(daemonUrl, webhookPort2) {
+  constructor(daemonUrl, webhookPort) {
     this.daemonUrl = daemonUrl;
-    this.webhookPort = webhookPort2;
+    this.webhookPort = webhookPort;
   }
   daemonUrl;
   webhookPort;
@@ -41008,7 +41009,7 @@ function spawnDaemon(port, spawner) {
   closeSync(logFd);
   child.unref();
 }
-async function ensureDaemon(daemonUrl, spawner, logger2) {
+async function ensureDaemon(daemonUrl, spawner, logger) {
   if (await isHealthy(daemonUrl)) return;
   if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) {
     throw new Error(
@@ -41016,7 +41017,7 @@ async function ensureDaemon(daemonUrl, spawner, logger2) {
     );
   }
   const port = Number.parseInt(new URL(daemonUrl).port || "3800", 10);
-  logger2?.log(
+  logger?.log(
     `spawning daemon \u2014 session=${spawner.session} pid=${spawner.pid} ppid=${spawner.ppid} cwd=${spawner.cwd}`
   );
   spawnDaemon(port, spawner);
@@ -41033,18 +41034,18 @@ function warn(msg) {
   process.stderr.write(`${msg}
 `);
 }
-async function clearThinkingAck(web2, args) {
+async function clearThinkingAck(web, args) {
   const emoji3 = process.env.SLACK_ACK_EMOJI ?? "eyes";
   const threadTs = args.thread_ts ?? args.message_ts;
   await Promise.allSettled([
-    web2.reactions.remove({
+    web.reactions.remove({
       name: emoji3,
       channel: args.channel_id,
       timestamp: args.message_ts
     }).catch((err) => warn(`[ack-client] reactions.remove failed: ${err}`)),
     (async () => {
       try {
-        const client = web2;
+        const client = web;
         if (client.assistant?.threads?.setStatus) {
           await client.assistant.threads.setStatus({
             channel_id: args.channel_id,
@@ -41267,11 +41268,11 @@ function readParentCmd(ppid) {
     return "";
   }
 }
-function hasAgentFlag(parentCmd2) {
-  return parentCmd2.includes("--agent ");
+function hasAgentFlag(parentCmd) {
+  return parentCmd.includes("--agent ");
 }
-function hasDevChannelsFlag(parentCmd2) {
-  return parentCmd2.includes("--dangerously-load-development-channels");
+function hasDevChannelsFlag(parentCmd) {
+  return parentCmd.includes("--dangerously-load-development-channels");
 }
 
 // src/prompt-loader.ts
@@ -41320,14 +41321,14 @@ async function readClaudeSessionId(ppid) {
   }
   return null;
 }
-async function resolveSessionId(ppid, logger2) {
+async function resolveSessionId(ppid, logger) {
   const fileId = await readClaudeSessionId(ppid);
   if (fileId) {
-    logger2.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
+    logger.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
     return { id: fileId, source: "file" };
   }
   const fallback = `${ppid}-${process.pid}`;
-  logger2.warn(
+  logger.warn(
     `claude session id unavailable (ppid=${ppid} file unreadable); using fallback ${fallback}`
   );
   return { id: fallback, source: "fallback" };
@@ -41396,8 +41397,8 @@ var McpLogger = class {
     if (typeof opts.sessionId !== "string" || opts.sessionId.length === 0) {
       throw new Error("McpLogger: sessionId must be a non-empty string");
     }
-    const paths2 = opts.paths ?? new PathResolver();
-    const logPath = paths2.getMcpLogPath(opts.sessionId);
+    const paths = opts.paths ?? new PathResolver();
+    const logPath = paths.getMcpLogPath(opts.sessionId);
     this.inner = createLogger({
       logPath,
       label: "mcp",
@@ -41534,21 +41535,21 @@ var McpBridgeServer = class {
   /** Absolute path to the state file, or undefined for legacy mode. */
   stateFilePath;
   constructor({
-    web: web2,
-    daemonClient: daemonClient2,
-    logger: logger2,
-    stateFilePath: stateFilePath2,
-    allowedSubscribeUsers: allowedSubscribeUsers2,
+    web,
+    daemonClient,
+    logger,
+    stateFilePath,
+    allowedSubscribeUsers,
     sessionId,
-    sessionManagerPrompt: sessionManagerPrompt2
+    sessionManagerPrompt
   }) {
-    this.web = web2;
-    this.daemonClient = daemonClient2;
-    this.logger = logger2;
-    this.stateFilePath = stateFilePath2;
-    this.allowedSubscribeUsers = allowedSubscribeUsers2;
+    this.web = web;
+    this.daemonClient = daemonClient;
+    this.logger = logger;
+    this.stateFilePath = stateFilePath;
+    this.allowedSubscribeUsers = allowedSubscribeUsers;
     this.sessionId = sessionId;
-    const watchedPath = stateFilePath2 ?? join4(process.cwd(), ".claude", ".slack-bridge.json");
+    const watchedPath = stateFilePath ?? join4(process.cwd(), ".claude", ".slack-bridge.json");
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
       onChange: () => this.reloadFromConfig(),
@@ -41564,7 +41565,7 @@ var McpBridgeServer = class {
       "Use subscribe_slack at the start of the session to tell the daemon what to listen to.",
       "Use read_thread or read_channel to fetch conversation history."
     ].join(" ");
-    const instructions = sessionManagerPrompt2 && sessionManagerPrompt2.length > 0 ? `${sessionManagerPrompt2}
+    const instructions = sessionManagerPrompt && sessionManagerPrompt.length > 0 ? `${sessionManagerPrompt}
 
 ${mcpGuidance}` : mcpGuidance;
     this.mcp = new Server(
@@ -41854,146 +41855,151 @@ ${mcpGuidance}` : mcpGuidance;
     });
   }
 };
-process.on("unhandledRejection", (reason) => {
-  process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}
+var isEntryPoint = process.argv[1] === fileURLToPath2(import.meta.url);
+if (isEntryPoint) {
+  await (async () => {
+    process.on("unhandledRejection", (reason) => {
+      process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}
 `);
-  if (reason instanceof Error) process.stderr.write(reason.stack ?? "");
-  process.stderr.write("\n");
-  process.exit(1);
-});
-process.on("uncaughtException", (err) => {
-  process.stderr.write(`[mcp] uncaughtException: ${err.message}
+      if (reason instanceof Error) process.stderr.write(reason.stack ?? "");
+      process.stderr.write("\n");
+      process.exit(1);
+    });
+    process.on("uncaughtException", (err) => {
+      process.stderr.write(`[mcp] uncaughtException: ${err.message}
 ${err.stack ?? ""}
 `);
-  process.exit(1);
-});
-var paths = new PathResolver();
-var bootBuffer = [];
-var captureLogger = {
-  log: (msg) => bootBuffer.push({ level: "log", msg }),
-  warn: (msg) => bootBuffer.push({ level: "warn", msg }),
-  error: (msg) => bootBuffer.push({ level: "warn", msg }),
-  debug: () => {
-  }
-};
-var { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
-  process.ppid,
-  captureLogger
-);
-var mcpLogPath = paths.getMcpLogPath(SESSION_ID);
-var stateFilePath = paths.getStateFilePath(SESSION_ID);
-var logger = new McpLogger({ sessionId: SESSION_ID, paths });
-for (const entry of bootBuffer) {
-  if (entry.level === "warn") logger.warn(entry.msg);
-  else logger.log(entry.msg);
-}
-logger.log(`session id source: ${SESSION_ID_SOURCE}`);
-var botToken = process.env.SLACK_BOT_TOKEN;
-if (!botToken) {
-  logger.error("Missing SLACK_BOT_TOKEN");
-  process.exit(1);
-}
-var DAEMON_URL = resolveDaemonUrl();
-logger.log(
-  `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
-);
-var parentCmd = readParentCmd(process.ppid);
-var hasDevChannels = hasDevChannelsFlag(parentCmd);
-var agentFlagPresent = hasAgentFlag(parentCmd);
-logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
-if (!hasDevChannels) {
-  const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
-  logger.error(msg);
-  const { createInterface } = await import("node:readline");
-  const rl = createInterface({ input: process.stdin });
-  rl.on("line", (line) => {
-    try {
-      const req = JSON.parse(line);
-      if (req.method === "initialize" && req.id !== void 0) {
-        const resp = {
-          jsonrpc: "2.0",
-          id: req.id,
-          error: { code: -32002, message: msg }
-        };
-        process.stdout.write(`${JSON.stringify(resp)}
-`);
-        setTimeout(() => process.exit(1), 50);
+      process.exit(1);
+    });
+    const paths = new PathResolver();
+    const bootBuffer = [];
+    const captureLogger = {
+      log: (msg) => bootBuffer.push({ level: "log", msg }),
+      warn: (msg) => bootBuffer.push({ level: "warn", msg }),
+      error: (msg) => bootBuffer.push({ level: "warn", msg }),
+      debug: () => {
       }
-    } catch {
-    }
-  });
-  setTimeout(() => process.exit(1), 5e3);
-  await new Promise(() => {
-  });
-}
-var daemonReady = false;
-try {
-  await ensureDaemon(
-    DAEMON_URL,
-    {
-      session: SESSION_ID,
-      pid: process.pid,
-      ppid: process.ppid,
-      cwd: process.cwd()
-    },
-    logger
-  );
-  daemonReady = true;
-  try {
-    const res = await fetch(`${DAEMON_URL}/health`);
-    const health = await res.json();
-    logger.log(
-      `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
+    };
+    const { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
+      process.ppid,
+      captureLogger
     );
-  } catch (err) {
-    logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
-  }
-} catch (err) {
-  logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
+    const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
+    const stateFilePath = paths.getStateFilePath(SESSION_ID);
+    const logger = new McpLogger({ sessionId: SESSION_ID, paths });
+    for (const entry of bootBuffer) {
+      if (entry.level === "warn") logger.warn(entry.msg);
+      else logger.log(entry.msg);
+    }
+    logger.log(`session id source: ${SESSION_ID_SOURCE}`);
+    const botToken = process.env.SLACK_BOT_TOKEN;
+    if (!botToken) {
+      logger.error("Missing SLACK_BOT_TOKEN");
+      process.exit(1);
+    }
+    const DAEMON_URL = resolveDaemonUrl();
+    logger.log(
+      `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
+    );
+    const parentCmd = readParentCmd(process.ppid);
+    const hasDevChannels = hasDevChannelsFlag(parentCmd);
+    const agentFlagPresent = hasAgentFlag(parentCmd);
+    logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
+    if (!hasDevChannels) {
+      const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
+      logger.error(msg);
+      const { createInterface } = await import("node:readline");
+      const rl = createInterface({ input: process.stdin });
+      rl.on("line", (line) => {
+        try {
+          const req = JSON.parse(line);
+          if (req.method === "initialize" && req.id !== void 0) {
+            const resp = {
+              jsonrpc: "2.0",
+              id: req.id,
+              error: { code: -32002, message: msg }
+            };
+            process.stdout.write(`${JSON.stringify(resp)}
+`);
+            setTimeout(() => process.exit(1), 50);
+          }
+        } catch {
+        }
+      });
+      setTimeout(() => process.exit(1), 5e3);
+      await new Promise(() => {
+      });
+    }
+    let daemonReady = false;
+    try {
+      await ensureDaemon(
+        DAEMON_URL,
+        {
+          session: SESSION_ID,
+          pid: process.pid,
+          ppid: process.ppid,
+          cwd: process.cwd()
+        },
+        logger
+      );
+      daemonReady = true;
+      try {
+        const res = await fetch(`${DAEMON_URL}/health`);
+        const health = await res.json();
+        logger.log(
+          `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
+        );
+      } catch (err) {
+        logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
+      }
+    } catch (err) {
+      logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
+    }
+    const web = new import_web_api.WebClient(botToken);
+    const webhookSrv = new WebhookServer(async (payload) => {
+      const { message } = payload;
+      logger.debug(
+        `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(",")}`
+      );
+      try {
+        await mcpServer.handleIncomingMessage(payload);
+        logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
+      } catch (err) {
+        logger.error(`[webhook] notification failed: ${err}`);
+        if (err instanceof Error) logger.error(err.stack ?? "");
+        throw err;
+      }
+    });
+    const webhookPort = await webhookSrv.start();
+    const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
+    const allowedSubscribeUsers = parseAllowedSubscribeUsers(
+      process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS
+    );
+    if (allowedSubscribeUsers.size > 0) {
+      logger.log(
+        `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) \u2014 Slack-originated subscribe/unsubscribe must include requested_by`
+      );
+    } else {
+      logger.log(
+        "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
+      );
+    }
+    const sessionManagerPrompt = agentFlagPresent ? "" : loadSessionManagerPrompt(logger);
+    if (agentFlagPresent) {
+      logger.log("agent flag detected in parent argv \u2014 skipping session-manager prompt injection");
+    }
+    const mcpServer = new McpBridgeServer({
+      web,
+      daemonClient,
+      logger,
+      stateFilePath,
+      allowedSubscribeUsers,
+      sessionId: SESSION_ID,
+      sessionManagerPrompt
+    });
+    await mcpServer.connect(new StdioServerTransport());
+  })();
 }
-var web = new import_web_api.WebClient(botToken);
-var webhookSrv = new WebhookServer(async (payload) => {
-  const { message } = payload;
-  logger.debug(
-    `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(",")}`
-  );
-  try {
-    await mcpServer.handleIncomingMessage(payload);
-    logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
-  } catch (err) {
-    logger.error(`[webhook] notification failed: ${err}`);
-    if (err instanceof Error) logger.error(err.stack ?? "");
-    throw err;
-  }
-});
-var webhookPort = await webhookSrv.start();
-var daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-var allowedSubscribeUsers = parseAllowedSubscribeUsers(
-  process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS
-);
-if (allowedSubscribeUsers.size > 0) {
-  logger.log(
-    `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) \u2014 Slack-originated subscribe/unsubscribe must include requested_by`
-  );
-} else {
-  logger.log(
-    "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
-  );
-}
-var sessionManagerPrompt = agentFlagPresent ? "" : loadSessionManagerPrompt(logger);
-if (agentFlagPresent) {
-  logger.log("agent flag detected in parent argv \u2014 skipping session-manager prompt injection");
-}
-var mcpServer = new McpBridgeServer({
-  web,
-  daemonClient,
-  logger,
-  stateFilePath,
-  allowedSubscribeUsers,
-  sessionId: SESSION_ID,
-  sessionManagerPrompt
-});
-await mcpServer.connect(new StdioServerTransport());
 export {
   McpBridgeServer
 };
