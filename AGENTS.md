@@ -6,41 +6,46 @@ Devin. Claude Code imports it via `@AGENTS.md` in `CLAUDE.md`.
 
 ## Session model — main vs sub
 
-The ia-tools plugin runs in **two distinct Claude Code session modes**, driven
-by the `IA_TOOLS_ROLE` env var and injected by the `SessionStart` hook:
+The ia-tools plugin runs in **two distinct Claude Code session modes**. The
+discriminator is the `--agent` flag on the parent Claude process, detected
+by the slack-bridge MCP at boot via `ps -ww -p $PPID`:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ MAIN SESSION  (IA_TOOLS_ROLE unset → session-manager)   │
-│ - Always alive, listens to Slack DMs + subscribed chans │
-│ - System prompt: plugins/team-workflow/agents/session-manager.md              │
-│ - Tool whitelist: read-only (Read/Grep/Glob/Bash-ro)    │
-│ - Classifies every message into 5 intents:              │
-│     read-only       → reply inline in the thread        │
-│     trivial-config  → Agent(orchestrator), no branch    │
-│     small-change    → branch + Agent(orchestrator)      │
-│     scope-check     → /scope-check → verdict → route    │
-│     change          → /session → spawn sub-session      │
-│ - NEVER plans, NEVER edits without delegating           │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ MAIN SESSION  (no --agent flag → session-manager)        │
+│ - Always alive, listens to Slack DMs + subscribed chans  │
+│ - Prompt: plugins/slack-bridge/agents/session-manager.md │
+│   loaded at runtime by the slack-bridge MCP and surfaced │
+│   as its `instructions` field                            │
+│ - Tool whitelist: read-only (Read/Grep/Glob/Bash-ro)     │
+│ - Classifies every message into 5 intents:               │
+│     read-only       → reply inline in the thread         │
+│     trivial-config  → Agent(orchestrator), no branch     │
+│     small-change    → branch + Agent(orchestrator)       │
+│     scope-check     → /scope-check → verdict → route     │
+│     change          → /session → spawn sub-session       │
+│ - NEVER plans, NEVER edits without delegating            │
+└──────────────────────────────────────────────────────────┘
          │ /scope-check (inline, no tmux)    │ /session
          ▼                                   ▼
-┌──────────────────────┐     ┌───────────────────────────────────────────┐
-│ SCOPE-CHECK (inline) │     │ SUB-SESSION  (IA_TOOLS_ROLE=orchestrator) │
-│ orchestrator subagent│     │ - One per Slack thread / session          │
-│ mode=scope-check     │     │ - System prompt: plugins/team-workflow/agents/orchestrator.md   │
-│ Writes:              │     │ - Standard: dedicated worktree + tmux     │
-│   .sessions/         │     │ - Resume-from (--resume-from):            │
-│     scope.md         │     │   CWD = consumer repo root; orchestrator  │
-│     plan-draft.md    │     │   creates N worktrees, assigns each to a  │
-│     verdict.json     │     │   stack teammate                          │
-│ Returns verdict JSON │     │ - Main-thread agent: team lead            │
-└──────────────────────┘     │ - Subscribed to one Slack thread (slack)  │
-                             └───────────────────────────────────────────┘
+┌──────────────────────┐     ┌────────────────────────────────────────────┐
+│ SCOPE-CHECK (inline) │     │ SUB-SESSION (--agent team-workflow:        │
+│ orchestrator subagent│     │              orchestrator)                 │
+│ mode=scope-check     │     │ - One per Slack topic / session            │
+│ Writes:              │     │ - Prompt: plugins/team-workflow/agents/    │
+│   .sessions/         │     │   orchestrator.md (loaded by Claude Code   │
+│     scope.md         │     │   natively from the team-workflow plugin)  │
+│     plan-draft.md    │     │ - slack-bridge MCP detects --agent in the  │
+│     verdict.json     │     │   parent argv and skips the session-       │
+│ Returns verdict JSON │     │   manager injection                        │
+│                      │     │ - Standard: dedicated worktree + tmux      │
+│                      │     │ - Subscribed to one Slack topic (slack)    │
+└──────────────────────┘     └────────────────────────────────────────────┘
 ```
 
 A Claude session is either a session-manager main session or a sub-session.
-`IA_TOOLS_ROLE` is the only switch.
+The presence (or absence) of `--agent` on the parent process is the only
+switch — there is no `IA_TOOLS_ROLE` env var.
 
 ## Invariants — not negotiable
 

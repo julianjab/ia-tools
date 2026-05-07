@@ -127,7 +127,7 @@ Audit result:
 
 Next:
   - Review the file at <OUT>
-  - If mode=main: set IA_TOOLS_ROLE or equivalent in your session config
+  - If mode=main: wire the agent prompt into your session (e.g. via an MCP `instructions` field, an `--agent` flag, or your session config)
   - If mode=teammate: register in the relevant team roster
 ```
 
