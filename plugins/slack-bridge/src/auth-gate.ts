@@ -8,7 +8,7 @@
  *     any Slack user from rerouting bot traffic.
  *
  * Message allowlists (ALLOWED_USERS_MENTIONS, ALLOWED_USERS_DM):
- *   - Empty set → allow all.
+ *   - Empty set → block all (deny by default).
  *   - Non-empty → only listed user IDs pass through.
  */
 

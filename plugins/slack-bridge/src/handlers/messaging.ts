@@ -52,11 +52,12 @@ export async function handleReply(
   args: Record<string, unknown>,
   deps: MessagingHandlerDeps,
 ): Promise<ToolResult> {
-  const { channel_id, text, message_ts, thread_ts } = args as {
+  const { channel_id, text, message_ts, thread_ts, is_dm } = args as {
     channel_id: string;
     text: string;
     message_ts?: string;
     thread_ts?: string;
+    is_dm?: boolean;
   };
 
   try {
@@ -64,6 +65,38 @@ export async function handleReply(
     if (message_ts) {
       await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
     }
+
+    // Append feedback buttons for Agent DM threads so the user can rate
+    // the response. The daemon acks block_actions to prevent Slack errors.
+    if (is_dm && thread_ts) {
+      await deps.web.chat
+        .postMessage({
+          channel: channel_id,
+          thread_ts,
+          text: '¿Fue útil esta respuesta?',
+          blocks: [
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  text: { type: 'plain_text', text: '👍', emoji: true },
+                  action_id: 'feedback_thumbs_up',
+                  value: result.ts ?? '',
+                },
+                {
+                  type: 'button',
+                  text: { type: 'plain_text', text: '👎', emoji: true },
+                  action_id: 'feedback_thumbs_down',
+                  value: result.ts ?? '',
+                },
+              ],
+            },
+          ],
+        })
+        .catch(() => {});
+    }
+
     return { content: [{ type: 'text' as const, text: `Sent (ts: ${result.ts})` }] };
   } catch (err) {
     return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };

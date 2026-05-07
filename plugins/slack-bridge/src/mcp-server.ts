@@ -527,6 +527,7 @@ export class McpBridgeServer {
           message_ts: message.message_ts,
           thread_ts: message.thread_ts ?? '',
           is_dm: message.is_dm ? 'true' : 'false',
+          thread_context: message.thread_context ? JSON.stringify(message.thread_context) : '',
           // Per-topic labels surface the subscriber's intent for this match
           // (e.g. "ship-pr-42") so the agent can decide what to do with the
           // message based on WHY it was subscribed, not just the topic string.

@@ -55465,7 +55465,8 @@ function buildSlackMessage(fields) {
     text: fields.text,
     message_ts: fields.message_ts,
     thread_ts: fields.thread_ts,
-    is_dm: fields.channel_id.startsWith("D")
+    is_dm: fields.channel_id.startsWith("D"),
+    thread_context: fields.thread_context
   };
 }
 
@@ -55672,9 +55673,13 @@ async function setAssistantStatus(app2, channelId, threadTs, status) {
 
 // src/daemon/listener.ts
 var import_bolt = __toESM(require_dist7(), 1);
-var { App, Assistant, LogLevel } = import_bolt.default;
+
+// src/daemon/caches.ts
 var userCache = /* @__PURE__ */ new Map();
 var channelCache = /* @__PURE__ */ new Map();
+
+// src/daemon/listener.ts
+var { App, Assistant, LogLevel } = import_bolt.default;
 async function startListener(config, onMessage) {
   const app2 = new App({
     token: config.botToken,
@@ -55696,18 +55701,27 @@ async function startListener(config, onMessage) {
     threadContextChanged: async ({ saveThreadContext }) => {
       await saveThreadContext();
     },
-    userMessage: async ({ event, setStatus, say }) => {
-      const msg = event;
-      const text = msg.text;
-      if (!text || msg.subtype) return;
+    userMessage: async ({ event, setTitle, setStatus, getThreadContext }) => {
+      if (event.subtype !== void 0) return;
+      const text = event.text;
+      if (!text) return;
       await setStatus("est\xE1 pensando...");
+      await setTitle(text.slice(0, 50)).catch(() => {
+      });
+      let threadCtx;
+      try {
+        const ctx = await getThreadContext();
+        if (ctx && typeof ctx === "object") threadCtx = ctx;
+      } catch {
+      }
       try {
         await onMessage({
-          channel_id: msg.channel,
-          user_id: msg.user ?? "unknown",
+          channel_id: event.channel,
+          user_id: event.user ?? "unknown",
           text,
-          message_ts: msg.ts,
-          thread_ts: msg.thread_ts
+          message_ts: event.ts,
+          thread_ts: event.thread_ts,
+          thread_context: threadCtx
         });
       } catch (err) {
         error(`[userMessage] ${err}`);
@@ -55729,6 +55743,9 @@ async function startListener(config, onMessage) {
       error(`[app_mention] ${err}`);
     }
   });
+  app2.action(/^feedback_(thumbs_up|thumbs_down)$/, async ({ ack }) => {
+    await ack();
+  });
   app2.error(async (error3) => {
     error(`[bolt] ${error3}`);
   });
@@ -55737,7 +55754,8 @@ async function startListener(config, onMessage) {
   return app2;
 }
 async function resolveUser(app2, userId) {
-  if (userCache.has(userId)) return userCache.get(userId);
+  const cached = userCache.get(userId);
+  if (cached !== void 0) return cached;
   try {
     const result = await app2.client.users.info({ user: userId });
     const name = result.user?.real_name || result.user?.name || userId;
@@ -55748,7 +55766,8 @@ async function resolveUser(app2, userId) {
   }
 }
 async function resolveChannel(app2, channelId) {
-  if (channelCache.has(channelId)) return channelCache.get(channelId);
+  const cached = channelCache.get(channelId);
+  if (cached !== void 0) return cached;
   try {
     const result = await app2.client.conversations.info({ channel: channelId });
     const name = result.channel?.name || channelId;
@@ -56183,7 +56202,8 @@ var app = await startListener({ botToken, appToken }, async (event) => {
     user_name: userName,
     text: event.text,
     message_ts: event.message_ts,
-    thread_ts: event.thread_ts
+    thread_ts: event.thread_ts,
+    thread_context: event.thread_context
   });
   const targets = registry.match(msg);
   if (targets.length === 0) {

@@ -41073,11 +41073,38 @@ async function handleClaimMessage(args, deps) {
   }
 }
 async function handleReply(args, deps) {
-  const { channel_id, text, message_ts, thread_ts } = args;
+  const { channel_id, text, message_ts, thread_ts, is_dm } = args;
   try {
     const result = await deps.web.chat.postMessage({ channel: channel_id, text, thread_ts });
     if (message_ts) {
       await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    }
+    if (is_dm && thread_ts) {
+      await deps.web.chat.postMessage({
+        channel: channel_id,
+        thread_ts,
+        text: "\xBFFue \xFAtil esta respuesta?",
+        blocks: [
+          {
+            type: "actions",
+            elements: [
+              {
+                type: "button",
+                text: { type: "plain_text", text: "\u{1F44D}", emoji: true },
+                action_id: "feedback_thumbs_up",
+                value: result.ts ?? ""
+              },
+              {
+                type: "button",
+                text: { type: "plain_text", text: "\u{1F44E}", emoji: true },
+                action_id: "feedback_thumbs_down",
+                value: result.ts ?? ""
+              }
+            ]
+          }
+        ]
+      }).catch(() => {
+      });
     }
     return { content: [{ type: "text", text: `Sent (ts: ${result.ts})` }] };
   } catch (err) {
@@ -41822,6 +41849,7 @@ var McpBridgeServer = class {
           message_ts: message.message_ts,
           thread_ts: message.thread_ts ?? "",
           is_dm: message.is_dm ? "true" : "false",
+          thread_context: message.thread_context ? JSON.stringify(message.thread_context) : "",
           // Per-topic labels surface the subscriber's intent for this match
           // (e.g. "ship-pr-42") so the agent can decide what to do with the
           // message based on WHY it was subscribed, not just the topic string.

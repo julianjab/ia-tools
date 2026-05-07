@@ -28,7 +28,7 @@ import { DaemonLogger } from '../shared/daemon-logger.js';
 import { PathResolver } from '../shared/path-resolver.js';
 import { type MessagePayload, type SlackMessage, parseTopic } from '../shared/types.js';
 import { addThinkingAck } from './ack.js';
-import { type SlackEvent, parseAllowedUsers, resolveChannel, resolveUser, startListener } from './listener.js';
+import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
 import { Registry } from './registry.js';
 import { createApiServer } from './server.js';
 
@@ -51,8 +51,7 @@ function arg(name: string): string | undefined {
 const botToken = arg('bot-token') ?? process.env.SLACK_BOT_TOKEN;
 const appToken = arg('app-token') ?? process.env.SLACK_APP_TOKEN;
 const port = Number.parseInt(process.env.DAEMON_PORT ?? '3800', 10);
-const allowedUsersDm = parseAllowedUsers(process.env.ALLOWED_USERS_DM);
-const allowedUsersMentions = parseAllowedUsers(process.env.ALLOWED_USERS_MENTIONS);
+
 
 // Ack configuration — read once at module top, not per-message
 const ACK_EMOJI = process.env.SLACK_ACK_EMOJI ?? 'eyes';
@@ -169,7 +168,7 @@ if (IDLE_SHUTDOWN_MS > 0) {
 }
 
 // ─── Slack listener ─────────────────────────────────────────────────
-const app = await startListener({ botToken, appToken, allowedUsersDm, allowedUsersMentions }, async (event: SlackEvent) => {
+const app = await startListener({ botToken, appToken }, async (event: SlackEvent) => {
   socketStatus = 'connected';
 
   // Resolve names
@@ -186,6 +185,7 @@ const app = await startListener({ botToken, appToken, allowedUsersDm, allowedUse
     text: event.text,
     message_ts: event.message_ts,
     thread_ts: event.thread_ts,
+    thread_context: event.thread_context,
   });
 
   // Route to matching subscribers

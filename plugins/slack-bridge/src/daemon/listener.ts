@@ -4,20 +4,14 @@
  */
 
 import pkg from '@slack/bolt';
-import { parseAllowedUsers } from '../auth-gate.js';
+import { channelCache, userCache } from './caches.js';
 import { log, error as logError } from './logger.js';
 
 const { App, Assistant, LogLevel } = pkg;
 
-export { parseAllowedUsers };
-
 export interface ListenerConfig {
   botToken: string;
   appToken: string;
-  /** ALLOWED_USERS_DM — user IDs allowed to DM the bot. Empty = allow all. */
-  allowedUsersDm: Set<string>;
-  /** ALLOWED_USERS_MENTIONS — user IDs whose @mentions the bot processes. Empty = allow all. */
-  allowedUsersMentions: Set<string>;
 }
 
 export interface SlackEvent {
@@ -26,20 +20,16 @@ export interface SlackEvent {
   text: string;
   message_ts: string;
   thread_ts?: string;
+  /** Thread context from the Slack Agent (originating channel/workspace). */
+  thread_context?: Record<string, unknown>;
 }
 
 export type MessageHandler = (event: SlackEvent) => Promise<void>;
-
-// Module-level caches shared across all resolutions within one daemon process
-const userCache = new Map<string, string>();
-const channelCache = new Map<string, string>();
 
 export async function startListener(
   config: ListenerConfig,
   onMessage: MessageHandler,
 ): Promise<InstanceType<typeof App>> {
-  const { allowedUsersDm, allowedUsersMentions } = config;
-
   const app = new App({
     token: config.botToken,
     appToken: config.appToken,
@@ -67,27 +57,39 @@ export async function startListener(
       await saveThreadContext();
     },
 
-    userMessage: async ({ event, setStatus, say }) => {
-      const msg = event as unknown as Record<string, unknown>;
-      const text = msg.text as string | undefined;
-      if (!text || msg.subtype) return;
-
-      const userId = (msg.user as string) ?? '';
-      if (allowedUsersDm.size > 0 && !allowedUsersDm.has(userId)) {
-        await say('No tienes permiso para interactuar con este bot.');
-        return;
-      }
+    userMessage: async ({ event, setTitle, setStatus, getThreadContext }) => {
+      // Narrow MessageEvent union to GenericMessageEvent (subtype: undefined).
+      // All other subtypes (bot_message, channel_join, etc.) are not user messages.
+      if (event.subtype !== undefined) return;
+      const text = event.text;
+      if (!text) return;
 
       // Immediate feedback — fires before the daemon routes to a subscriber
       await setStatus('está pensando...');
 
+      // Set the thread title to the first ~50 chars of the message so the
+      // user can identify the conversation in the Agent split-view sidebar.
+      await setTitle(text.slice(0, 50)).catch(() => {});
+
+      // Read thread context (what channel/workspace the user was viewing when
+      // they opened the Assistant thread). Forwarded to subscribers so the
+      // agent knows the originating context without a separate API call.
+      let threadCtx: Record<string, unknown> | undefined;
+      try {
+        const ctx = await getThreadContext();
+        if (ctx && typeof ctx === 'object') threadCtx = ctx as Record<string, unknown>;
+      } catch {
+        // Context may be absent on the first message in a new thread.
+      }
+
       try {
         await onMessage({
-          channel_id: msg.channel as string,
-          user_id: (msg.user as string) ?? 'unknown',
+          channel_id: event.channel,
+          user_id: event.user ?? 'unknown',
           text,
-          message_ts: msg.ts as string,
-          thread_ts: msg.thread_ts as string | undefined,
+          message_ts: event.ts,
+          thread_ts: event.thread_ts,
+          thread_context: threadCtx,
         });
       } catch (err) {
         logError(`[userMessage] ${err}`);
@@ -100,11 +102,10 @@ export async function startListener(
   // ── Channel @mentions ─────────────────────────────────────────────────────
   app.event('app_mention', async ({ event }) => {
     if (!event.text || !event.user) return;
-    if (allowedUsersMentions.size > 0 && !allowedUsersMentions.has(event.user)) return;
     try {
       await onMessage({
         channel_id: event.channel,
-        user_id: event.user ?? 'unknown',
+        user_id: event.user,
         text: event.text,
         message_ts: event.ts,
         thread_ts: event.thread_ts ?? undefined,
@@ -112,6 +113,13 @@ export async function startListener(
     } catch (err) {
       logError(`[app_mention] ${err}`);
     }
+  });
+
+  // ── Feedback button acknowledgment ────────────────────────────────────────
+  // Ack feedback block_actions immediately so Slack doesn't show an error.
+  // No further processing needed — reactions are logged via Slack's native UX.
+  app.action(/^feedback_(thumbs_up|thumbs_down)$/, async ({ ack }) => {
+    await ack();
   });
 
   app.error(async (error) => {
@@ -126,7 +134,8 @@ export async function startListener(
 
 /** Resolve user ID → display name using Slack API */
 export async function resolveUser(app: InstanceType<typeof App>, userId: string): Promise<string> {
-  if (userCache.has(userId)) return userCache.get(userId)!;
+  const cached = userCache.get(userId);
+  if (cached !== undefined) return cached;
 
   try {
     const result = await app.client.users.info({ user: userId });
@@ -143,7 +152,8 @@ export async function resolveChannel(
   app: InstanceType<typeof App>,
   channelId: string,
 ): Promise<string> {
-  if (channelCache.has(channelId)) return channelCache.get(channelId)!;
+  const cached = channelCache.get(channelId);
+  if (cached !== undefined) return cached;
 
   try {
     const result = await app.client.conversations.info({ channel: channelId });
