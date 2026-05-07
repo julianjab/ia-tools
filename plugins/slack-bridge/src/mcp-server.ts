@@ -13,13 +13,15 @@
  *   SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... pnpm --filter @ia-tools/slack-bridge daemon
  *
  * On startup the MCP reads /tmp/slack-bridge/<session-id>/slack-bridge.json. If
- * subscription data exists it subscribes automatically. All topic matching runs
- * in the daemon. Paths come from `PathResolver` (single source of truth).
+ * subscription data exists it subscribes automatically. The file lives under
+ * /tmp (not the project tree) so session state never leaks into the repo.
+ * All topic matching runs in the daemon. Paths come from `PathResolver`
+ * (single source of truth).
  *
  * Env:
  *   SLACK_BOT_TOKEN   — Bot token for Slack API calls (reply, read)
  *   DAEMON_URL        — Daemon API URL (required to receive messages; omit to run read-only)
- *   SLACK_TOPICS      — Comma-separated topics (overrides the state file)
+ *   SLACK_TOPICS      — Comma-separated topics (overrides the state file on auto-subscribe)
  *                       e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,C06Q8SNF93P:*:1778078158.577219"
  */
 
@@ -522,7 +524,7 @@ export class McpBridgeServer {
 
   /**
    * Diff the on-disk config against the in-memory subscription state and
-   * sync via the daemon. Catches manual edits to .slack-bridge.json or
+   * sync via the daemon. Catches manual edits to the state file or
    * writes from other processes (e.g. /ship adding a new thread topic).
    */
   private async reloadFromConfig(): Promise<void> {
