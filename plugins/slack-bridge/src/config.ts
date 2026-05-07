@@ -8,9 +8,12 @@
  *     }
  *   }
  *
- * The state file path is supplied by the caller (PathResolver in production).
- * If no path is given, the legacy `<cwd>/.claude/.slack-bridge.json` location
- * is used so existing tests and consumers keep working unchanged.
+ * The state file path is supplied by the caller (PathResolver in production,
+ * which resolves to `/tmp/slack-bridge/<session-id>/slack-bridge.json` so each
+ * Claude session gets its own state — no leakage across sessions, no artifact
+ * in the project tree). If no path is given, the legacy
+ * `<cwd>/.claude/.slack-bridge.json` location is used so existing tests and
+ * consumers keep working unchanged.
  *
  * - Any field whose name contains "token" (case-insensitive) is stripped and
  *   triggers a stderr warning so secrets never end up in the config object.

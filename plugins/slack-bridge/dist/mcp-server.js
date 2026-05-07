@@ -41237,17 +41237,29 @@ var McpBridgeServer = class {
   web;
   daemonClient;
   logger;
+  allowedSubscribeUsers;
+  /** Display-only session id surfaced in list_subscriptions output. */
+  sessionId;
   /** All topic specs this subscriber is currently registered for. */
   subscribedTopics = [];
   /** Reloads subscriptions when the persisted config file changes on disk. */
   configWatcher;
   /** Absolute path to the state file, or undefined for legacy mode. */
   stateFilePath;
-  constructor({ web: web2, daemonClient: daemonClient2, logger: logger2, stateFilePath: stateFilePath2 }) {
+  constructor({
+    web: web2,
+    daemonClient: daemonClient2,
+    logger: logger2,
+    stateFilePath: stateFilePath2,
+    allowedSubscribeUsers: allowedSubscribeUsers2,
+    sessionId
+  }) {
     this.web = web2;
     this.daemonClient = daemonClient2;
     this.logger = logger2;
     this.stateFilePath = stateFilePath2;
+    this.allowedSubscribeUsers = allowedSubscribeUsers2;
+    this.sessionId = sessionId;
     const watchedPath = stateFilePath2 ?? join3(process.cwd(), ".claude", ".slack-bridge.json");
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
@@ -41288,7 +41300,7 @@ var McpBridgeServer = class {
       tools: [
         {
           name: "subscribe_slack",
-          description: 'Subscribe to Slack messages using topics. Each entry can be a bare topic string or an object {topic, label} where label is metadata the agent will see on every matched message (use it to remember WHY this subscription exists, e.g. "ship-pr-42" or "team-channel"). Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to /tmp/slack-bridge/<session-id>/slack-bridge.json.',
+          description: 'Subscribe to Slack messages using topics. Each entry can be a bare topic string or an object {topic, label} where label is metadata the agent will see on every matched message (use it to remember WHY this subscription exists, e.g. "ship-pr-42" or "team-channel"). Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to /tmp/slack-bridge/<session-id>/slack-bridge.json. When acting on a Slack message, ALWAYS pass `requested_by` set to the Slack user_id of whoever asked for the change. Without `requested_by` the call is treated as a local CLI invocation by the operator. Slack-originated requests are blocked unless the user is in SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS.',
           inputSchema: {
             type: "object",
             properties: {
@@ -41308,6 +41320,10 @@ var McpBridgeServer = class {
                   ]
                 },
                 description: 'Topics to subscribe to. Each item is either a topic string or {topic, label?}. Examples: ["C06Q8SNF93P", {"topic": "C06Q8SNF93P:*:1778078158.577219", "label": "ship-pr-42"}, {"topic": "DM:U02M1QFA0AF", "label": "dm-julian"}]'
+              },
+              requested_by: {
+                type: "string",
+                description: "Slack user_id of the human who requested this subscription change. Required when the MCP has an allowlist configured."
               }
             },
             required: ["topics"]
@@ -41315,7 +41331,7 @@ var McpBridgeServer = class {
         },
         {
           name: "unsubscribe_slack",
-          description: "Stop listening to Slack messages. With `topics`, removes only those topics from the subscription and persists the change to the state file. Without `topics`, unsubscribes from everything.",
+          description: "Stop listening to Slack messages. With `topics`, removes only those topics from the subscription and persists the change to the state file. Without `topics`, unsubscribes from everything. Pass `requested_by` (Slack user_id) for the same allowlist gate as subscribe_slack.",
           inputSchema: {
             type: "object",
             properties: {
@@ -41323,6 +41339,10 @@ var McpBridgeServer = class {
                 type: "array",
                 items: { type: "string" },
                 description: "Optional list of specific topics to remove. Omit to unsubscribe from all."
+              },
+              requested_by: {
+                type: "string",
+                description: "Slack user_id of the human who requested this unsubscribe. Required when the MCP has an allowlist configured."
               }
             }
           }
@@ -41390,6 +41410,11 @@ var McpBridgeServer = class {
           name: "list_channels",
           description: "List Slack channels the bot is a member of.",
           inputSchema: { type: "object", properties: {} }
+        },
+        {
+          name: "list_subscriptions",
+          description: "List the topic subscriptions currently active for THIS Claude session. Returns the same TopicSpecs (topic + optional label) the agent receives in matched_topics on every delivery. Use it to verify state before subscribe/unsubscribe, or to recover the active set after a long context.",
+          inputSchema: { type: "object", properties: {} }
         }
       ]
     }));
@@ -41407,9 +41432,61 @@ var McpBridgeServer = class {
     if (name === "read_thread") return this.handleReadThread(args);
     if (name === "read_channel") return this.handleReadChannel(args);
     if (name === "list_channels") return this.handleListChannels();
+    if (name === "list_subscriptions") return this.handleListSubscriptions();
     throw new Error(`Unknown tool: ${name}`);
   }
+  /**
+   * Authorization gate for subscribe/unsubscribe.
+   *
+   * The agent passes `requested_by` to declare the source of the request:
+   *   - `requested_by` absent  → local CLI invocation (the operator typing
+   *     in Claude Code). Always allowed; the operator is implicitly trusted.
+   *   - `requested_by` present → request originated from a Slack message
+   *     (the agent should set it to the user_id from the triggering
+   *     notification). In this case:
+   *       - allowlist empty  → REJECTED. Slack-originated requests must be
+   *         explicitly authorized via SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS.
+   *       - allowlist set    → must include `requested_by`, otherwise
+   *         REJECTED.
+   *
+   * Returns the tool error response when blocked, or null when the call may
+   * proceed.
+   */
+  gateSubscribeChange(args, op) {
+    const raw = args.requested_by;
+    const requestedBy = typeof raw === "string" && raw.length > 0 ? raw : null;
+    if (!requestedBy) {
+      return null;
+    }
+    if (this.allowedSubscribeUsers.size === 0) {
+      this.logger.warn(`[gate] ${op} rejected \u2014 Slack-originated, no allowlist configured`);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Refused: ${op}_slack requests originating from Slack messages are blocked because no allowlist is configured. Set SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS in the MCP env to authorize specific users.`
+          }
+        ],
+        isError: true
+      };
+    }
+    if (!this.allowedSubscribeUsers.has(requestedBy)) {
+      this.logger.warn(`[gate] ${op} rejected \u2014 ${requestedBy} not in allowlist`);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...this.allowedSubscribeUsers].join(", ")}.`
+          }
+        ],
+        isError: true
+      };
+    }
+    return null;
+  }
   async handleSubscribe(args) {
+    const blocked = this.gateSubscribeChange(args, "subscribe");
+    if (blocked) return blocked;
     try {
       const raw = args.topics ?? [];
       const incoming = raw.map(normalizeTopic);
@@ -41444,6 +41521,8 @@ var McpBridgeServer = class {
     }
   }
   async handleUnsubscribe(args) {
+    const blocked = this.gateSubscribeChange(args, "unsubscribe");
+    if (blocked) return blocked;
     const requested = args.topics ?? null;
     const isPartial = Array.isArray(requested) && requested.length > 0;
     if (this.daemonClient) {
@@ -41542,6 +41621,28 @@ var McpBridgeServer = class {
       return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
     }
   }
+  async handleListSubscriptions() {
+    const count = this.subscribedTopics.length;
+    if (count === 0) {
+      return {
+        content: [{ type: "text", text: "No active subscriptions for this session." }]
+      };
+    }
+    const lines = this.subscribedTopics.map((t, i) => `  ${i + 1}. ${formatSpec(t)}`).join("\n");
+    const json2 = JSON.stringify(this.subscribedTopics);
+    const header = this.sessionId ? `Active subscriptions (${count}) for session ${this.sessionId}:` : `Active subscriptions (${count}):`;
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${header}
+${lines}
+
+JSON: ${json2}`
+        }
+      ]
+    };
+  }
   registerOnInitialized() {
     this.mcp.oninitialized = async () => {
       if (!this.daemonClient) {
@@ -41571,7 +41672,7 @@ var McpBridgeServer = class {
   }
   /**
    * Diff the on-disk config against the in-memory subscription state and
-   * sync via the daemon. Catches manual edits to .slack-bridge.json or
+   * sync via the daemon. Catches manual edits to the state file or
    * writes from other processes (e.g. /ship adding a new thread topic).
    */
   async reloadFromConfig() {
@@ -41656,16 +41757,26 @@ ${err.stack ?? ""}
 `);
   process.exit(1);
 });
-function readClaudeSessionId(ppid) {
-  try {
-    const raw = readFileSync2(`${homedir()}/.claude/sessions/${ppid}.json`, "utf8");
-    const data = JSON.parse(raw);
-    return typeof data.sessionId === "string" && data.sessionId.length > 0 ? data.sessionId : null;
-  } catch {
-    return null;
+async function readClaudeSessionId(ppid) {
+  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
+  const ATTEMPTS = 10;
+  const BACKOFF_MS = 100;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    try {
+      const raw = readFileSync2(path, "utf8");
+      const data = JSON.parse(raw);
+      if (typeof data.sessionId === "string" && data.sessionId.length > 0) {
+        return data.sessionId;
+      }
+    } catch {
+    }
+    if (attempt < ATTEMPTS - 1) {
+      await new Promise((resolve2) => setTimeout(resolve2, BACKOFF_MS));
+    }
   }
+  return null;
 }
-var claudeSessionId = readClaudeSessionId(process.ppid);
+var claudeSessionId = await readClaudeSessionId(process.ppid);
 var SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
 var paths = new PathResolver();
 var mcpLogPath = paths.getMcpLogPath(SESSION_ID);
@@ -41765,7 +41876,26 @@ var webhookSrv = new WebhookServer(async (payload) => {
 });
 var webhookPort = await webhookSrv.start();
 var daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-var mcpServer = new McpBridgeServer({ web, daemonClient, logger, stateFilePath });
+var allowedSubscribeUsers = new Set(
+  (process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+);
+if (allowedSubscribeUsers.size > 0) {
+  logger.log(
+    `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) \u2014 Slack-originated subscribe/unsubscribe must include requested_by`
+  );
+} else {
+  logger.log(
+    "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
+  );
+}
+var mcpServer = new McpBridgeServer({
+  web,
+  daemonClient,
+  logger,
+  stateFilePath,
+  allowedSubscribeUsers,
+  sessionId: SESSION_ID
+});
 await mcpServer.connect(new StdioServerTransport());
 export {
   McpBridgeServer
