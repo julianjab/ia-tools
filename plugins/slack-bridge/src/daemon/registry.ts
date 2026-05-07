@@ -18,6 +18,29 @@ import type { SlackMessage, Subscriber, TopicSpec } from '../shared/types.js';
 import { matchesTopic, parseTopic } from '../shared/types.js';
 
 /**
+ * Specificity score for a TopicSpec — counts the non-empty filter fields on
+ * its parsed form. Wildcards (`*`) and absent segments contribute 0; the
+ * `type` field doesn't count (every topic has a type).
+ *
+ *   "C123"             → channel only            → 1
+ *   "DM:U1"            → dm + user               → 1
+ *   "C123:U1"          → channel + user          → 2
+ *   "C123:*:thread1"   → channel + thread        → 2
+ *   "C123:U1:thread1"  → channel + user + thread → 3
+ *
+ * Used by `match()` to pre-empt less-specific subscribers when a message
+ * also matches a more-specific topic.
+ */
+function topicSpecificity(spec: TopicSpec): number {
+  const p = parseTopic(spec.topic);
+  let s = 0;
+  if (p.channel) s++;
+  if (p.user) s++;
+  if (p.thread) s++;
+  return s;
+}
+
+/**
  * Merge two TopicSpec lists by `topic` string. Later entries' labels win
  * (callers can rebrand a topic by re-subscribing with a new label).
  */
@@ -114,16 +137,57 @@ export class Registry {
    * Find subscribers whose topics match the message.
    * Returns each matching subscriber paired with the TopicSpecs that matched
    * (preserving labels so the caller can forward them on delivery).
+   *
+   * Specificity pre-emption: a message in `C123` thread `t1` matches both
+   * a subscriber on `C123` (whole channel) AND a subscriber on
+   * `C123:*:t1` (the specific thread). Delivering to both produces
+   * duplicates and lets a less-intentional subscriber see messages a more
+   * specific one is actively handling. We compute the global maximum
+   * specificity score across all matched topics and keep only matches at
+   * that score; ties are preserved (multiple subscribers at the same
+   * top score all receive the message). Within a single subscriber that
+   * has both a wide and a narrow topic on the same message, only the
+   * narrower spec is forwarded — the agent sees the most informative
+   * label in `matched_topics`.
    */
   match(msg: SlackMessage): Array<{ subscriber: Subscriber; matched: TopicSpec[] }> {
-    const results: Array<{ subscriber: Subscriber; matched: TopicSpec[] }> = [];
+    const all: Array<{ subscriber: Subscriber; matched: TopicSpec[] }> = [];
     for (const sub of this.all()) {
       const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t.topic), msg));
       if (matched.length > 0) {
-        results.push({ subscriber: sub, matched });
+        all.push({ subscriber: sub, matched });
       }
     }
-    return results;
+    if (all.length === 0) return [];
+
+    let maxScore = 0;
+    for (const { matched } of all) {
+      for (const t of matched) {
+        const s = topicSpecificity(t);
+        if (s > maxScore) maxScore = s;
+      }
+    }
+
+    const winners: Array<{ subscriber: Subscriber; matched: TopicSpec[] }> = [];
+    for (const { subscriber, matched } of all) {
+      const kept = matched.filter((t) => topicSpecificity(t) === maxScore);
+      if (kept.length > 0) winners.push({ subscriber, matched: kept });
+    }
+    return winners;
+  }
+
+  /**
+   * Count subscribers that would match `msg` BEFORE pre-emption — i.e. the
+   * raw OR-of-topics check. Used by the daemon's fan-out logger to report
+   * how many subscribers were pre-empted out by `match()`. Kept separate
+   * from `match()` so its return shape stays stable.
+   */
+  countMatchingSubscribers(msg: SlackMessage): number {
+    let count = 0;
+    for (const sub of this.all()) {
+      if (sub.topics.some((t) => matchesTopic(parseTopic(t.topic), msg))) count++;
+    }
+    return count;
   }
 
   /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
