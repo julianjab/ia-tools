@@ -26627,7 +26627,7 @@ var require_dist5 = __commonJS({
 import { execSync } from "node:child_process";
 import { readFileSync as readFileSync2 } from "node:fs";
 import { homedir } from "node:os";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -40697,90 +40697,6 @@ async function clearThinkingAck(web2, args) {
   ]);
 }
 
-// src/config.ts
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-var ALLOWED_KEYS = ["topics"];
-function configFilePath(cwd) {
-  return join(cwd, ".claude", ".slack-bridge.json");
-}
-function readRawFile(filePath) {
-  if (!existsSync(filePath)) return null;
-  let raw;
-  try {
-    raw = readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    process.stderr.write(
-      `[slack-bridge] Warning: .claude/.slack-bridge.json contains invalid JSON \u2014 ${String(err)}
-`
-    );
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    process.stderr.write(
-      "[slack-bridge] Warning: .claude/.slack-bridge.json must be a JSON object \u2014 ignoring file\n"
-    );
-    return null;
-  }
-  return parsed;
-}
-function loadConfig(cwd) {
-  const dir = cwd ?? process.cwd();
-  const filePath = configFilePath(dir);
-  const raw = readRawFile(filePath);
-  if (raw === null) return {};
-  const slackSection = raw.slack;
-  if (typeof slackSection !== "object" || slackSection === null || Array.isArray(slackSection)) {
-    return {};
-  }
-  const record2 = slackSection;
-  const tokenFields = Object.keys(record2).filter((key) => key.toLowerCase().includes("token"));
-  if (tokenFields.length > 0) {
-    process.stderr.write(
-      `[slack-bridge] Warning: .claude/.slack-bridge.json contains token field(s): ${tokenFields.join(", ")} \u2014 tokens must not be stored in .slack-bridge.json. These fields are ignored.
-`
-    );
-  }
-  const config2 = {};
-  for (const key of ALLOWED_KEYS) {
-    if (key in record2) {
-      config2[key] = record2[key];
-    }
-  }
-  return config2;
-}
-function saveConfig(patch, cwd) {
-  const dir = cwd ?? process.cwd();
-  const filePath = configFilePath(dir);
-  const claudeDir = join(dir, ".claude");
-  mkdirSync(claudeDir, { recursive: true });
-  let existing = {};
-  if (existsSync(filePath)) {
-    try {
-      const raw = readFileSync(filePath, "utf8");
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        existing = parsed;
-      }
-    } catch {
-    }
-  }
-  const existingSlack = typeof existing.slack === "object" && existing.slack !== null ? existing.slack : {};
-  const mergedSlack = { ...existingSlack };
-  for (const [key, value] of Object.entries(patch)) {
-    if (key.toLowerCase().includes("token")) continue;
-    mergedSlack[key] = value;
-  }
-  const output = { ...existing, slack: mergedSlack };
-  writeFileSync(filePath, JSON.stringify(output, null, 2), { encoding: "utf8", mode: 384 });
-}
-
 // src/config-watcher.ts
 import { watch } from "node:fs";
 import { basename, dirname } from "node:path";
@@ -40810,10 +40726,7 @@ var ConfigWatcher = class {
         if (filename !== file2) return;
         this.scheduleReload();
       });
-      this.watcher.on(
-        "error",
-        (err) => this.logger.warn(`[config-watcher] error: ${err}`)
-      );
+      this.watcher.on("error", (err) => this.logger.warn(`[config-watcher] error: ${err}`));
       this.logger.log(`[config-watcher] watching ${this.configPath}`);
     } catch (err) {
       this.logger.warn(`[config-watcher] could not start: ${err}`);
@@ -40840,6 +40753,99 @@ var ConfigWatcher = class {
     }, this.debounceMs);
   }
 };
+
+// src/config.ts
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname as dirname2, join } from "node:path";
+var ALLOWED_KEYS = ["topics"];
+function legacyConfigFilePath(cwd) {
+  return join(cwd, ".claude", ".slack-bridge.json");
+}
+function readRawFile(filePath) {
+  if (!existsSync(filePath)) return null;
+  let raw;
+  try {
+    raw = readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    process.stderr.write(
+      `[slack-bridge] Warning: ${filePath} contains invalid JSON \u2014 ${String(err)}
+`
+    );
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    process.stderr.write(`[slack-bridge] Warning: ${filePath} must be a JSON object \u2014 ignoring
+`);
+    return null;
+  }
+  return parsed;
+}
+function projectAllowed(slackSection) {
+  if (typeof slackSection !== "object" || slackSection === null || Array.isArray(slackSection)) {
+    return {};
+  }
+  const record2 = slackSection;
+  const tokenFields = Object.keys(record2).filter((key) => key.toLowerCase().includes("token"));
+  if (tokenFields.length > 0) {
+    process.stderr.write(
+      `[slack-bridge] Warning: state file contains token field(s): ${tokenFields.join(", ")} \u2014 tokens must not be stored in the state file. These fields are ignored.
+`
+    );
+  }
+  const config2 = {};
+  for (const key of ALLOWED_KEYS) {
+    if (key in record2) {
+      config2[key] = record2[key];
+    }
+  }
+  return config2;
+}
+function loadConfig(cwd) {
+  const dir = cwd ?? process.cwd();
+  const filePath = legacyConfigFilePath(dir);
+  const raw = readRawFile(filePath);
+  if (raw === null) return {};
+  return projectAllowed(raw.slack);
+}
+function loadConfigFromPath(stateFilePath2) {
+  const raw = readRawFile(stateFilePath2);
+  if (raw === null) return {};
+  return projectAllowed(raw.slack);
+}
+function writeMerged(filePath, patch) {
+  mkdirSync(dirname2(filePath), { recursive: true });
+  let existing = {};
+  if (existsSync(filePath)) {
+    try {
+      const raw = readFileSync(filePath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        existing = parsed;
+      }
+    } catch {
+    }
+  }
+  const existingSlack = typeof existing.slack === "object" && existing.slack !== null ? existing.slack : {};
+  const mergedSlack = { ...existingSlack };
+  for (const [key, value] of Object.entries(patch)) {
+    if (key.toLowerCase().includes("token")) continue;
+    mergedSlack[key] = value;
+  }
+  const output = { ...existing, slack: mergedSlack };
+  writeFileSync(filePath, JSON.stringify(output, null, 2), { encoding: "utf8", mode: 384 });
+}
+function saveConfig(patch, cwd) {
+  writeMerged(legacyConfigFilePath(cwd ?? process.cwd()), patch);
+}
+function saveConfigAtPath(stateFilePath2, patch) {
+  writeMerged(stateFilePath2, patch);
+}
 
 // src/daemon-client.ts
 import { debuglog } from "node:util";
@@ -40897,8 +40903,54 @@ var DaemonClient = class {
 // src/ensure-daemon.ts
 import { spawn } from "node:child_process";
 import { closeSync, mkdirSync as mkdirSync2, openSync } from "node:fs";
-import { dirname as dirname2, resolve } from "node:path";
+import { dirname as dirname3, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// src/shared/path-resolver.ts
+import { join as join2 } from "node:path";
+var DEFAULT_BASE_DIR = "/tmp/slack-bridge";
+var STATE_FILE_NAME = "slack-bridge.json";
+var MCP_LOG_FILE_NAME = "mcp-logs.json";
+var DAEMON_LOG_FILE_NAME = "daemon-logs.json";
+var PathResolver = class {
+  baseDir;
+  constructor(opts = {}) {
+    const raw = opts.baseDir?.trim();
+    const base = raw && raw.length > 0 ? raw : DEFAULT_BASE_DIR;
+    this.baseDir = base.endsWith("/") ? base.slice(0, -1) : base;
+  }
+  /** The base directory all other paths derive from. */
+  getBaseDir() {
+    return this.baseDir;
+  }
+  /** `<base>/<sessionId>` — per-session directory. */
+  getSessionDir(sessionId) {
+    requireSessionId(sessionId);
+    return join2(this.baseDir, sessionId);
+  }
+  /** `<base>/<sessionId>/slack-bridge.json` — persisted subscriptions. */
+  getStateFilePath(sessionId) {
+    requireSessionId(sessionId);
+    return join2(this.baseDir, sessionId, STATE_FILE_NAME);
+  }
+  /** `<base>/<sessionId>/mcp-logs.json` — per-session MCP log. */
+  getMcpLogPath(sessionId) {
+    requireSessionId(sessionId);
+    return join2(this.baseDir, sessionId, MCP_LOG_FILE_NAME);
+  }
+  /** `<base>/daemon-logs.json` — daemon-wide log (no session). */
+  getDaemonLogPath() {
+    return join2(this.baseDir, DAEMON_LOG_FILE_NAME);
+  }
+};
+function requireSessionId(sessionId) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new Error("PathResolver: sessionId must be a non-empty string");
+  }
+}
+
+// src/ensure-daemon.ts
+var defaultPaths = new PathResolver();
 var HEALTH_TIMEOUT_MS = 1e4;
 var HEALTH_POLL_MS = 200;
 var HEALTH_PROBE_TIMEOUT_MS = 500;
@@ -40927,13 +40979,13 @@ async function waitHealthy(daemonUrl, timeoutMs) {
   return false;
 }
 function daemonEntrypoint() {
-  const here = dirname2(fileURLToPath(import.meta.url));
+  const here = dirname3(fileURLToPath(import.meta.url));
   return resolve(here, "daemon/index.js");
 }
 function spawnDaemon(port, spawner) {
-  const logPath = process.env.DAEMON_LOG?.trim() || "/tmp/slack-bridge/daemon-logs.json";
+  const logPath = process.env.DAEMON_LOG?.trim() || defaultPaths.getDaemonLogPath();
   try {
-    mkdirSync2(dirname2(logPath), { recursive: true });
+    mkdirSync2(dirname3(logPath), { recursive: true });
   } catch {
   }
   const logFd = openSync(logPath, "a");
@@ -40968,14 +41020,14 @@ async function ensureDaemon(daemonUrl, spawner, logger2) {
   const ok = await waitHealthy(daemonUrl, HEALTH_TIMEOUT_MS);
   if (!ok) {
     throw new Error(
-      `slack-bridge daemon did not become healthy within ${HEALTH_TIMEOUT_MS}ms. Check ${process.env.DAEMON_LOG || "/tmp/slack-bridge/daemon-logs.json"} for details.`
+      `slack-bridge daemon did not become healthy within ${HEALTH_TIMEOUT_MS}ms. Check ${process.env.DAEMON_LOG || defaultPaths.getDaemonLogPath()} for details.`
     );
   }
 }
 
 // src/logger.ts
 import { appendFileSync, mkdirSync as mkdirSync3 } from "node:fs";
-import { dirname as dirname3 } from "node:path";
+import { dirname as dirname4 } from "node:path";
 import { debuglog as debuglog2 } from "node:util";
 function now() {
   const d = /* @__PURE__ */ new Date();
@@ -40991,7 +41043,7 @@ function createLogger(opts) {
   const namespace = debugNamespace ?? `slack-bridge:${label}`;
   const nodeDebug = debuglog2(namespace);
   try {
-    mkdirSync3(dirname3(logPath), { recursive: true });
+    mkdirSync3(dirname4(logPath), { recursive: true });
   } catch {
   }
   function writeToFile(level, msg) {
@@ -41028,6 +41080,39 @@ function createLogger(opts) {
     logPath
   };
 }
+
+// src/shared/mcp-logger.ts
+var McpLogger = class {
+  inner;
+  constructor(opts) {
+    if (typeof opts.sessionId !== "string" || opts.sessionId.length === 0) {
+      throw new Error("McpLogger: sessionId must be a non-empty string");
+    }
+    const paths2 = opts.paths ?? new PathResolver();
+    const logPath = paths2.getMcpLogPath(opts.sessionId);
+    this.inner = createLogger({
+      logPath,
+      label: "mcp",
+      stderr: opts.stderr ?? true
+    });
+  }
+  /** Path of the underlying log file. Useful for boot messages. */
+  get logPath() {
+    return this.inner.logPath ?? "";
+  }
+  log(msg) {
+    this.inner.log(msg);
+  }
+  warn(msg) {
+    this.inner.warn(msg);
+  }
+  error(msg) {
+    this.inner.error(msg);
+  }
+  debug(msg) {
+    this.inner.debug(msg);
+  }
+};
 
 // src/shared/types.ts
 function normalizeTopic(input) {
@@ -41156,12 +41241,16 @@ var McpBridgeServer = class {
   subscribedTopics = [];
   /** Reloads subscriptions when the persisted config file changes on disk. */
   configWatcher;
-  constructor({ web: web2, daemonClient: daemonClient2, logger: logger2 }) {
+  /** Absolute path to the state file, or undefined for legacy mode. */
+  stateFilePath;
+  constructor({ web: web2, daemonClient: daemonClient2, logger: logger2, stateFilePath: stateFilePath2 }) {
     this.web = web2;
     this.daemonClient = daemonClient2;
     this.logger = logger2;
+    this.stateFilePath = stateFilePath2;
+    const watchedPath = stateFilePath2 ?? join3(process.cwd(), ".claude", ".slack-bridge.json");
     this.configWatcher = new ConfigWatcher({
-      configPath: join2(process.cwd(), ".claude", ".slack-bridge.json"),
+      configPath: watchedPath,
       onChange: () => this.reloadFromConfig(),
       logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) }
     });
@@ -41199,7 +41288,7 @@ var McpBridgeServer = class {
       tools: [
         {
           name: "subscribe_slack",
-          description: 'Subscribe to Slack messages using topics. Each entry can be a bare topic string or an object {topic, label} where label is metadata the agent will see on every matched message (use it to remember WHY this subscription exists, e.g. "ship-pr-42" or "team-channel"). Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to .claude/.slack-bridge.json.',
+          description: 'Subscribe to Slack messages using topics. Each entry can be a bare topic string or an object {topic, label} where label is metadata the agent will see on every matched message (use it to remember WHY this subscription exists, e.g. "ship-pr-42" or "team-channel"). Topic formats: "{channel}" \u2192 all messages in channel; "{channel}:{user}" \u2192 messages from a specific user in a channel; "{channel}:*:{thread_ts}" \u2192 all replies in a thread (any user); "{channel}:{user}:{thread_ts}" \u2192 thread replies from a specific user; "DM:{user}" \u2192 direct messages from a user. Use "*" as a wildcard for channel or user. Subscription is persisted to /tmp/slack-bridge/<session-id>/slack-bridge.json.',
           inputSchema: {
             type: "object",
             properties: {
@@ -41226,7 +41315,7 @@ var McpBridgeServer = class {
         },
         {
           name: "unsubscribe_slack",
-          description: "Stop listening to Slack messages. With `topics`, removes only those topics from the subscription and persists the change to .claude/.slack-bridge.json. Without `topics`, unsubscribes from everything.",
+          description: "Stop listening to Slack messages. With `topics`, removes only those topics from the subscription and persists the change to the state file. Without `topics`, unsubscribes from everything.",
           inputSchema: {
             type: "object",
             properties: {
@@ -41336,9 +41425,9 @@ var McpBridgeServer = class {
       await this.daemonClient.subscribe(incoming);
       this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
       try {
-        const existing = loadConfig();
+        const existing = this.readState();
         const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
-        saveConfig({ topics: mergeTopicSpecs(existingSpecs, incoming) });
+        this.writeState({ topics: mergeTopicSpecs(existingSpecs, incoming) });
       } catch (err) {
         this.logger.warn(`could not persist subscription \u2014 ${err}`);
       }
@@ -41374,7 +41463,7 @@ var McpBridgeServer = class {
     }
     this.subscribedTopics = remaining;
     try {
-      saveConfig({ topics: remaining });
+      this.writeState({ topics: remaining });
     } catch (err) {
       this.logger.warn(`could not persist unsubscribe \u2014 ${err}`);
     }
@@ -41461,7 +41550,7 @@ var McpBridgeServer = class {
         );
         return;
       }
-      const fileConfig = loadConfig();
+      const fileConfig = this.readState();
       const envTopics = process.env.SLACK_TOPICS?.split(",").filter(Boolean) ?? null;
       const raw = envTopics ?? fileConfig.topics ?? [];
       const topics = raw.map(normalizeTopic);
@@ -41487,7 +41576,7 @@ var McpBridgeServer = class {
    */
   async reloadFromConfig() {
     if (!this.daemonClient) return;
-    const desired = (loadConfig().topics ?? []).map(normalizeTopic);
+    const desired = (this.readState().topics ?? []).map(normalizeTopic);
     const desiredKeys = new Set(desired.map((t) => t.topic));
     const currentKeys = new Set(this.subscribedTopics.map((t) => t.topic));
     const added = desired.filter((t) => !currentKeys.has(t.topic));
@@ -41507,6 +41596,25 @@ var McpBridgeServer = class {
     this.logger.log(
       `config reload \u2014 +${added.length} -${removed.length} ~${relabeled.length} (total=${desired.length})`
     );
+  }
+  /**
+   * Read persisted state. Routes through the explicit `stateFilePath` when
+   * provided, otherwise falls back to the legacy `<cwd>/.claude/.slack-bridge.json`
+   * via `loadConfig()`.
+   */
+  readState() {
+    return this.stateFilePath ? loadConfigFromPath(this.stateFilePath) : loadConfig();
+  }
+  /**
+   * Persist state. Routes through the explicit `stateFilePath` when
+   * provided, otherwise falls back to the legacy location via `saveConfig()`.
+   */
+  writeState(patch) {
+    if (this.stateFilePath) {
+      saveConfigAtPath(this.stateFilePath, patch);
+    } else {
+      saveConfig(patch);
+    }
   }
   /** Called by the webhook server when a message arrives from the daemon. */
   async handleIncomingMessage(payload) {
@@ -41559,8 +41667,10 @@ function readClaudeSessionId(ppid) {
 }
 var claudeSessionId = readClaudeSessionId(process.ppid);
 var SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
-var mcpLogPath = `/tmp/slack-bridge/${SESSION_ID}/mcp-logs.json`;
-var logger = createLogger({ logPath: mcpLogPath, label: "mcp", stderr: true });
+var paths = new PathResolver();
+var mcpLogPath = paths.getMcpLogPath(SESSION_ID);
+var stateFilePath = paths.getStateFilePath(SESSION_ID);
+var logger = new McpLogger({ sessionId: SESSION_ID, paths });
 if (claudeSessionId) {
   logger.log(`claude session: ${claudeSessionId} (ppid=${process.ppid})`);
 } else {
@@ -41572,7 +41682,9 @@ if (!botToken) {
   process.exit(1);
 }
 var DAEMON_URL = resolveDaemonUrl();
-logger.log(`starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath}`);
+logger.log(
+  `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
+);
 function readParentCmd(ppid) {
   try {
     return execSync(`ps -ww -p ${ppid} -o command=`, {
@@ -41653,7 +41765,7 @@ var webhookSrv = new WebhookServer(async (payload) => {
 });
 var webhookPort = await webhookSrv.start();
 var daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-var mcpServer = new McpBridgeServer({ web, daemonClient, logger });
+var mcpServer = new McpBridgeServer({ web, daemonClient, logger, stateFilePath });
 await mcpServer.connect(new StdioServerTransport());
 export {
   McpBridgeServer
