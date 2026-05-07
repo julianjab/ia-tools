@@ -142,7 +142,7 @@ build_claude_argv() {
     claude
     --agent team-workflow:orchestrator
     --dangerously-skip-permissions
-    --teammateMode split-pane
+    --teammate-mode tmux
   )
   # The user's request is passed as the prompt POSITIONAL ARG. This is the
   # critical fix: argv is preserved literally by exec, so backticks, quotes,
