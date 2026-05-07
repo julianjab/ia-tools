@@ -69,13 +69,19 @@ export class Registry {
     }
   }
 
-  add(port: number, topics: TopicSpec[]): Subscriber {
+  add(port: number, topics: TopicSpec[], sessionId?: string): Subscriber {
     const existing = this.subscribers.get(port);
     if (existing) {
       const merged: Subscriber = {
         ...existing,
         topics: mergeTopics(existing.topics, topics),
         lastSeen: new Date().toISOString(),
+        // Refresh session_id if a new one is provided; otherwise preserve.
+        ...(sessionId && sessionId.length > 0
+          ? { session_id: sessionId }
+          : existing.session_id
+            ? { session_id: existing.session_id }
+            : {}),
       };
       this.subscribers.set(port, merged);
       return merged;
@@ -86,6 +92,7 @@ export class Registry {
       topics,
       registeredAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
+      ...(sessionId && sessionId.length > 0 ? { session_id: sessionId } : {}),
     };
     this.subscribers.set(port, sub);
     return sub;

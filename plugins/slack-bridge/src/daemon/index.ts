@@ -210,6 +210,11 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
         matched_topics: matched,
         daemon_ts: new Date().toISOString(),
       };
+      const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : '';
+      const matchedTopics = matched.map((t) => t.topic).join(',');
+      log(
+        `[route] → :${sub.port}${sessionSeg} #${channelName} ${userName} matched=[${matchedTopics}]`,
+      );
       try {
         const res = await fetch(`http://localhost:${sub.port}/message`, {
           method: 'POST',
@@ -217,13 +222,13 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          warn(`[route] subscriber :${sub.port} responded ${res.status} — removing`);
+          warn(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} — removing`);
           registry.remove(sub.port);
           return;
         }
         registry.markSeen(sub.port);
       } catch (_err) {
-        warn(`[route] subscriber :${sub.port} unreachable — removing`);
+        warn(`[route] subscriber :${sub.port}${sessionSeg} unreachable — removing`);
         registry.remove(sub.port);
       }
     }),

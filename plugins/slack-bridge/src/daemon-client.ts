@@ -22,13 +22,17 @@ export class DaemonClient {
     return this.webhookPort;
   }
 
-  async subscribe(topics: Array<string | TopicSpec>): Promise<boolean> {
+  async subscribe(topics: Array<string | TopicSpec>, sessionId?: string): Promise<boolean> {
     if (!this.daemonUrl) {
       throw new Error('DAEMON_URL is not set — cannot subscribe');
     }
 
-    const body = { port: this.webhookPort, topics };
-    debug('subscribe port=%d topics=%j', this.webhookPort, topics);
+    const body: { port: number; topics: Array<string | TopicSpec>; session_id?: string } = {
+      port: this.webhookPort,
+      topics,
+    };
+    if (sessionId && sessionId.length > 0) body.session_id = sessionId;
+    debug('subscribe port=%d topics=%j session=%s', this.webhookPort, topics, sessionId ?? '');
     const res = await fetch(`${this.daemonUrl}/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

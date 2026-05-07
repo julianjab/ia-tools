@@ -40860,12 +40860,16 @@ var DaemonClient = class {
   get port() {
     return this.webhookPort;
   }
-  async subscribe(topics) {
+  async subscribe(topics, sessionId) {
     if (!this.daemonUrl) {
       throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
     }
-    const body = { port: this.webhookPort, topics };
-    debug("subscribe port=%d topics=%j", this.webhookPort, topics);
+    const body = {
+      port: this.webhookPort,
+      topics
+    };
+    if (sessionId && sessionId.length > 0) body.session_id = sessionId;
+    debug("subscribe port=%d topics=%j session=%s", this.webhookPort, topics, sessionId ?? "");
     const res = await fetch(`${this.daemonUrl}/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -41504,7 +41508,7 @@ ${mcpGuidance}` : mcpGuidance;
       if (!this.daemonClient) {
         throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
       }
-      await this.daemonClient.subscribe(incoming);
+      await this.daemonClient.subscribe(incoming, this.sessionId);
       this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
       try {
         const existing = this.readState();
@@ -41540,7 +41544,7 @@ ${mcpGuidance}` : mcpGuidance;
       removed = this.subscribedTopics.filter((t) => toRemove.has(t.topic));
       remaining = this.subscribedTopics.filter((t) => !toRemove.has(t.topic));
       if (this.daemonClient && remaining.length > 0) {
-        await this.daemonClient.subscribe(remaining);
+        await this.daemonClient.subscribe(remaining, this.sessionId);
       }
     } else {
       removed = [...this.subscribedTopics];
@@ -41663,7 +41667,7 @@ JSON: ${json2}`
       this.configWatcher.start();
       if (!topics.length) return;
       try {
-        await this.daemonClient.subscribe(topics);
+        await this.daemonClient.subscribe(topics, this.sessionId);
         this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, topics);
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} \u2014 topics=${topics.map(formatSpec).join(", ")}`
@@ -41696,7 +41700,7 @@ JSON: ${json2}`
     }
     await this.daemonClient.unsubscribe();
     if (desired.length > 0) {
-      await this.daemonClient.subscribe(desired);
+      await this.daemonClient.subscribe(desired, this.sessionId);
     }
     this.subscribedTopics = desired;
     this.logger.log(
@@ -41764,13 +41768,13 @@ ${err.stack ?? ""}
 });
 async function readClaudeSessionId(ppid) {
   const path = `${homedir()}/.claude/sessions/${ppid}.json`;
-  const ATTEMPTS = 10;
+  const ATTEMPTS = 30;
   const BACKOFF_MS = 100;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     try {
       const raw = readFileSync2(path, "utf8");
       const data = JSON.parse(raw);
-      if (typeof data.sessionId === "string" && data.sessionId.length > 0) {
+      if (typeof data.sessionId === "string" && data.sessionId.length > 0 && typeof data.status === "string" && data.status.length > 0) {
         return data.sessionId;
       }
     } catch {
@@ -41781,17 +41785,39 @@ async function readClaudeSessionId(ppid) {
   }
   return null;
 }
-var claudeSessionId = await readClaudeSessionId(process.ppid);
-var SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
+async function resolveSessionId(ppid, logger2) {
+  const fileId = await readClaudeSessionId(ppid);
+  if (fileId) {
+    logger2.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
+    return { id: fileId, source: "file" };
+  }
+  const fallback = `${ppid}-${process.pid}`;
+  logger2.warn(
+    `claude session id unavailable (ppid=${ppid} file unreadable); using fallback ${fallback}`
+  );
+  return { id: fallback, source: "fallback" };
+}
 var paths = new PathResolver();
+var bootBuffer = [];
+var captureLogger = {
+  log: (msg) => bootBuffer.push({ level: "log", msg }),
+  warn: (msg) => bootBuffer.push({ level: "warn", msg }),
+  error: (msg) => bootBuffer.push({ level: "warn", msg }),
+  debug: () => {
+  }
+};
+var { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
+  process.ppid,
+  captureLogger
+);
 var mcpLogPath = paths.getMcpLogPath(SESSION_ID);
 var stateFilePath = paths.getStateFilePath(SESSION_ID);
 var logger = new McpLogger({ sessionId: SESSION_ID, paths });
-if (claudeSessionId) {
-  logger.log(`claude session: ${claudeSessionId} (ppid=${process.ppid})`);
-} else {
-  logger.warn(`claude session id unavailable (ppid=${process.ppid}); using fallback`);
+for (const entry of bootBuffer) {
+  if (entry.level === "warn") logger.warn(entry.msg);
+  else logger.log(entry.msg);
 }
+logger.log(`session id source: ${SESSION_ID_SOURCE}`);
 var botToken = process.env.SLACK_BOT_TOKEN;
 if (!botToken) {
   logger.error("Missing SLACK_BOT_TOKEN");

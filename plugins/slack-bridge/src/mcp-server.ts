@@ -464,7 +464,7 @@ export class McpBridgeServer {
         throw new Error('DAEMON_URL is not set — cannot subscribe');
       }
 
-      await this.daemonClient.subscribe(incoming);
+      await this.daemonClient.subscribe(incoming, this.sessionId);
       this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
 
       // Persist merged topics to the state file.
@@ -513,7 +513,7 @@ export class McpBridgeServer {
       removed = this.subscribedTopics.filter((t) => toRemove.has(t.topic));
       remaining = this.subscribedTopics.filter((t) => !toRemove.has(t.topic));
       if (this.daemonClient && remaining.length > 0) {
-        await this.daemonClient.subscribe(remaining);
+        await this.daemonClient.subscribe(remaining, this.sessionId);
       }
     } else {
       removed = [...this.subscribedTopics];
@@ -681,7 +681,7 @@ export class McpBridgeServer {
       if (!topics.length) return;
 
       try {
-        await this.daemonClient.subscribe(topics);
+        await this.daemonClient.subscribe(topics, this.sessionId);
         this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, topics);
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} — topics=${topics.map(formatSpec).join(', ')}`,
@@ -719,7 +719,7 @@ export class McpBridgeServer {
     // Full re-sync: registry has no "patch" op, so unsubscribe + subscribe.
     await this.daemonClient.unsubscribe();
     if (desired.length > 0) {
-      await this.daemonClient.subscribe(desired);
+      await this.daemonClient.subscribe(desired, this.sessionId);
     }
     this.subscribedTopics = desired;
 
@@ -802,23 +802,40 @@ process.on('uncaughtException', (err) => {
  * correlation with Claude's own logs trivial (~/.claude/projects/.../
  * <sessionId>.jsonl, ~/.claude/debug/<sessionId>.txt).
  *
+ * Settle gate: Claude rewrites this file twice during a `--resume`: once
+ * with a placeholder sessionId on initial boot, then again with the resumed
+ * transcript's sessionId once settled. The first write does not include a
+ * `status` field, so we use that as our "is settled" gate. Without this
+ * gate the MCP would persist the placeholder and create a
+ * `/tmp/slack-bridge/<placeholder>/` directory that diverges from
+ * `~/.claude/projects/<cwd>/<id>.jsonl`.
+ *
  * Race: Claude often writes the session file in parallel with spawning the
  * MCP, so the first read can hit ENOENT or an empty/partial JSON. We retry
- * up to ~1 s before falling back, which covers the common case (<150 ms)
- * with margin and still bounds the worst-case startup delay.
+ * up to ~3 s before falling back, which covers both the cold-boot race and
+ * the resume-settle window with margin while still bounding the worst case.
  *
- * Falls back to <ppid>-<pid> if the file is still unreadable after retries
- * (e.g. the MCP being run standalone outside Claude).
+ * Falls back to <ppid>-<pid> if the file is still unreadable / unsettled
+ * after retries (e.g. the MCP being run standalone outside Claude).
  */
 async function readClaudeSessionId(ppid: number): Promise<string | null> {
   const path = `${homedir()}/.claude/sessions/${ppid}.json`;
-  const ATTEMPTS = 10;
+  const ATTEMPTS = 30;
   const BACKOFF_MS = 100;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     try {
       const raw = readFileSync(path, 'utf8');
-      const data = JSON.parse(raw) as { sessionId?: string };
-      if (typeof data.sessionId === 'string' && data.sessionId.length > 0) {
+      const data = JSON.parse(raw) as { sessionId?: string; status?: string };
+      // Require BOTH a sessionId AND a non-empty `status`. The status field
+      // is set by Claude only after it finishes booting / settling a resumed
+      // transcript; before that the sessionId may be a placeholder that is
+      // about to be overwritten.
+      if (
+        typeof data.sessionId === 'string' &&
+        data.sessionId.length > 0 &&
+        typeof data.status === 'string' &&
+        data.status.length > 0
+      ) {
         return data.sessionId;
       }
     } catch {
@@ -831,17 +848,57 @@ async function readClaudeSessionId(ppid: number): Promise<string | null> {
   return null;
 }
 
-const claudeSessionId = await readClaudeSessionId(process.ppid);
-const SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
+/**
+ * Resolve the Claude session id with a 2-level fallback chain:
+ *   1. ~/.claude/sessions/<ppid>.json — the per-process session file Claude
+ *      writes at boot, polled with retry+backoff to absorb the spawn race.
+ *      Covers 100% of cases when the MCP runs as a child of `claude`.
+ *   2. <ppid>-<pid> — last-resort synthetic id when the file never appears
+ *      (e.g. running the MCP standalone outside Claude).
+ *
+ * Note: an earlier draft also tried `CLAUDE_CODE_SESSION_ID` in the parent's
+ * env via `ps eww`, but Claude does not expose that variable in its own
+ * process environment — only on subprocesses it spawns for shell tools — so
+ * the env probe never fired in practice. Dropped to keep the chain minimal.
+ */
+async function resolveSessionId(
+  ppid: number,
+  logger: Logger,
+): Promise<{ id: string; source: 'file' | 'fallback' }> {
+  const fileId = await readClaudeSessionId(ppid);
+  if (fileId) {
+    logger.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
+    return { id: fileId, source: 'file' };
+  }
+  const fallback = `${ppid}-${process.pid}`;
+  logger.warn(
+    `claude session id unavailable (ppid=${ppid} file unreadable); using fallback ${fallback}`,
+  );
+  return { id: fallback, source: 'fallback' };
+}
+
 const paths = new PathResolver();
+// Capture log lines from resolveSessionId until the real logger exists, then
+// replay them so the resolution outcome lands in the per-session log file.
+const bootBuffer: Array<{ level: 'log' | 'warn'; msg: string }> = [];
+const captureLogger: Logger = {
+  log: (msg: string) => bootBuffer.push({ level: 'log', msg }),
+  warn: (msg: string) => bootBuffer.push({ level: 'warn', msg }),
+  error: (msg: string) => bootBuffer.push({ level: 'warn', msg }),
+  debug: () => {},
+};
+const { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
+  process.ppid,
+  captureLogger,
+);
 const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
 const stateFilePath = paths.getStateFilePath(SESSION_ID);
 const logger = new McpLogger({ sessionId: SESSION_ID, paths });
-if (claudeSessionId) {
-  logger.log(`claude session: ${claudeSessionId} (ppid=${process.ppid})`);
-} else {
-  logger.warn(`claude session id unavailable (ppid=${process.ppid}); using fallback`);
+for (const entry of bootBuffer) {
+  if (entry.level === 'warn') logger.warn(entry.msg);
+  else logger.log(entry.msg);
 }
+logger.log(`session id source: ${SESSION_ID_SOURCE}`);
 
 const botToken = process.env.SLACK_BOT_TOKEN;
 if (!botToken) {
