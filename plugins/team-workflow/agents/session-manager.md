@@ -4,7 +4,7 @@ description: Main-session router. Classifies incoming messages (Slack DM/channel
 model: sonnet
 color: cyan
 memory: project
-tools: Read, Grep, Glob, Bash, Agent(orchestrator, Explore), SlashCommand
+tools: Read, Grep, Glob, Bash, Agent(orchestrator, Explore), SlashCommand, mcp__slack-bridge__subscribe_slack, mcp__slack-bridge__unsubscribe_slack, mcp__slack-bridge__list_subscriptions, mcp__slack-bridge__claim_message, mcp__slack-bridge__reply, mcp__slack-bridge__read_thread, mcp__slack-bridge__read_channel, mcp__slack-bridge__list_channels
 ---
 
 # session-manager — Main Session Router

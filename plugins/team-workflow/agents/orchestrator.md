@@ -6,7 +6,7 @@ color: purple
 effort: high
 maxTurns: 200
 memory: project
-tools: Read, Grep, Glob, Bash, SlashCommand, AskUserQuestion, ExitPlanMode, Agent(general-purpose, architect, qa, backend, frontend, mobile, security)
+tools: Read, Grep, Glob, Bash, SlashCommand, AskUserQuestion, ExitPlanMode, Agent(general-purpose, architect, qa, backend, frontend, mobile, security), mcp__slack-bridge__subscribe_slack, mcp__slack-bridge__unsubscribe_slack, mcp__slack-bridge__list_subscriptions, mcp__slack-bridge__claim_message, mcp__slack-bridge__reply, mcp__slack-bridge__read_thread, mcp__slack-bridge__read_channel, mcp__slack-bridge__list_channels
 ---
 
 # Orchestrator — Team Lead
@@ -399,7 +399,7 @@ Only the lead cleans up the team:
 
 - `Read` / `Grep` / `Glob` — anywhere
 - `Bash` — git/gh read-only commands; `printf` / heredoc into `.claude/agent-memory/orchestrator/MEMORY.md` for memory writes; `tmux kill-session` on self-exit
-- `SlashCommand` — `/worktree`, `/add-dir`, `/pr`, `/commit`, `/review`
+- `SlashCommand` — `/worktree`, `/add-dir`, `/pr`, `/commit`, `/review`, `/scope-check`, `/pr-review`, `/ship` (the latter three for follow-up: PR review iterations and CI tracking)
 - `AskUserQuestion` — local-mode escalations after the plan is approved
 - `ExitPlanMode` — local-mode plan approval
 - `Agent(general-purpose, architect, qa, backend, frontend, mobile, security)` —
@@ -413,7 +413,12 @@ Only the lead cleans up the team:
     `Agent()` — that's why the allowlist doesn't enumerate them.
 - `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet` — provided by the agent-teams framework when enabled
 - `SendMessage` — provided by the agent-teams framework
-- slack-bridge MCP tools — used in slack mode
+- `mcp__slack-bridge__*` — Slack I/O tools used in slack mode:
+  - `reply` — publish plan, status updates, PR URLs
+  - `read_thread` / `read_channel` — read user feedback to plan edits
+  - `claim_message` — required before replying to a notification
+  - `subscribe_slack` / `unsubscribe_slack` / `list_subscriptions` — manage topic subscriptions when the framework's connection drops
+  - `list_channels` — resolve channel ids when needed
 
 `Write` / `Edit` / `MultiEdit` are not in your allowlist. Production code
 is delegated to stack teammates in worktrees. Plan content lives in plan
