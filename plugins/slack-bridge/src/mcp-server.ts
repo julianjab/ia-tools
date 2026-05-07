@@ -24,10 +24,10 @@
  *                                           state file on auto-subscribe)
  *                                           e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,..."
  *   ALLOWED_USERS_MENTIONS — Comma-separated Slack user IDs whose @mentions the
- *                            bot processes. Unset / empty → process all @mentions.
+ *                            bot processes. Unset / empty → block all mentions.
  *                            Example: "U02M1QFA0AF,U03ABCDEF"
  *   ALLOWED_USERS_DM       — Comma-separated Slack user IDs who can DM the bot
- *                            (Agent split-view). Unset / empty → accept all DMs.
+ *                            (Agent split-view). Unset / empty → block all DMs.
  *                            Example: "U02M1QFA0AF"
  *
  * Note: subscribe_slack / unsubscribe_slack are unconditionally blocked when
@@ -40,6 +40,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
+import { parseAllowedUsers } from './auth-gate.js';
 import { ConfigWatcher } from './config-watcher.js';
 import { loadConfig, loadConfigFromPath, saveConfig, saveConfigAtPath } from './config.js';
 import { DaemonClient } from './daemon-client.js';
@@ -90,6 +91,10 @@ export interface McpBridgeServerOptions {
    * directory under `/tmp/slack-bridge/<session-id>/`.
    */
   sessionId?: string;
+  /** ALLOWED_USERS_DM — user IDs allowed to DM the bot. Empty = block all. */
+  allowedUsersDm: Set<string>;
+  /** ALLOWED_USERS_MENTIONS — user IDs whose @mentions the bot processes. Empty = block all. */
+  allowedUsersMentions: Set<string>;
 }
 
 export class McpBridgeServer {
@@ -105,6 +110,10 @@ export class McpBridgeServer {
   private readonly configWatcher: ConfigWatcher;
   /** Absolute path to the state file, or undefined for legacy mode. */
   private readonly stateFilePath: string | undefined;
+  /** User IDs allowed to DM the bot. Empty set = block all. */
+  private readonly allowedUsersDm: Set<string>;
+  /** User IDs whose @mentions the bot processes. Empty set = block all. */
+  private readonly allowedUsersMentions: Set<string>;
 
   constructor({
     web,
@@ -112,12 +121,16 @@ export class McpBridgeServer {
     logger,
     stateFilePath,
     sessionId,
+    allowedUsersDm,
+    allowedUsersMentions,
   }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
     this.stateFilePath = stateFilePath;
     this.sessionId = sessionId;
+    this.allowedUsersDm = allowedUsersDm;
+    this.allowedUsersMentions = allowedUsersMentions;
     const watchedPath = stateFilePath ?? join(process.cwd(), '.claude', '.slack-bridge.json');
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
@@ -483,6 +496,24 @@ export class McpBridgeServer {
   /** Called by the webhook server when a message arrives from the daemon. */
   async handleIncomingMessage(payload: MessagePayload): Promise<void> {
     const { message, matched_topics } = payload;
+
+    // Access control gate — deny-by-default (empty set blocks everyone)
+    if (message.is_dm) {
+      if (!this.allowedUsersDm.has(message.user_id)) {
+        this.logger.log(
+          `[gate] DM from ${message.user_id} blocked — not in ALLOWED_USERS_DM`,
+        );
+        return;
+      }
+    } else {
+      if (!this.allowedUsersMentions.has(message.user_id)) {
+        this.logger.log(
+          `[gate] mention from ${message.user_id} in #${message.channel_name} blocked — not in ALLOWED_USERS_MENTIONS`,
+        );
+        return;
+      }
+    }
+
     await this.mcp.notification({
       method: 'notifications/claude/channel',
       params: {
@@ -665,6 +696,8 @@ export async function main(): Promise<void> {
     logger,
     stateFilePath,
     sessionId: SESSION_ID,
+    allowedUsersDm: parseAllowedUsers(process.env.ALLOWED_USERS_DM),
+    allowedUsersMentions: parseAllowedUsers(process.env.ALLOWED_USERS_MENTIONS),
   });
 
   await mcpServer.connect(new StdioServerTransport());
