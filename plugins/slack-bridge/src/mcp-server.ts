@@ -6,8 +6,8 @@
  * Lightweight MCP server that:
  * 1. Subscribes to the slack-daemon for message routing
  * 2. Receives webhooks and pushes notifications to Claude
- * 3. Exposes tools: subscribe_slack, unsubscribe_slack, claim_message, reply,
- *    read_thread, read_channel, list_channels
+ * 3. Exposes tools: subscribe_slack, unsubscribe_slack, list_subscriptions,
+ *    claim_message, reply, read_thread, read_channel, list_channels
  *
  * The daemon must be started separately:
  *   SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... pnpm --filter @ia-tools/slack-bridge daemon
@@ -99,6 +99,12 @@ export interface McpBridgeServerOptions {
    * argument that is in this set, otherwise the call is rejected.
    */
   allowedSubscribeUsers: Set<string>;
+  /**
+   * Optional session id used purely for display in the `list_subscriptions`
+   * output so the operator can correlate the response with the Claude session
+   * directory under `/tmp/slack-bridge/<session-id>/`.
+   */
+  sessionId?: string;
 }
 
 export class McpBridgeServer {
@@ -107,6 +113,8 @@ export class McpBridgeServer {
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
   private readonly allowedSubscribeUsers: Set<string>;
+  /** Display-only session id surfaced in list_subscriptions output. */
+  private readonly sessionId: string | undefined;
   /** All topic specs this subscriber is currently registered for. */
   private subscribedTopics: TopicSpec[] = [];
   /** Reloads subscriptions when the persisted config file changes on disk. */
@@ -120,12 +128,14 @@ export class McpBridgeServer {
     logger,
     stateFilePath,
     allowedSubscribeUsers,
+    sessionId,
   }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
     this.stateFilePath = stateFilePath;
     this.allowedSubscribeUsers = allowedSubscribeUsers;
+    this.sessionId = sessionId;
     const watchedPath = stateFilePath ?? join(process.cwd(), '.claude', '.slack-bridge.json');
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
@@ -322,6 +332,15 @@ export class McpBridgeServer {
           description: 'List Slack channels the bot is a member of.',
           inputSchema: { type: 'object' as const, properties: {} },
         },
+        {
+          name: 'list_subscriptions',
+          description:
+            'List the topic subscriptions currently active for THIS Claude session. ' +
+            'Returns the same TopicSpecs (topic + optional label) the agent receives ' +
+            'in matched_topics on every delivery. Use it to verify state before ' +
+            'subscribe/unsubscribe, or to recover the active set after a long context.',
+          inputSchema: { type: 'object' as const, properties: {} },
+        },
       ],
     }));
 
@@ -343,6 +362,7 @@ export class McpBridgeServer {
     if (name === 'read_thread') return this.handleReadThread(args);
     if (name === 'read_channel') return this.handleReadChannel(args);
     if (name === 'list_channels') return this.handleListChannels();
+    if (name === 'list_subscriptions') return this.handleListSubscriptions();
     throw new Error(`Unknown tool: ${name}`);
   }
 
@@ -591,6 +611,30 @@ export class McpBridgeServer {
     } catch (err) {
       return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
     }
+  }
+
+  private async handleListSubscriptions(): Promise<{
+    content: Array<{ type: 'text'; text: string }>;
+  }> {
+    const count = this.subscribedTopics.length;
+    if (count === 0) {
+      return {
+        content: [{ type: 'text' as const, text: 'No active subscriptions for this session.' }],
+      };
+    }
+    const lines = this.subscribedTopics.map((t, i) => `  ${i + 1}. ${formatSpec(t)}`).join('\n');
+    const json = JSON.stringify(this.subscribedTopics);
+    const header = this.sessionId
+      ? `Active subscriptions (${count}) for session ${this.sessionId}:`
+      : `Active subscriptions (${count}):`;
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${header}\n${lines}\n\nJSON: ${json}`,
+        },
+      ],
+    };
   }
 
   private registerOnInitialized(): void {
@@ -908,6 +952,7 @@ const mcpServer = new McpBridgeServer({
   logger,
   stateFilePath,
   allowedSubscribeUsers,
+  sessionId: SESSION_ID,
 });
 
 await mcpServer.connect(new StdioServerTransport());
