@@ -211,6 +211,18 @@ classDef modified fill:#d29922,stroke:#fff,color:#fff
 classDef removed fill:#da3633,stroke:#fff,color:#fff
 ```
 
+**Mermaid syntax — MUST follow or diagrams break on GitHub:**
+
+| Rule | ❌ Broken | ✅ Correct |
+|------|-----------|-----------|
+| No `\n` in labels — use `<br>` for multi-line or keep label short | `A[foo\nbar]` | `A["foo<br>bar"]` |
+| No `[]` inside `[]` node labels — wrap with quotes | `A[List[]]` | `A["List[]"]` |
+| No `()` or `/` inside unquoted labels | `A[fn()]` | `A["fn()"]` |
+| `classDef` must be **inside** the mermaid block | classDef outside ` ``` ` | inside the block |
+| Apply `:::class` to nodes only, not to `subgraph` | `subgraph S:::new` | `N[label]:::new` |
+| Keep labels concise — one word or CamelCase preferred | `A[very long description]` | `A[SubscribeHandler]` |
+| Node IDs must start with a letter, not a number | `1A[label]` | `A1[label]` |
+
 ##### Modified Files Summary Table
 
 Always generate this table:

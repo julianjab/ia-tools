@@ -16,13 +16,15 @@
  * Env (fallback):
  *   SLACK_BOT_TOKEN   — Bot token
  *   SLACK_APP_TOKEN   — App-level token for Socket Mode
- *   DAEMON_PORT       — HTTP API port (default: 3800)
- *   DAEMON_LOG        — Log file path (default: /tmp/slack-bridge/daemon-logs.json)
+ *   DAEMON_PORT                  — HTTP API port (default: 3800)
+ *   DAEMON_LOG                   — Log file path (default: /tmp/slack-bridge/daemon-logs.json)
+ *   DAEMON_IDLE_SHUTDOWN_MS      — Auto-exit after this many ms with 0 subscribers
+ *                                  (default: 600000 = 10 min; set to 0 to disable)
  */
 
 import { fileURLToPath } from 'node:url';
 import { buildSlackMessage } from '../shared/build-message.js';
-import type { MessagePayload } from '../shared/types.js';
+import type { MessagePayload, SlackMessage } from '../shared/types.js';
 import { addThinkingAck } from './ack.js';
 import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
 import { error, log, logPath, warn } from './logger.js';
@@ -71,7 +73,26 @@ if (spawnerSession) {
 // Bind the port BEFORE starting Socket Mode so that if another daemon is
 // already running we exit immediately with EADDRINUSE instead of opening a
 // duplicate Slack connection. The listen port is the singleton mutex.
-const api = createApiServer(registry, startedAt, () => socketStatus);
+// Recent messages cache — populated at fan-out, consumed by the /claim
+// callback to set the thinking-ack on the right Slack message. Entries
+// auto-expire after RECENT_MSG_TTL_MS.
+const RECENT_MSG_TTL_MS = 5 * 60 * 1000;
+const recentMessages = new Map<string, SlackMessage>();
+function rememberMessage(msg: SlackMessage): void {
+  recentMessages.set(msg.message_ts, msg);
+  setTimeout(() => recentMessages.delete(msg.message_ts), RECENT_MSG_TTL_MS).unref();
+}
+
+// onClaimed: invoked by the /claim handler on the first successful claim.
+// Adds the eyes reaction + thinking status only now (not at fan-out) so the
+// signals in Slack only appear when a session actually picks up the message.
+function onClaimed(messageTs: string): void {
+  const msg = recentMessages.get(messageTs);
+  if (!msg) return;
+  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
+}
+
+const api = createApiServer(registry, startedAt, () => socketStatus, onClaimed);
 await new Promise<void>((resolveListen, rejectListen) => {
   const onError = (err: NodeJS.ErrnoException) => {
     api.off('listening', onListening);
@@ -104,6 +125,37 @@ registry.startHealthChecks(async (subscriberPort) => {
   }
 });
 
+// ─── Idle auto-shutdown ─────────────────────────────────────────────
+// When no subscribers are registered for `DAEMON_IDLE_SHUTDOWN_MS`, exit so
+// stale daemons don't outlive every Claude session that ever used them. Any
+// new MCP that needs the daemon will spawn a fresh one via ensureDaemon.
+// Set DAEMON_IDLE_SHUTDOWN_MS=0 to disable (persistent daemon).
+const IDLE_SHUTDOWN_MS = Number.parseInt(
+  process.env.DAEMON_IDLE_SHUTDOWN_MS ?? String(10 * 60 * 1000),
+  10,
+);
+let lastActiveAt = Date.now();
+if (IDLE_SHUTDOWN_MS > 0) {
+  log(`[daemon] idle auto-shutdown enabled — ${Math.round(IDLE_SHUTDOWN_MS / 1000)}s`);
+  setInterval(() => {
+    if (registry.all().length > 0) {
+      lastActiveAt = Date.now();
+      return;
+    }
+    const idleMs = Date.now() - lastActiveAt;
+    if (idleMs >= IDLE_SHUTDOWN_MS) {
+      log(
+        `[daemon] no subscribers for ${Math.round(idleMs / 1000)}s — shutting down (set DAEMON_IDLE_SHUTDOWN_MS=0 to disable)`,
+      );
+      registry.stopHealthChecks();
+      api.close();
+      process.exit(0);
+    }
+  }, 60_000);
+} else {
+  log('[daemon] idle auto-shutdown disabled (DAEMON_IDLE_SHUTDOWN_MS=0) — persistent mode');
+}
+
 // ─── Slack listener ─────────────────────────────────────────────────
 const app = await startListener({ botToken, appToken }, async (event: SlackEvent) => {
   socketStatus = 'connected';
@@ -124,11 +176,6 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
     thread_ts: event.thread_ts,
   });
 
-  const payload: MessagePayload = {
-    message: msg,
-    daemon_ts: new Date().toISOString(),
-  };
-
   // Route to matching subscribers
   const targets = registry.match(msg);
   if (targets.length === 0) {
@@ -140,11 +187,19 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
     `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" → ${targets.length} subscriber(s)`,
   );
 
-  // Best-effort thinking ack — fires before fan-out, errors are swallowed
-  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
+  // Remember this message so the /claim callback can set the thinking-ack
+  // on the right channel/ts when a subscriber wins the claim. The ack is no
+  // longer added at fan-out time; it appears only after a session takes the
+  // message. If no one claims, no ack is added — nothing to clean up.
+  rememberMessage(msg);
 
   await Promise.allSettled(
-    targets.map(async (sub) => {
+    targets.map(async ({ subscriber: sub, matched }) => {
+      const payload: MessagePayload = {
+        message: msg,
+        matched_topics: matched,
+        daemon_ts: new Date().toISOString(),
+      };
       try {
         const res = await fetch(`http://localhost:${sub.port}/message`, {
           method: 'POST',

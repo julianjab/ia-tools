@@ -10,7 +10,7 @@
  *     - server getter exposes the underlying MCP Server instance
  *     - Tool handlers: subscribe_slack, unsubscribe_slack, claim_message, reply,
  *       read_thread, read_channel, list_channels
- *     - oninitialized: auto-subscribes from .claude/.channels.json when daemonClient present
+ *     - oninitialized: auto-subscribes from .claude/.slack-bridge.json when daemonClient present
  *     - ensureDaemon is NOT imported or called in mcp-server.ts
  *
  * RED phase: McpBridgeServer class does NOT exist yet — import will fail.

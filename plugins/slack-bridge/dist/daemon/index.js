@@ -55551,25 +55551,21 @@ async function addThinkingAck(app2, msg, opts) {
     (async () => {
       const threadTs = msg.thread_ts ?? msg.message_ts;
       try {
-        const client = app2.client;
-        if (client.assistant?.threads?.setStatus) {
-          await client.assistant.threads.setStatus({
-            channel_id: msg.channel_id,
-            thread_ts: threadTs,
-            status
-          });
-        } else {
-          await client.apiCall("assistant.threads.setStatus", {
-            channel_id: msg.channel_id,
-            thread_ts: threadTs,
-            status
-          });
-        }
+        await setAssistantStatus(app2, msg.channel_id, threadTs, status);
       } catch (err) {
         warn(`[ack] assistant.threads.setStatus failed: ${err}`);
       }
     })()
   ]);
+}
+async function setAssistantStatus(app2, channelId, threadTs, status) {
+  const client = app2.client;
+  const args = { channel_id: channelId, thread_ts: threadTs, status };
+  if (client.assistant?.threads?.setStatus) {
+    await client.assistant.threads.setStatus(args);
+  } else {
+    await client.apiCall("assistant.threads.setStatus", args);
+  }
 }
 
 // src/daemon/listener.ts
@@ -55587,7 +55583,7 @@ async function startListener(config, onMessage) {
   app2.message(async ({ message }) => {
     const msg = message;
     const text = msg.text;
-    if (!text || msg.bot_id || msg.subtype) return;
+    if (!text || msg.subtype) return;
     await onMessage({
       channel_id: msg.channel,
       user_id: msg.user ?? "unknown",
@@ -55640,20 +55636,49 @@ async function resolveChannel(app2, channelId) {
   }
 }
 
-// src/daemon/registry.ts
-function union(a, b) {
-  if (!a?.length && !b?.length) return [];
-  return [.../* @__PURE__ */ new Set([...a ?? [], ...b ?? []])];
-}
-function tryMatch(pattern, value) {
-  try {
-    const inlineFlags = pattern.match(/^\(\?([gimsuy]+)\)/);
-    const flags = inlineFlags ? inlineFlags[1] : void 0;
-    const src = inlineFlags ? pattern.slice(inlineFlags[0].length) : pattern;
-    return new RegExp(src, flags).test(value);
-  } catch {
-    return true;
+// src/shared/types.ts
+function parseTopic(topic) {
+  if (topic.startsWith("DM:")) {
+    const user = topic.slice(3);
+    return { type: "dm", user: user || void 0 };
   }
+  const parts = topic.split(":");
+  const rawChannel = parts[0];
+  const rawUser = parts[1];
+  const rawThread = parts[2];
+  return {
+    type: "channel",
+    channel: rawChannel && rawChannel !== "*" ? rawChannel : void 0,
+    user: rawUser && rawUser !== "*" ? rawUser : void 0,
+    thread: rawThread && rawThread !== "*" ? rawThread : void 0
+  };
+}
+function matchesTopic(parsed, msg) {
+  if (parsed.type === "dm") {
+    return msg.is_dm && (!parsed.user || msg.user_id === parsed.user);
+  }
+  if (parsed.channel && msg.channel_id !== parsed.channel) return false;
+  if (parsed.thread && msg.thread_ts !== parsed.thread) return false;
+  if (parsed.user && msg.user_id !== parsed.user) return false;
+  return true;
+}
+function normalizeTopic(input) {
+  if (typeof input === "string") return { topic: input };
+  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
+}
+
+// src/daemon/registry.ts
+function mergeTopics(existing, incoming) {
+  const map = /* @__PURE__ */ new Map();
+  for (const t of existing) map.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map.get(t.topic);
+    map.set(t.topic, {
+      topic: t.topic,
+      ...t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}
+    });
+  }
+  return [...map.values()];
 }
 var Registry = class {
   constructor(healthCheckMs = 3e4) {
@@ -55662,29 +55687,20 @@ var Registry = class {
   healthCheckMs;
   subscribers = /* @__PURE__ */ new Map();
   healthInterval;
-  add(port2, filters, regexp, label) {
+  add(port2, topics) {
     const existing = this.subscribers.get(port2);
     if (existing) {
-      const sub2 = {
+      const merged = {
         ...existing,
-        filters: {
-          channels: union(existing.filters.channels, filters.channels),
-          dms: union(existing.filters.dms, filters.dms),
-          users: union(existing.filters.users, filters.users),
-          threads: union(existing.filters.threads, filters.threads)
-        },
-        regexp: regexp ?? existing.regexp,
-        label: label ?? existing.label,
+        topics: mergeTopics(existing.topics, topics),
         lastSeen: (/* @__PURE__ */ new Date()).toISOString()
       };
-      this.subscribers.set(port2, sub2);
-      return sub2;
+      this.subscribers.set(port2, merged);
+      return merged;
     }
     const sub = {
       port: port2,
-      filters,
-      regexp,
-      label,
+      topics,
       registeredAt: (/* @__PURE__ */ new Date()).toISOString(),
       lastSeen: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -55700,32 +55716,33 @@ var Registry = class {
   all() {
     return [...this.subscribers.values()];
   }
-  /** Find subscribers whose filters match the given message. */
+  /**
+   * Find subscribers whose topics match the message.
+   * Returns each matching subscriber paired with the TopicSpecs that matched
+   * (preserving labels so the caller can forward them on delivery).
+   */
   match(msg) {
-    return this.all().filter((sub) => this.matches(sub.filters, sub.regexp, msg));
-  }
-  matches(filters, regexp, msg) {
-    const hasThreadFilter = (filters.threads?.length ?? 0) > 0;
-    if (hasThreadFilter && msg.thread_ts != null && filters.threads?.includes(msg.thread_ts)) {
-      return this.matchesRegexp(regexp, msg);
+    const results = [];
+    for (const sub of this.all()) {
+      const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t.topic), msg));
+      if (matched.length > 0) {
+        results.push({ subscriber: sub, matched });
+      }
     }
-    const hasChannelFilter = (filters.channels?.length ?? 0) > 0;
-    const hasDmFilter = (filters.dms?.length ?? 0) > 0;
-    if (!hasChannelFilter && !hasDmFilter) return false;
-    const channelMatch = hasChannelFilter && (filters.channels?.includes(msg.channel_id) ?? false);
-    const dmMatch = hasDmFilter && msg.is_dm && (filters.dms?.includes(msg.user_id) ?? false);
-    if (!channelMatch && !dmMatch) return false;
-    const hasUserFilter = (filters.users?.length ?? 0) > 0;
-    if (hasUserFilter && !(filters.users?.includes(msg.user_id) ?? false)) return false;
-    return this.matchesRegexp(regexp, msg);
+    return results;
   }
-  matchesRegexp(regexp, msg) {
-    if (!regexp) return true;
-    if (regexp.channel && !tryMatch(regexp.channel, msg.channel_name)) return false;
-    if (regexp.user && !tryMatch(regexp.user, msg.user_name)) return false;
-    if (regexp.message && !tryMatch(regexp.message, msg.text ?? "")) return false;
-    if (regexp.thread && !tryMatch(regexp.thread, msg.thread_ts ?? "")) return false;
-    return true;
+  /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
+  removeTopics(port2, topicStrings) {
+    const sub = this.subscribers.get(port2);
+    if (!sub) return void 0;
+    const drop = new Set(topicStrings);
+    const remaining = sub.topics.filter((t) => !drop.has(t.topic));
+    if (remaining.length === 0) {
+      this.subscribers.delete(port2);
+      return [];
+    }
+    this.subscribers.set(port2, { ...sub, topics: remaining, lastSeen: (/* @__PURE__ */ new Date()).toISOString() });
+    return remaining;
   }
   markSeen(port2) {
     const sub = this.subscribers.get(port2);
@@ -55736,7 +55753,7 @@ var Registry = class {
       for (const [port2, sub] of this.subscribers) {
         const alive = await checkFn(port2);
         if (!alive) {
-          log(`[registry] removing dead subscriber :${port2} (${sub.label ?? "no label"})`);
+          log(`[registry] removing dead subscriber :${port2} (${sub.topics.length} topics)`);
           this.subscribers.delete(port2);
         }
       }
@@ -55765,7 +55782,7 @@ function json(res, status, data) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
 }
-function createApiServer(registry2, startedAt2, getSocketStatus) {
+function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2) {
   setInterval(() => {
     const now2 = Date.now();
     for (const [ts] of claims) {
@@ -55783,10 +55800,25 @@ function createApiServer(registry2, startedAt2, getSocketStatus) {
           json(res, 400, { error: "port is required" });
           return;
         }
-        const sub = registry2.add(body.port, body.filters ?? {}, body.regexp, body.label);
-        log(
-          `[api] +subscriber :${body.port} (${body.label ?? "-"}) filters=${JSON.stringify(sub.filters)} regexp=${JSON.stringify(body.regexp ?? {})}`
-        );
+        if (!Array.isArray(body.topics) || body.topics.length === 0) {
+          json(res, 400, { error: "topics[] is required and must be non-empty" });
+          return;
+        }
+        const normalized = body.topics.map(normalizeTopic);
+        for (const t of normalized) {
+          if (!t.topic || typeof t.topic !== "string") {
+            json(res, 400, { error: "each topic must have a non-empty topic string" });
+            return;
+          }
+          try {
+            parseTopic(t.topic);
+          } catch {
+            json(res, 400, { error: `invalid topic: ${t.topic}` });
+            return;
+          }
+        }
+        const sub = registry2.add(body.port, normalized);
+        log(`[api] +subscriber :${body.port} topics=${JSON.stringify(sub.topics)}`);
         json(res, 200, sub);
       } catch (err) {
         json(res, 400, { error: String(err) });
@@ -55828,6 +55860,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus) {
         claims.set(messageTs, body.subscriber_port);
         const resp = { claimed: true };
         log(`[claim] ${messageTs} \u2192 :${body.subscriber_port}`);
+        onClaimed2?.(messageTs);
         json(res, 200, resp);
       } catch (err) {
         json(res, 400, { error: String(err) });
@@ -55887,7 +55920,18 @@ if (spawnerSession) {
 } else {
   log("[daemon] spawned manually (no DAEMON_SPAWNER_* env)");
 }
-var api = createApiServer(registry, startedAt, () => socketStatus);
+var RECENT_MSG_TTL_MS = 5 * 60 * 1e3;
+var recentMessages = /* @__PURE__ */ new Map();
+function rememberMessage(msg) {
+  recentMessages.set(msg.message_ts, msg);
+  setTimeout(() => recentMessages.delete(msg.message_ts), RECENT_MSG_TTL_MS).unref();
+}
+function onClaimed(messageTs) {
+  const msg = recentMessages.get(messageTs);
+  if (!msg) return;
+  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
+}
+var api = createApiServer(registry, startedAt, () => socketStatus, onClaimed);
 await new Promise((resolveListen, rejectListen) => {
   const onError = (err) => {
     api.off("listening", onListening);
@@ -55917,6 +55961,31 @@ registry.startHealthChecks(async (subscriberPort) => {
     return false;
   }
 });
+var IDLE_SHUTDOWN_MS = Number.parseInt(
+  process.env.DAEMON_IDLE_SHUTDOWN_MS ?? String(10 * 60 * 1e3),
+  10
+);
+var lastActiveAt = Date.now();
+if (IDLE_SHUTDOWN_MS > 0) {
+  log(`[daemon] idle auto-shutdown enabled \u2014 ${Math.round(IDLE_SHUTDOWN_MS / 1e3)}s`);
+  setInterval(() => {
+    if (registry.all().length > 0) {
+      lastActiveAt = Date.now();
+      return;
+    }
+    const idleMs = Date.now() - lastActiveAt;
+    if (idleMs >= IDLE_SHUTDOWN_MS) {
+      log(
+        `[daemon] no subscribers for ${Math.round(idleMs / 1e3)}s \u2014 shutting down (set DAEMON_IDLE_SHUTDOWN_MS=0 to disable)`
+      );
+      registry.stopHealthChecks();
+      api.close();
+      process.exit(0);
+    }
+  }, 6e4);
+} else {
+  log("[daemon] idle auto-shutdown disabled (DAEMON_IDLE_SHUTDOWN_MS=0) \u2014 persistent mode");
+}
 var app = await startListener({ botToken, appToken }, async (event) => {
   socketStatus = "connected";
   const [userName, channelName] = await Promise.all([
@@ -55932,10 +56001,6 @@ var app = await startListener({ botToken, appToken }, async (event) => {
     message_ts: event.message_ts,
     thread_ts: event.thread_ts
   });
-  const payload = {
-    message: msg,
-    daemon_ts: (/* @__PURE__ */ new Date()).toISOString()
-  };
   const targets = registry.match(msg);
   if (targets.length === 0) {
     log(`[route] no subscribers for #${channelName} from ${userName} \u2014 dropping`);
@@ -55944,9 +56009,14 @@ var app = await startListener({ botToken, appToken }, async (event) => {
   log(
     `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" \u2192 ${targets.length} subscriber(s)`
   );
-  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
+  rememberMessage(msg);
   await Promise.allSettled(
-    targets.map(async (sub) => {
+    targets.map(async ({ subscriber: sub, matched }) => {
+      const payload = {
+        message: msg,
+        matched_topics: matched,
+        daemon_ts: (/* @__PURE__ */ new Date()).toISOString()
+      };
       try {
         const res = await fetch(`http://localhost:${sub.port}/message`, {
           method: "POST",

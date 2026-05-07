@@ -159,13 +159,15 @@ Proceed immediately to Step 5 (subscribe to the thread) — no user confirmation
 Immediately after sending the Slack message, subscribe to the thread so Claude receives any replies:
 
 Call `subscribe_slack` with:
-- `threads: [<thread_ts>]` — the timestamp returned by Slack in Step 4 (the new message ts OR the existing thread ts replied to)
+- `topics: ["{channel_id}:*:{thread_ts}"]` — channel_id is the channel where the message was sent, thread_ts is the timestamp returned by Slack in Step 4
 - `label` — set to `"ship: <pr-title>"` so the subscription is identifiable in daemon logs
+
+The `*` wildcard for the user segment ensures all replies are received (including bots).
 
 Example call:
 ```
 subscribe_slack(
-  threads: ["1775665186.334219"],
+  topics: ["C06Q8SNF93P:*:1775665186.334219"],
   label: "ship: feat(slack-bridge): class-based refactor"
 )
 ```

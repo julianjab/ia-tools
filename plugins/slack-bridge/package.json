@@ -11,6 +11,7 @@
     "build": "node scripts/bundle.mjs",
     "dev": "node scripts/bundle.mjs --watch",
     "daemon": "node dist/daemon/index.js",
+    "start": "claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

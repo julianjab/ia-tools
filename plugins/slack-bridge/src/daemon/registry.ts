@@ -1,50 +1,37 @@
 /**
- * Subscriber registry — tracks MCP instances, their ID filters, and regexp filters.
+ * Subscriber registry — tracks MCP instances and their topic subscriptions.
  * Health-checks subscribers periodically and removes dead ones.
  *
- * Matching logic:
+ * Matching: a message is delivered to a subscriber if ANY of its topics match
+ * (OR logic). Each topic is parsed by parseTopic() and tested by matchesTopic().
  *
- *   Level 0 — Threads (independent bypass)
- *     If threads is non-empty and msg.thread_ts is in the list → PASS immediately.
- *
- *   Level 1 — Channel / DM (required: empty means "nothing allowed")
- *     If both channels and dms are empty → BLOCK (no subscription).
- *     Otherwise the message must satisfy at least one of:
- *       - channels contains msg.channel_id
- *       - dms contains msg.user_id AND msg.is_dm === true
- *     If neither → BLOCK.
- *
- *   Level 2 — User refinement (optional, applies after Level 1)
- *     If users is non-empty, msg.user_id must be in the list; otherwise BLOCK.
- *     If users is empty, any user passes.
- *
- *   Level 3 — Regexp filters (AND): all patterns must match.
+ * Topic formats:
+ *   "{channel}"                  → any message in channel
+ *   "{channel}:{user}"           → channel + specific user
+ *   "{channel}:*:{thread}"       → specific thread, any user
+ *   "{channel}:{user}:{thread}"  → specific thread + specific user
+ *   "DM:{user}"                  → DMs from a specific user
  */
 
-import type {
-  SlackFilters,
-  SlackMessage,
-  Subscriber,
-  SubscriptionFilters,
-} from '../shared/types.js';
+import type { SlackMessage, Subscriber, TopicSpec } from '../shared/types.js';
+import { matchesTopic, parseTopic } from '../shared/types.js';
 import { log } from './logger.js';
 
-/** Merge two optional string arrays, deduplicating values. */
-function union(a: string[] | undefined, b: string[] | undefined): string[] {
-  if (!a?.length && !b?.length) return [];
-  return [...new Set([...(a ?? []), ...(b ?? [])])];
-}
-
-function tryMatch(pattern: string, value: string): boolean {
-  try {
-    // Extract inline flags like (?i) — not supported natively by JS RegExp constructor
-    const inlineFlags = pattern.match(/^\(\?([gimsuy]+)\)/);
-    const flags = inlineFlags ? inlineFlags[1] : undefined;
-    const src = inlineFlags ? pattern.slice(inlineFlags[0].length) : pattern;
-    return new RegExp(src, flags).test(value);
-  } catch {
-    return true; // invalid regexp — don't filter
+/**
+ * Merge two TopicSpec lists by `topic` string. Later entries' labels win
+ * (callers can rebrand a topic by re-subscribing with a new label).
+ */
+function mergeTopics(existing: TopicSpec[], incoming: TopicSpec[]): TopicSpec[] {
+  const map = new Map<string, TopicSpec>();
+  for (const t of existing) map.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map.get(t.topic);
+    map.set(t.topic, {
+      topic: t.topic,
+      ...(t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}),
+    });
   }
+  return [...map.values()];
 }
 
 export class Registry {
@@ -53,36 +40,21 @@ export class Registry {
 
   constructor(private healthCheckMs = 30_000) {}
 
-  add(
-    port: number,
-    filters: SubscriptionFilters,
-    regexp?: SlackFilters,
-    label?: string,
-  ): Subscriber {
+  add(port: number, topics: TopicSpec[]): Subscriber {
     const existing = this.subscribers.get(port);
     if (existing) {
-      // Always merge into the existing subscription for this port
-      const sub: Subscriber = {
+      const merged: Subscriber = {
         ...existing,
-        filters: {
-          channels: union(existing.filters.channels, filters.channels),
-          dms: union(existing.filters.dms, filters.dms),
-          users: union(existing.filters.users, filters.users),
-          threads: union(existing.filters.threads, filters.threads),
-        },
-        regexp: regexp ?? existing.regexp,
-        label: label ?? existing.label,
+        topics: mergeTopics(existing.topics, topics),
         lastSeen: new Date().toISOString(),
       };
-      this.subscribers.set(port, sub);
-      return sub;
+      this.subscribers.set(port, merged);
+      return merged;
     }
 
     const sub: Subscriber = {
       port,
-      filters,
-      regexp,
-      label,
+      topics,
       registeredAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
     };
@@ -102,47 +74,34 @@ export class Registry {
     return [...this.subscribers.values()];
   }
 
-  /** Find subscribers whose filters match the given message. */
-  match(msg: SlackMessage): Subscriber[] {
-    return this.all().filter((sub) => this.matches(sub.filters, sub.regexp, msg));
-  }
-
-  private matches(
-    filters: SubscriptionFilters,
-    regexp: SlackFilters | undefined,
-    msg: SlackMessage,
-  ): boolean {
-    // Level 0 — Thread bypass (independent)
-    const hasThreadFilter = (filters.threads?.length ?? 0) > 0;
-    if (hasThreadFilter && msg.thread_ts != null && filters.threads?.includes(msg.thread_ts)) {
-      return this.matchesRegexp(regexp, msg);
+  /**
+   * Find subscribers whose topics match the message.
+   * Returns each matching subscriber paired with the TopicSpecs that matched
+   * (preserving labels so the caller can forward them on delivery).
+   */
+  match(msg: SlackMessage): Array<{ subscriber: Subscriber; matched: TopicSpec[] }> {
+    const results: Array<{ subscriber: Subscriber; matched: TopicSpec[] }> = [];
+    for (const sub of this.all()) {
+      const matched = sub.topics.filter((t) => matchesTopic(parseTopic(t.topic), msg));
+      if (matched.length > 0) {
+        results.push({ subscriber: sub, matched });
+      }
     }
-
-    // Level 1 — Channel / DM (required gate: empty = nothing allowed)
-    const hasChannelFilter = (filters.channels?.length ?? 0) > 0;
-    const hasDmFilter = (filters.dms?.length ?? 0) > 0;
-
-    if (!hasChannelFilter && !hasDmFilter) return false;
-
-    const channelMatch = hasChannelFilter && (filters.channels?.includes(msg.channel_id) ?? false);
-    const dmMatch = hasDmFilter && msg.is_dm && (filters.dms?.includes(msg.user_id) ?? false);
-    if (!channelMatch && !dmMatch) return false;
-
-    // Level 2 — User refinement (optional: if specified, user must match)
-    const hasUserFilter = (filters.users?.length ?? 0) > 0;
-    if (hasUserFilter && !(filters.users?.includes(msg.user_id) ?? false)) return false;
-
-    // Level 3 — Regexp AND matching (all patterns must pass)
-    return this.matchesRegexp(regexp, msg);
+    return results;
   }
 
-  private matchesRegexp(regexp: SlackFilters | undefined, msg: SlackMessage): boolean {
-    if (!regexp) return true;
-    if (regexp.channel && !tryMatch(regexp.channel, msg.channel_name)) return false;
-    if (regexp.user && !tryMatch(regexp.user, msg.user_name)) return false;
-    if (regexp.message && !tryMatch(regexp.message, msg.text ?? '')) return false;
-    if (regexp.thread && !tryMatch(regexp.thread, msg.thread_ts ?? '')) return false;
-    return true;
+  /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
+  removeTopics(port: number, topicStrings: string[]): TopicSpec[] | undefined {
+    const sub = this.subscribers.get(port);
+    if (!sub) return undefined;
+    const drop = new Set(topicStrings);
+    const remaining = sub.topics.filter((t) => !drop.has(t.topic));
+    if (remaining.length === 0) {
+      this.subscribers.delete(port);
+      return [];
+    }
+    this.subscribers.set(port, { ...sub, topics: remaining, lastSeen: new Date().toISOString() });
+    return remaining;
   }
 
   markSeen(port: number): void {
@@ -155,7 +114,7 @@ export class Registry {
       for (const [port, sub] of this.subscribers) {
         const alive = await checkFn(port);
         if (!alive) {
-          log(`[registry] removing dead subscriber :${port} (${sub.label ?? 'no label'})`);
+          log(`[registry] removing dead subscriber :${port} (${sub.topics.length} topics)`);
           this.subscribers.delete(port);
         }
       }

@@ -1,17 +1,15 @@
 /**
- * loadConfig / saveConfig — reads and writes .claude/.channels.json.
+ * loadConfig / saveConfig — reads and writes .claude/.slack-bridge.json.
  *
  * Schema:
  *   {
  *     "slack": {
- *       "bot":     { "label": string },
- *       "channels": string[],
- *       "dms":      string[],
- *       "threads":  string[],
- *       "filters":  { "channel": regexp-string, "user": regexp-string,
- *                     "message": regexp-string, "thread": regexp-string }
+ *       "topics": Array<string | { topic: string, label?: string }>
  *     }
  *   }
+ *
+ * Bare strings are accepted for ergonomics; objects let the caller attach a
+ * label that the agent will see on every matched message.
  *
  * - Any field whose name contains "token" (case-insensitive) is stripped and
  *   triggers a stderr warning so secrets never end up in the config object.
@@ -21,36 +19,20 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-export interface SlackFilters {
-  channel?: string; // regexp string — filter by channel name
-  user?: string; // regexp string — filter by user name / ID
-  message?: string; // regexp string — filter by message text
-  thread?: string; // regexp string — filter by thread ts
-}
+import type { TopicSpec } from './shared/types.js';
 
 export interface SlackChannelConfig {
-  bot?: { label?: string };
-  channels?: string[];
-  dms?: string[];
-  threads?: string[];
-  filters?: SlackFilters;
+  topics?: Array<string | TopicSpec>;
 }
 
 export interface ChannelsConfig {
   slack?: SlackChannelConfig;
 }
 
-const ALLOWED_KEYS: ReadonlyArray<keyof SlackChannelConfig> = [
-  'bot',
-  'channels',
-  'dms',
-  'threads',
-  'filters',
-];
+const ALLOWED_KEYS: ReadonlyArray<keyof SlackChannelConfig> = ['topics'];
 
 function configFilePath(cwd: string): string {
-  return join(cwd, '.claude', '.channels.json');
+  return join(cwd, '.claude', '.slack-bridge.json');
 }
 
 function readRawFile(filePath: string): ChannelsConfig | null {
@@ -68,14 +50,14 @@ function readRawFile(filePath: string): ChannelsConfig | null {
     parsed = JSON.parse(raw);
   } catch (err) {
     process.stderr.write(
-      `[slack-bridge] Warning: .claude/.channels.json contains invalid JSON — ${String(err)}\n`,
+      `[slack-bridge] Warning: .claude/.slack-bridge.json contains invalid JSON — ${String(err)}\n`,
     );
     return null;
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     process.stderr.write(
-      '[slack-bridge] Warning: .claude/.channels.json must be a JSON object — ignoring file\n',
+      '[slack-bridge] Warning: .claude/.slack-bridge.json must be a JSON object — ignoring file\n',
     );
     return null;
   }
@@ -101,7 +83,7 @@ export function loadConfig(cwd?: string): SlackChannelConfig {
   const tokenFields = Object.keys(record).filter((key) => key.toLowerCase().includes('token'));
   if (tokenFields.length > 0) {
     process.stderr.write(
-      `[slack-bridge] Warning: .claude/.channels.json contains token field(s): ${tokenFields.join(', ')} — tokens must not be stored in .channels.json. These fields are ignored.\n`,
+      `[slack-bridge] Warning: .claude/.slack-bridge.json contains token field(s): ${tokenFields.join(', ')} — tokens must not be stored in .slack-bridge.json. These fields are ignored.\n`,
     );
   }
 

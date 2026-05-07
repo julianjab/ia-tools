@@ -2,9 +2,6 @@
  * Shared types for slack-bridge daemon ↔ subscriber communication.
  */
 
-export type { SlackChannelConfig, SlackFilters, ChannelsConfig } from '../config.js';
-import type { SlackFilters } from '../config.js';
-
 /** A Slack message forwarded by the daemon to subscribers. */
 export interface SlackMessage {
   channel_id: string;
@@ -19,38 +16,87 @@ export interface SlackMessage {
 }
 
 /**
- * Subscription filters.
+ * A parsed topic describing what messages a subscriber wants to receive.
  *
- * Matching rules (see registry.ts for full logic):
- *   threads — independent: a thread match bypasses channels/users/dms
- *   dms     — independent: matches only when msg.is_dm === true AND user_id is in the list
- *   channels + users — AND logic: both must match if both are specified
+ * Topic string formats (raw → matched messages):
+ *   "{channel}"                  → any message in channel (any user, any thread)
+ *   "{channel}:{user}"           → messages from a specific user in a channel
+ *   "{channel}:*:{thread}"       → all replies in a specific thread (any user)
+ *   "{channel}:{user}:{thread}"  → replies from a specific user in a thread
+ *   "DM:{user}"                  → direct messages from a specific user
+ *
+ * Use "*" as a wildcard for the channel or user segment.
  */
-export interface SubscriptionFilters {
-  channels?: string[];
-  /** Any message from these user IDs regardless of channel type. */
-  users?: string[];
-  /** DMs only — matches messages where is_dm=true AND user_id is in this list. */
-  dms?: string[];
-  threads?: string[];
+export interface ParsedTopic {
+  /** "channel" for normal messages, "dm" for direct messages. */
+  type: 'channel' | 'dm';
+  /** Channel ID filter. Absent means any channel. */
+  channel?: string;
+  /** User ID filter. Absent means any user. */
+  user?: string;
+  /** Thread timestamp filter. Absent means both threaded and non-threaded messages pass. */
+  thread?: string;
+}
+
+/** Parse a topic string into a structured filter. */
+export function parseTopic(topic: string): ParsedTopic {
+  if (topic.startsWith('DM:')) {
+    const user = topic.slice(3);
+    return { type: 'dm', user: user || undefined };
+  }
+  const parts = topic.split(':');
+  const rawChannel = parts[0];
+  const rawUser = parts[1];
+  const rawThread = parts[2];
+  return {
+    type: 'channel',
+    channel: rawChannel && rawChannel !== '*' ? rawChannel : undefined,
+    user: rawUser && rawUser !== '*' ? rawUser : undefined,
+    thread: rawThread && rawThread !== '*' ? rawThread : undefined,
+  };
+}
+
+/**
+ * Returns true if a message matches a parsed topic.
+ * Subscribers use OR across their topics list — one match is enough.
+ */
+export function matchesTopic(parsed: ParsedTopic, msg: SlackMessage): boolean {
+  if (parsed.type === 'dm') {
+    return msg.is_dm && (!parsed.user || msg.user_id === parsed.user);
+  }
+  if (parsed.channel && msg.channel_id !== parsed.channel) return false;
+  if (parsed.thread && msg.thread_ts !== parsed.thread) return false;
+  if (parsed.user && msg.user_id !== parsed.user) return false;
+  return true;
+}
+
+/**
+ * A topic with an optional label. The label is application-level metadata
+ * the subscriber attaches to give the agent context about why this topic
+ * exists (e.g. "ship-pr-42" for a thread subscription opened by /ship).
+ * The label is forwarded to the agent on every matched delivery.
+ */
+export interface TopicSpec {
+  topic: string;
+  label?: string;
+}
+
+/** Normalize a topic input that may be a bare string or a TopicSpec. */
+export function normalizeTopic(input: string | TopicSpec): TopicSpec {
+  if (typeof input === 'string') return { topic: input };
+  return { topic: input.topic, ...(input.label ? { label: input.label } : {}) };
 }
 
 /** POST /subscribe */
 export interface SubscribeRequest {
   port: number;
-  filters: SubscriptionFilters;
-  /** Optional regexp filters applied in the daemon (AND logic, all must match). */
-  regexp?: SlackFilters;
-  label?: string;
+  topics: Array<string | TopicSpec>;
 }
 
 /** Subscriber record in the daemon registry */
 export interface Subscriber {
   port: number;
-  filters: SubscriptionFilters;
-  /** Regexp filters stored per-subscriber so the daemon knows what each instance is filtering. */
-  regexp?: SlackFilters;
-  label?: string;
+  topics: TopicSpec[];
   registeredAt: string;
   lastSeen?: string;
 }
@@ -58,6 +104,8 @@ export interface Subscriber {
 /** POST /message — daemon → subscriber */
 export interface MessagePayload {
   message: SlackMessage;
+  /** TopicSpecs from the subscriber's list that matched this message. */
+  matched_topics: TopicSpec[];
   daemon_ts: string;
 }
 

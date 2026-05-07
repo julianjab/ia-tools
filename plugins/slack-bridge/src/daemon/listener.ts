@@ -40,7 +40,7 @@ export async function startListener(
     const msg = message as unknown as Record<string, unknown>;
     const text = msg.text as string | undefined;
 
-    if (!text || msg.bot_id || msg.subtype) return;
+    if (!text || msg.subtype) return;
 
     await onMessage({
       channel_id: msg.channel as string,

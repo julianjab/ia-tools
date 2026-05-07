@@ -3,20 +3,20 @@
  *
  * Tests for loadConfig() and saveConfig() in src/config.ts.
  *
- * File location: .claude/.channels.json
+ * File location: .claude/.slack-bridge.json
  * Schema: { "slack": { "bot": { "label": string }, "channels": string[],
  *                       "dms": string[], "threads": string[],
  *                       "filters": { "channel": string, "user": string,
  *                                    "message": string, "thread": string } } }
  *
  * Scenarios covered:
- *   - Happy path: .claude/.channels.json present and valid
+ *   - Happy path: .claude/.slack-bridge.json present and valid
  *   - Full schema (bot, channels, dms, threads, filters)
  *   - Missing file → empty config, no error
  *   - Invalid JSON → warning + empty config, no crash
  *   - Field containing "token" → warning, field ignored
  *   - Filters: channel, user, message, thread (regexp strings)
- *   - saveConfig() writes to .claude/.channels.json → slack key
+ *   - saveConfig() writes to .claude/.slack-bridge.json → slack key
  *   - saveConfig() merges with existing slack config
  *   - saveConfig() creates .claude/ directory if absent
  */
@@ -52,11 +52,11 @@ function writeChannelsJson(content: unknown | string): void {
   const claudeDir = join(testDir, '.claude');
   mkdirSync(claudeDir, { recursive: true });
   const raw = typeof content === 'string' ? content : JSON.stringify(content);
-  writeFileSync(join(claudeDir, '.channels.json'), raw, 'utf8');
+  writeFileSync(join(claudeDir, '.slack-bridge.json'), raw, 'utf8');
 }
 
 function readChannelsJson(): unknown {
-  const filePath = join(testDir, '.claude', '.channels.json');
+  const filePath = join(testDir, '.claude', '.slack-bridge.json');
   return JSON.parse(readFileSync(filePath, 'utf8'));
 }
 
@@ -137,7 +137,7 @@ describe('loadConfig() — happy path', () => {
 
 describe('loadConfig() — archivo ausente', () => {
   it('LoadConfig_FileAbsent_ReturnsEmptyConfig', () => {
-    // Arrange — testDir exists but has no .claude/.channels.json
+    // Arrange — testDir exists but has no .claude/.slack-bridge.json
 
     // Act
     const config = loadConfig();
@@ -287,7 +287,7 @@ describe("loadConfig() — campo con 'token' en el nombre", () => {
 
 // ─── saveConfig() — escritura ────────────────────────────────────────────────
 
-describe('saveConfig() — escritura en .claude/.channels.json', () => {
+describe('saveConfig() — escritura en .claude/.slack-bridge.json', () => {
   it('SaveConfig_NewFile_CreatesClaudeDirectoryAndFile', () => {
     // Arrange — no .claude/ dir exists
     const config = { channels: ['C123ABC'] };
@@ -296,7 +296,7 @@ describe('saveConfig() — escritura en .claude/.channels.json', () => {
     saveConfig(config);
 
     // Assert
-    expect(existsSync(join(testDir, '.claude', '.channels.json'))).toBe(true);
+    expect(existsSync(join(testDir, '.claude', '.slack-bridge.json'))).toBe(true);
   });
 
   it('SaveConfig_WithChannels_WritesSlackKeyWithChannels', () => {

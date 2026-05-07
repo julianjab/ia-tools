@@ -41,28 +41,30 @@ export async function addThinkingAck(
     (async () => {
       const threadTs = msg.thread_ts ?? msg.message_ts;
       try {
-        // @slack/web-api exposes assistant.threads.setStatus on the typed client
-        // in recent versions; fall back to apiCall for older typings.
-        const client = app.client as unknown as {
-          assistant?: { threads?: { setStatus: (args: unknown) => Promise<unknown> } };
-          apiCall: (method: string, args: unknown) => Promise<unknown>;
-        };
-        if (client.assistant?.threads?.setStatus) {
-          await client.assistant.threads.setStatus({
-            channel_id: msg.channel_id,
-            thread_ts: threadTs,
-            status,
-          });
-        } else {
-          await client.apiCall('assistant.threads.setStatus', {
-            channel_id: msg.channel_id,
-            thread_ts: threadTs,
-            status,
-          });
-        }
+        await setAssistantStatus(app, msg.channel_id, threadTs, status);
       } catch (err) {
         warn(`[ack] assistant.threads.setStatus failed: ${err}`);
       }
     })(),
   ]);
+}
+
+interface AssistantClient {
+  assistant?: { threads?: { setStatus: (args: unknown) => Promise<unknown> } };
+  apiCall: (method: string, args: unknown) => Promise<unknown>;
+}
+
+async function setAssistantStatus(
+  app: App,
+  channelId: string,
+  threadTs: string,
+  status: string,
+): Promise<void> {
+  const client = app.client as unknown as AssistantClient;
+  const args = { channel_id: channelId, thread_ts: threadTs, status };
+  if (client.assistant?.threads?.setStatus) {
+    await client.assistant.threads.setStatus(args);
+  } else {
+    await client.apiCall('assistant.threads.setStatus', args);
+  }
 }
