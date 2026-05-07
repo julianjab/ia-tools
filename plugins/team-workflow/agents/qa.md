@@ -5,7 +5,7 @@ model: sonnet
 color: yellow
 maxTurns: 60
 memory: project
-tools: Read, Grep, Glob, Write, Edit, Bash, SlashCommand
+tools: Read, Grep, Glob, Write, Edit, Bash, SlashCommand, Agent
 ---
 
 # QA Agent
@@ -33,11 +33,29 @@ RED tests are the exact contract the implementing agent must fulfill.
 Without RED tests, the implementing agent has no deterministic definition of done.
 An agent without a definition of done invents when to stop — that produces bugs.
 
+## Repo-local QA helpers
+
+Before writing tests, check the spawn prompt for `Repo QA helpers` —
+the orchestrator lists any repo-local agent whose name matches `qa`,
+`tester`, `qa-*`, or `tester-*` (discovered under
+`<worktree>/.claude/agents/`). These agents know the repo's test
+framework, runners, fixtures, and conventions.
+
+Use them as advisors via `Agent(subagent_type=<helper-name>, ...)`:
+
+- "What is the test runner and command in this repo?"
+- "What is the canonical fixture pattern for HTTP / DB / mocking here?"
+- "Where do unit vs integration tests live? What naming convention?"
+
+You stay accountable for the RED-first contract and the final GREEN
+verdict. Helpers refine HOW you write the tests; you decide WHAT.
+
 ## Tools allowed
 
 - `Read`, `Grep`, `Glob` (your assigned repo + issue specs)
 - `Write`, `Edit` (`tests/` in your assigned repo — respect this by convention;
   the plugin cannot enforce path scoping via `permissionMode`)
+- `Agent` — to consult repo-local QA/tester helpers (see above)
 - `Bash` (test, lint, typecheck commands for your repo)
 - `SlashCommand` (invoke `/test-generation` and other project skills)
 

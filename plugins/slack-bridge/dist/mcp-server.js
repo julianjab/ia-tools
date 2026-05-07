@@ -26624,7 +26624,7 @@ var require_dist5 = __commonJS({
 });
 
 // src/mcp-server.ts
-import { join as join4 } from "node:path";
+import { join as join3 } from "node:path";
 
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -41267,39 +41267,12 @@ function readParentCmd(ppid) {
     return "";
   }
 }
-function hasAgentFlag(parentCmd) {
-  return parentCmd.includes("--agent ");
-}
 function hasDevChannelsFlag(parentCmd) {
   return parentCmd.includes("--dangerously-load-development-channels");
 }
 
-// src/prompt-loader.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { join as join3 } from "node:path";
-function loadSessionManagerPrompt(log) {
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-  if (!pluginRoot) {
-    log.warn("CLAUDE_PLUGIN_ROOT unset \u2014 session-manager prompt unavailable");
-    return "";
-  }
-  const path = join3(pluginRoot, "agents", "session-manager.md");
-  if (!existsSync2(path)) {
-    log.warn(`session-manager prompt not found at ${path}`);
-    return "";
-  }
-  try {
-    const content = readFileSync2(path, "utf8");
-    log.log(`loaded session-manager prompt (${content.length} chars) from ${path}`);
-    return content;
-  } catch (err) {
-    log.warn(`failed to read session-manager prompt at ${path}: ${err}`);
-    return "";
-  }
-}
-
 // src/session-id-resolver.ts
-import { readFileSync as readFileSync3 } from "node:fs";
+import { readFileSync as readFileSync2 } from "node:fs";
 import { homedir } from "node:os";
 async function readClaudeSessionId(ppid) {
   const path = `${homedir()}/.claude/sessions/${ppid}.json`;
@@ -41307,7 +41280,7 @@ async function readClaudeSessionId(ppid) {
   const BACKOFF_MS = 100;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     try {
-      const raw = readFileSync3(path, "utf8");
+      const raw = readFileSync2(path, "utf8");
       const data = JSON.parse(raw);
       if (typeof data.sessionId === "string" && data.sessionId.length > 0 && typeof data.status === "string" && data.status.length > 0) {
         return data.sessionId;
@@ -41539,8 +41512,7 @@ var McpBridgeServer = class {
     logger,
     stateFilePath,
     allowedSubscribeUsers,
-    sessionId,
-    sessionManagerPrompt
+    sessionId
   }) {
     this.web = web;
     this.daemonClient = daemonClient;
@@ -41548,25 +41520,24 @@ var McpBridgeServer = class {
     this.stateFilePath = stateFilePath;
     this.allowedSubscribeUsers = allowedSubscribeUsers;
     this.sessionId = sessionId;
-    const watchedPath = stateFilePath ?? join4(process.cwd(), ".claude", ".slack-bridge.json");
+    const watchedPath = stateFilePath ?? join3(process.cwd(), ".claude", ".slack-bridge.json");
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
       onChange: () => this.reloadFromConfig(),
       logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) }
     });
-    const mcpGuidance = [
-      'Slack messages arrive as channel notifications with source="slack-bridge".',
-      "When you want to respond to a message, FIRST call claim_message with the message_ts.",
-      "If the claim succeeds, call reply. If it fails, another session already claimed it \u2014 do nothing.",
-      "Reply routing priority: (1) if thread_ts is present, always reply in the thread;",
-      "(2) if is_dm=true and no thread_ts, reply directly to the DM \u2014 omit thread_ts;",
-      "(3) otherwise reply to the channel.",
-      "Use subscribe_slack at the start of the session to tell the daemon what to listen to.",
-      "Use read_thread or read_channel to fetch conversation history."
+    const instructions = [
+      "slack-bridge \u2014 Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,",
+      "list_subscriptions, claim_message, reply, read_thread, read_channel, list_channels.",
+      "Lifecycle for an incoming Slack message:",
+      "(1) call claim_message(message_ts) first; if claimed=false, another session won \u2014 stop.",
+      "(2) call reply(...). For channel messages always reply in a thread: pass thread_ts",
+      "when known, or pass message_ts (the server uses message_ts as the thread anchor",
+      "when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root",
+      "unless the source had an explicit thread_ts.",
+      "Use read_thread / read_channel to inspect history before replying.",
+      "Use subscribe_slack / unsubscribe_slack to change which topics this session listens to."
     ].join(" ");
-    const instructions = sessionManagerPrompt && sessionManagerPrompt.length > 0 ? `${sessionManagerPrompt}
-
-${mcpGuidance}` : mcpGuidance;
     this.mcp = new Server(
       { name: "slack-bridge", version: "0.2.0" },
       {
@@ -41655,7 +41626,7 @@ ${mcpGuidance}` : mcpGuidance;
         },
         {
           name: "reply",
-          description: "Reply to a Slack message. Only call after a successful claim. Reply routing: (1) thread_ts present \u2192 always reply in thread; (2) is_dm=true and no thread_ts \u2192 reply to DM, omit thread_ts; (3) channel with no thread_ts \u2192 reply to channel.",
+          description: "Reply to a Slack message. Only call after a successful claim. Threading rules: (a) DM (is_dm=true) \u2192 reply at the DM root unless thread_ts is set; (b) channel (is_dm=false or omitted) \u2192 reply MUST be in a thread. Pass thread_ts when known; if you omit it but pass message_ts, the server uses message_ts as thread_ts to anchor the thread on the original message.",
           inputSchema: {
             type: "object",
             properties: {
@@ -41663,11 +41634,15 @@ ${mcpGuidance}` : mcpGuidance;
               text: { type: "string", description: "Message text (Slack mrkdwn)" },
               message_ts: {
                 type: "string",
-                description: "Timestamp of the original message (optional \u2014 used to clear the thinking ack if set)."
+                description: "Timestamp of the original message (optional). Used to clear the thinking ack and, in channels, as the thread anchor when thread_ts is not provided."
               },
               thread_ts: {
                 type: "string",
-                description: "Thread ts. In DMs omit unless the source message had an explicit thread_ts."
+                description: "Thread ts. In DMs omit unless the source had an explicit thread_ts. In channels prefer passing it explicitly; otherwise the server falls back to message_ts."
+              },
+              is_dm: {
+                type: "boolean",
+                description: "True if the source message was a DM. Forwarded from the channel notification. When false/omitted, the server enforces in-thread replies for channel messages."
               }
             },
             required: ["channel_id", "text"]
@@ -41900,7 +41875,6 @@ ${err.stack ?? ""}
   );
   const parentCmd = readParentCmd(process.ppid);
   const hasDevChannels = hasDevChannelsFlag(parentCmd);
-  const agentFlagPresent = hasAgentFlag(parentCmd);
   logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
   if (!hasDevChannels) {
     const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
@@ -41981,18 +41955,13 @@ ${err.stack ?? ""}
       "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
     );
   }
-  const sessionManagerPrompt = agentFlagPresent ? "" : loadSessionManagerPrompt(logger);
-  if (agentFlagPresent) {
-    logger.log("agent flag detected in parent argv \u2014 skipping session-manager prompt injection");
-  }
   const mcpServer = new McpBridgeServer({
     web,
     daemonClient,
     logger,
     stateFilePath,
     allowedSubscribeUsers,
-    sessionId: SESSION_ID,
-    sessionManagerPrompt
+    sessionId: SESSION_ID
   });
   await mcpServer.connect(new StdioServerTransport());
 }

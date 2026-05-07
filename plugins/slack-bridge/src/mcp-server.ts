@@ -62,8 +62,7 @@ import {
   handleUnsubscribe,
 } from './handlers/subscribe.js';
 import type { Logger } from './logger.js';
-import { hasAgentFlag, hasDevChannelsFlag, readParentCmd } from './parent-process.js';
-import { loadSessionManagerPrompt } from './prompt-loader.js';
+import { hasDevChannelsFlag, readParentCmd } from './parent-process.js';
 import { resolveSessionId } from './session-id-resolver.js';
 import { McpLogger } from './shared/mcp-logger.js';
 import { PathResolver } from './shared/path-resolver.js';
@@ -98,15 +97,6 @@ export interface McpBridgeServerOptions {
    * directory under `/tmp/slack-bridge/<session-id>/`.
    */
   sessionId?: string;
-  /**
-   * Optional session-manager role prompt. When non-empty, it is prepended to
-   * the short MCP guidance and surfaced as the MCP `instructions` field — so
-   * the operator's main Claude session adopts the session-manager role.
-   * When empty (or omitted), only the MCP guidance is surfaced. The decision
-   * to load (or skip) the prompt is made by the entry point based on whether
-   * the parent Claude process was started with an `--agent` flag.
-   */
-  sessionManagerPrompt?: string;
 }
 
 export class McpBridgeServer {
@@ -131,7 +121,6 @@ export class McpBridgeServer {
     stateFilePath,
     allowedSubscribeUsers,
     sessionId,
-    sessionManagerPrompt,
   }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
@@ -146,27 +135,22 @@ export class McpBridgeServer {
       logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) },
     });
 
-    // Short-form guidance for slack-bridge tools, always present.
-    const mcpGuidance = [
-      'Slack messages arrive as channel notifications with source="slack-bridge".',
-      'When you want to respond to a message, FIRST call claim_message with the message_ts.',
-      'If the claim succeeds, call reply. If it fails, another session already claimed it — do nothing.',
-      'Reply routing priority: (1) if thread_ts is present, always reply in the thread;',
-      '(2) if is_dm=true and no thread_ts, reply directly to the DM — omit thread_ts;',
-      '(3) otherwise reply to the channel.',
-      'Use subscribe_slack at the start of the session to tell the daemon what to listen to.',
-      'Use read_thread or read_channel to fetch conversation history.',
+    // slack-bridge is a pure I/O transport: it surfaces Slack tools and a
+    // short, mechanical lifecycle guide describing how to use them. It has
+    // no opinion about session governance — the active `--agent` prompt
+    // (if any) decides what to do; this text only documents the tools.
+    const instructions = [
+      'slack-bridge — Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,',
+      'list_subscriptions, claim_message, reply, read_thread, read_channel, list_channels.',
+      'Lifecycle for an incoming Slack message:',
+      '(1) call claim_message(message_ts) first; if claimed=false, another session won — stop.',
+      '(2) call reply(...). For channel messages always reply in a thread: pass thread_ts',
+      'when known, or pass message_ts (the server uses message_ts as the thread anchor',
+      'when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root',
+      'unless the source had an explicit thread_ts.',
+      'Use read_thread / read_channel to inspect history before replying.',
+      'Use subscribe_slack / unsubscribe_slack to change which topics this session listens to.',
     ].join(' ');
-
-    // The session-manager role prompt is prepended to the MCP guidance only
-    // when the entry point passed it in. The entry point decides based on
-    // whether the parent Claude process was launched with an `--agent` flag:
-    // if a specific agent was selected, we leave that agent's prompt as the
-    // active personality and skip the session-manager role injection.
-    const instructions =
-      sessionManagerPrompt && sessionManagerPrompt.length > 0
-        ? `${sessionManagerPrompt}\n\n${mcpGuidance}`
-        : mcpGuidance;
 
     this.mcp = new Server(
       { name: 'slack-bridge', version: '0.2.0' },
@@ -296,9 +280,11 @@ export class McpBridgeServer {
           name: 'reply',
           description:
             'Reply to a Slack message. Only call after a successful claim. ' +
-            'Reply routing: (1) thread_ts present → always reply in thread; ' +
-            '(2) is_dm=true and no thread_ts → reply to DM, omit thread_ts; ' +
-            '(3) channel with no thread_ts → reply to channel.',
+            'Threading rules: (a) DM (is_dm=true) → reply at the DM root unless ' +
+            'thread_ts is set; (b) channel (is_dm=false or omitted) → reply MUST ' +
+            'be in a thread. Pass thread_ts when known; if you omit it but pass ' +
+            'message_ts, the server uses message_ts as thread_ts to anchor the ' +
+            'thread on the original message.',
           inputSchema: {
             type: 'object' as const,
             properties: {
@@ -307,12 +293,17 @@ export class McpBridgeServer {
               message_ts: {
                 type: 'string',
                 description:
-                  'Timestamp of the original message (optional — used to clear the thinking ack if set).',
+                  'Timestamp of the original message (optional). Used to clear the thinking ack and, in channels, as the thread anchor when thread_ts is not provided.',
               },
               thread_ts: {
                 type: 'string',
                 description:
-                  'Thread ts. In DMs omit unless the source message had an explicit thread_ts.',
+                  'Thread ts. In DMs omit unless the source had an explicit thread_ts. In channels prefer passing it explicitly; otherwise the server falls back to message_ts.',
+              },
+              is_dm: {
+                type: 'boolean',
+                description:
+                  'True if the source message was a DM. Forwarded from the channel notification. When false/omitted, the server enforces in-thread replies for channel messages.',
               },
             },
             required: ['channel_id', 'text'],
@@ -596,13 +587,6 @@ export async function main(): Promise<void> {
   // preserves it in its argv — readable via `ps`.
   const parentCmd = readParentCmd(process.ppid);
   const hasDevChannels = hasDevChannelsFlag(parentCmd);
-  // Detecting `--agent <name>` (with the trailing space) lets us tell
-  // whether the operator picked a specific agent at boot. When they did,
-  // we leave that agent's prompt as the active personality and skip the
-  // session-manager role injection. When they didn't, we load the .md
-  // file at startup and surface it as the MCP `instructions` so the main
-  // session adopts session-manager.
-  const agentFlagPresent = hasAgentFlag(parentCmd);
   logger.log(`parent argv: ${parentCmd || '(unavailable)'}`);
   if (!hasDevChannels) {
     const msg =
@@ -699,15 +683,6 @@ export async function main(): Promise<void> {
     );
   }
 
-  // Decide once at startup. If the parent Claude was started with
-  // `--agent`, the operator picked a specific persona — leave it alone.
-  // Otherwise the main session is unspecialised and slack-bridge supplies
-  // the session-manager role via the MCP `instructions` field.
-  const sessionManagerPrompt = agentFlagPresent ? '' : loadSessionManagerPrompt(logger);
-  if (agentFlagPresent) {
-    logger.log('agent flag detected in parent argv — skipping session-manager prompt injection');
-  }
-
   const mcpServer = new McpBridgeServer({
     web,
     daemonClient,
@@ -715,7 +690,6 @@ export async function main(): Promise<void> {
     stateFilePath,
     allowedSubscribeUsers,
     sessionId: SESSION_ID,
-    sessionManagerPrompt,
   });
 
   await mcpServer.connect(new StdioServerTransport());
