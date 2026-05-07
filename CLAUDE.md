@@ -26,13 +26,20 @@
 > to spawn, in what order, and with what parallelism — see
 > `plugins/team-workflow/agents/orchestrator.md`.
 >
-> **Two hooks enforce the rules:**
-> - `SessionStart` (`plugins/team-workflow/hooks/scripts/session-start.sh`) — injects the session-manager
->   or orchestrator system prompt based on `IA_TOOLS_ROLE`.
-> - `PreToolUse` (`plugins/team-workflow/hooks/scripts/enforce-worktree.sh`) — blocks
->   `Edit`/`Write`/`MultiEdit` on protected paths when the current branch is
->   `main`/`master`. If you see `Pipeline violation: you are on main`, run
->   `/worktree init feat/<name>` — the block is intentional.
+> **Role injection and hook enforcement.**
+> - The **session-manager role** is supplied by the `slack-bridge` MCP at
+>   boot. The MCP reads `${CLAUDE_PLUGIN_ROOT}/agents/session-manager.md`
+>   and surfaces it as its `instructions` — but ONLY when the parent
+>   Claude process was launched without `--agent <name>`. When the operator
+>   passed `--agent` (e.g. sub-sessions started by `/session` use
+>   `--agent team-workflow:orchestrator`), the MCP detects the flag in the
+>   parent's argv and skips the session-manager injection so the chosen
+>   agent prompt remains the active personality. There is no
+>   `SessionStart` hook and no `IA_TOOLS_ROLE` env var.
+> - **`PreToolUse` hook** (`plugins/team-workflow/hooks/scripts/enforce-worktree.sh`)
+>   blocks `Edit`/`Write`/`MultiEdit` on protected paths when the current
+>   branch is `main`/`master`. If you see `Pipeline violation: you are on
+>   main`, run `/worktree init feat/<name>` — the block is intentional.
 >
 > **Consumer `.gitignore` guidance.** Add these to your consumer repo's root
 > `.gitignore`:
@@ -88,7 +95,7 @@ as a one-shot subagent, not as a teammate).
   default. `session-manager` is the only main session in the plugin.
 - `plugins/team-workflow/skills/` — Reusable Claude Code skills (session, worktree, commit, review, pr,
   ship, sync-docs, pr-review, security-audit, test-generation, scope-check)
-- `plugins/team-workflow/hooks/` — SessionStart + PreToolUse enforcement scripts
+- `plugins/team-workflow/hooks/` — PreToolUse enforcement script (worktree guard)
 - `plugins/slack-bridge/` — Self-contained Slack bridge MCP plugin
 - `plugins/scaffold/` — Scaffolding/audit/edit skills for agents, skills, MCPs
 - `.claude-plugin/marketplace.json` — Marketplace manifest listing the three plugins above
@@ -96,15 +103,20 @@ as a one-shot subagent, not as a teammate).
 ## Session model
 
 Every Claude session in this plugin is **either** a `session-manager` main
-session **or** a sub-session. The switch is one env var:
+session **or** a sub-session. The discriminator is the `--agent` flag in
+the parent Claude argv (the slack-bridge MCP inspects `ps -ww -p $PPID`
+at boot):
 
-| `IA_TOOLS_ROLE` | Role | System prompt injected by SessionStart hook |
-|-----------------|------|---------------------------------------------|
-| unset           | session-manager | `plugins/team-workflow/agents/session-manager.md` |
-| `orchestrator`  | orchestrator    | `plugins/team-workflow/agents/orchestrator.md` |
+| Parent argv | Role | Prompt source |
+|-------------|------|---------------|
+| no `--agent` | session-manager | `plugins/slack-bridge/agents/session-manager.md` (loaded at runtime by the slack-bridge MCP and surfaced as its `instructions`) |
+| `--agent team-workflow:orchestrator` | orchestrator | `plugins/team-workflow/agents/orchestrator.md` (loaded natively by Claude Code from the team-workflow plugin) |
 
-The main session starts with no env var → session-manager. `/session` spawns
-tmux with `IA_TOOLS_ROLE=orchestrator` → orchestrator. No other roles exist.
+The main session starts without `--agent` → session-manager. `/session`
+launches `claude --agent team-workflow:orchestrator …` → orchestrator.
+The slack-bridge MCP detects the `--agent` flag and skips the
+session-manager injection so the orchestrator's prompt isn't shadowed.
+No `IA_TOOLS_ROLE` env var, no `SessionStart` hook.
 
 ## Development
 

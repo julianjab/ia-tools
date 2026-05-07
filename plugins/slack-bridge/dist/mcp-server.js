@@ -26625,7 +26625,7 @@ var require_dist5 = __commonJS({
 
 // src/mcp-server.ts
 import { execSync } from "node:child_process";
-import { readFileSync as readFileSync2 } from "node:fs";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { join as join3 } from "node:path";
 
@@ -41252,7 +41252,8 @@ var McpBridgeServer = class {
     logger: logger2,
     stateFilePath: stateFilePath2,
     allowedSubscribeUsers: allowedSubscribeUsers2,
-    sessionId
+    sessionId,
+    sessionManagerPrompt: sessionManagerPrompt2
   }) {
     this.web = web2;
     this.daemonClient = daemonClient2;
@@ -41266,6 +41267,19 @@ var McpBridgeServer = class {
       onChange: () => this.reloadFromConfig(),
       logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) }
     });
+    const mcpGuidance = [
+      'Slack messages arrive as channel notifications with source="slack-bridge".',
+      "When you want to respond to a message, FIRST call claim_message with the message_ts.",
+      "If the claim succeeds, call reply. If it fails, another session already claimed it \u2014 do nothing.",
+      "Reply routing priority: (1) if thread_ts is present, always reply in the thread;",
+      "(2) if is_dm=true and no thread_ts, reply directly to the DM \u2014 omit thread_ts;",
+      "(3) otherwise reply to the channel.",
+      "Use subscribe_slack at the start of the session to tell the daemon what to listen to.",
+      "Use read_thread or read_channel to fetch conversation history."
+    ].join(" ");
+    const instructions = sessionManagerPrompt2 && sessionManagerPrompt2.length > 0 ? `${sessionManagerPrompt2}
+
+${mcpGuidance}` : mcpGuidance;
     this.mcp = new Server(
       { name: "slack-bridge", version: "0.2.0" },
       {
@@ -41273,16 +41287,7 @@ var McpBridgeServer = class {
           experimental: { "claude/channel": {} },
           tools: {}
         },
-        instructions: [
-          'Slack messages arrive as channel notifications with source="slack-bridge".',
-          "When you want to respond to a message, FIRST call claim_message with the message_ts.",
-          "If the claim succeeds, call reply. If it fails, another session already claimed it \u2014 do nothing.",
-          "Reply routing priority: (1) if thread_ts is present, always reply in the thread;",
-          "(2) if is_dm=true and no thread_ts, reply directly to the DM \u2014 omit thread_ts;",
-          "(3) otherwise reply to the channel.",
-          "Use subscribe_slack at the start of the session to tell the daemon what to listen to.",
-          "Use read_thread or read_channel to fetch conversation history."
-        ].join(" ")
+        instructions
       }
     );
     this.registerHandlers();
@@ -41808,6 +41813,7 @@ function readParentCmd(ppid) {
 }
 var parentCmd = readParentCmd(process.ppid);
 var hasDevChannels = parentCmd.includes("--dangerously-load-development-channels");
+var hasAgentFlag = parentCmd.includes("--agent ");
 logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
 if (!hasDevChannels) {
   const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
@@ -41888,13 +41894,38 @@ if (allowedSubscribeUsers.size > 0) {
     "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
   );
 }
+function loadSessionManagerPrompt(log) {
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  if (!pluginRoot) {
+    log.warn("CLAUDE_PLUGIN_ROOT unset \u2014 session-manager prompt unavailable");
+    return "";
+  }
+  const path = join3(pluginRoot, "agents", "session-manager.md");
+  if (!existsSync2(path)) {
+    log.warn(`session-manager prompt not found at ${path}`);
+    return "";
+  }
+  try {
+    const content = readFileSync2(path, "utf8");
+    log.log(`loaded session-manager prompt (${content.length} chars) from ${path}`);
+    return content;
+  } catch (err) {
+    log.warn(`failed to read session-manager prompt at ${path}: ${err}`);
+    return "";
+  }
+}
+var sessionManagerPrompt = hasAgentFlag ? "" : loadSessionManagerPrompt(logger);
+if (hasAgentFlag) {
+  logger.log("agent flag detected in parent argv \u2014 skipping session-manager prompt injection");
+}
 var mcpServer = new McpBridgeServer({
   web,
   daemonClient,
   logger,
   stateFilePath,
   allowedSubscribeUsers,
-  sessionId: SESSION_ID
+  sessionId: SESSION_ID,
+  sessionManagerPrompt
 });
 await mcpServer.connect(new StdioServerTransport());
 export {

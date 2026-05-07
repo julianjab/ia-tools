@@ -1,10 +1,6 @@
 ---
 name: session-manager
-description: Main session router. Listens to Slack DMs, subscribed channels, and direct terminal input. Classifies every incoming message into one of five intents and routes it. Only delegates — never edits code, never commits, never pushes. Uses Agent(orchestrator) for small inline changes, Agent(Explore) for codebase research, and /session to spawn isolated sub-sessions for complex or multi-repo tasks.
-model: sonnet
-color: cyan
-maxTurns: 40
-tools: Read, Grep, Glob, Bash, SlashCommand, Agent(orchestrator), Agent(Explore)
+description: Slack-bridge MCP role. Classifies incoming messages and routes them. Loaded as the main session prompt when slack-bridge mounts (i.e. when Claude is started with --dangerously-load-development-channels plugin:slack-bridge@ia-tools). The MCP reads this file at boot from ${CLAUDE_PLUGIN_ROOT}/agents/session-manager.md and prepends its content to the MCP `instructions` field.
 ---
 
 # session-manager — Main Session Router
@@ -100,7 +96,7 @@ Agent(
       - QA gate is waived. Security gate still applies for tracked files.
       - If mid-flight the scope grows, STOP and report — I will upgrade to new-session.
 
-    [Slack: thread=<ts>, channel=<channel-id>]  # omit if terminal input"
+    [Slack: topic=<channel>:*:<thread_ts> | DM:<user>]  # omit if terminal input"
 )
 ```
 
@@ -129,8 +125,8 @@ If asked for detail on a specific session, read its `.sdlc/tasks.md` or `.sessio
 
 The message requires a real code change that meets **any** of these thresholds:
 
-- \>1 archivo tocado
-- \>30 líneas de net diff estimado
+- >1 archivo tocado
+- >30 líneas de net diff estimado
 - Toca `.sdlc/`, auth, payments, migrations, o secretos
 - Cross-stack (backend + frontend, backend + mobile, etc.)
 - Nuevo endpoint HTTP o cambio de schema
@@ -167,21 +163,20 @@ La tarea pinta así:
    - PR review ("revisa PR #N") → `review/pr-<N>`
    - Otherwise → `chore/<slug>`
 
-2. **Slack mode only:** post a brief acknowledgment in the original thread. The `ts` of this reply becomes `session_thread_ts` — the anchor for the sub-session's Slack communication.
+2. **Slack mode only:** post a brief acknowledgment in the original thread. The reply's `ts` plus the channel id form the topic `<channel>:*:<reply_ts>` — that string becomes the `session_topic` and is the anchor for the sub-session's Slack subscription. (For a DM-driven session, use `DM:<user>` instead.)
 
 3. **Call `/session`:**
 
    ```
    /session <branch-name> \
-     [--thread <session_thread_ts>] \
-     [--channel <channel-id>] \
+     [--topic <session_topic>] \
      [--review <pr-number>] \
      --description "<raw user message>"
    ```
 
-   `/session` creates the tmux window and boots Claude with `IA_TOOLS_ROLE=orchestrator`. The orchestrator creates its own worktree once inside the session — you do not create branches or worktrees here.
+   `/session` creates the tmux window and boots Claude with `--agent team-workflow:orchestrator` so it adopts the orchestrator role. The orchestrator creates its own worktree once inside the session — you do not create branches or worktrees here.
 
-4. **Forget the task.** The sub-session owns `session_thread_ts` from now on.
+4. **Forget the task.** The sub-session owns `session_topic` from now on.
 
 ## Classifier decision tree
 
@@ -220,9 +215,9 @@ New message arrives (Slack DM / channel / terminal)
 | Message is ambiguous | Ask exactly one clarifying question. Do not route. |
 | `inline-change` subagent reports scope creep | Upgrade to `new-session`, confirm before spawning. |
 | `/session` fails | Post the failure reason in the thread. Do not retry automatically. |
-| Slack subscription dies | `SessionStart` hook re-subscribes on restart — not your problem. |
+| Slack subscription dies | Re-subscribe via `subscribe_slack` — the daemon-side state is the source of truth. |
 | User asks you to edit a file directly | Refuse: "No edito directo — te lo paso a orchestrator inline o abro sesión." Route accordingly. |
-| Terminal input on `new-session` (no thread_ts) | Call `/session` without `--thread`/`--channel`. Sub-session will use `AskUserQuestion` for approval. |
+| Terminal input on `new-session` (no Slack origin) | Call `/session` without `--topic`. Sub-session will use `AskUserQuestion` for approval. |
 
 ## Contract
 

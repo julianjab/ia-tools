@@ -4,13 +4,15 @@ description: >
   Spawn a Claude sub-session in a dedicated tmux session, booted as the
   orchestrator agent (`team-workflow:orchestrator`). Passes the user's
   request via env vars (`SESSION_NAME`, `REQUEST`) and — if Slack-linked —
-  `SLACK_THREADS` + `SLACK_CHANNEL`. The orchestrator creates its own
-  worktree on boot; this skill only spawns the process.
+  `SLACK_TOPIC` (a single topic string in slack-bridge format, e.g.
+  `C06Q8SNF93P:*:1778078158.577219` for a thread or `DM:U02M1QFA0AF` for a
+  DM). The orchestrator creates its own worktree on boot; this skill only
+  spawns the process.
 
   Examples:
     /session feat-google-login --description "arregla el login de Google"
-    /session feat-payment-tracking --thread 1728591234.001 --channel C07815S0XNX --description "payment tracking across repos"
-argument-hint: "<session-name> [--thread <ts> --channel <id>] --description <text>"
+    /session feat-payment-tracking --topic "C07815S0XNX:*:1728591234.001" --description "payment tracking across repos"
+argument-hint: "<session-name> [--topic <topic-string>] --description <text>"
 disable-model-invocation: false
 ---
 
@@ -18,33 +20,30 @@ disable-model-invocation: false
 
 `/session` opens a fresh tmux session running Claude Code with the
 orchestrator agent preloaded. All runtime context (session label, user
-request, Slack coordinates) travels via environment variables. The
-orchestrator itself is responsible for creating a worktree and any session
-state files once it boots.
+request, Slack topic) travels via environment variables. The orchestrator
+itself is responsible for creating a worktree and any session state files
+once it boots.
 
 ## Contract
 
 ```
-/session <session-name> [--thread <ts> --channel <id>] --description "<text>"
+/session <session-name> [--topic <topic-string>] --description "<text>"
 ```
 
 | Flag | Required | Purpose |
 |------|----------|---------|
 | `<session-name>` | ✅ | Label for the session. Used as the tmux session name. Must not contain `.` or `:` (tmux target syntax). |
-| `--thread <ts>` | Slack mode | Slack thread timestamp. Must pair with `--channel`. |
-| `--channel <id>` | Slack mode | Slack channel id. Must pair with `--thread`. |
+| `--topic <topic-string>` | Slack mode | Single slack-bridge topic string. Common shapes: `<channel>:*:<thread_ts>` (thread), `<channel>` (channel-wide), `DM:<user>` (direct messages). slack-bridge's `parseTopic` is the source of truth — this skill plumbs the string through unchanged. |
 | `--description "<text>"` | ✅ | User's raw request. Exported as `REQUEST` and typed as the first message to the orchestrator. For PR reviews, include the intent in the text (e.g. "revisa PR #42") — the orchestrator handles the fetch. |
 
 **Mode rules:**
-- `--thread` AND `--channel` set → slack mode. `SLACK_THREADS` and
-  `SLACK_CHANNEL` exported.
-- Both omitted → local mode. No Slack env vars exported; orchestrator
+- `--topic` set → slack mode. `SLACK_TOPIC` exported.
+- `--topic` omitted → local mode. No Slack env vars exported; orchestrator
   uses `AskUserQuestion` for approvals.
-- Exactly one set → error.
 
 ## What it does
 
-1. Parses args, validates `<session-name>` and the Slack pairing rule.
+1. Parses args, validates `<session-name>`.
 2. Checks `tmux` and `claude` are on PATH.
 3. Creates a tmux session named `<session-name>` (CWD = caller's cwd,
    typically the consumer repo root).
@@ -53,7 +52,7 @@ state files once it boots.
    tmux session, with inline env vars:
    - `SESSION_NAME=<session-name>`
    - `REQUEST=<description>`
-   - `SLACK_THREADS=<ts>` and `SLACK_CHANNEL=<id>` (slack mode only)
+   - `SLACK_TOPIC=<topic-string>` (slack mode only)
    - `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
    - `CLAUDE_CODE_OAUTH_TOKEN=<token>` (if `CLAUDE_TEAM_OAUTH_TOKEN` or
      `CLAUDE_CODE_OAUTH_TOKEN` is present in the caller's env)
@@ -66,7 +65,7 @@ state files once it boots.
   phase via `/worktree init $SESSION_NAME`.
 - **Does not seed `.sdlc/tasks.md`.** Orchestrator's responsibility.
 - **Does not post to Slack.** The caller (`session-manager`) already
-  posted the acknowledgment reply that anchors the thread.
+  posted the acknowledgment reply that anchors the topic.
 - **Does not write `settings.local.json`.** The orchestrator writes it
   inside its worktree.
 - **Does not monitor the sub-session.** Once spawned, it returns.
@@ -75,17 +74,17 @@ state files once it boots.
 
 ```bash
 !bash "${CLAUDE_PLUGIN_ROOT}/skills/session/scripts/start-session.sh" \
-  "<session-name>" "<slack-ts-or-empty>" "<slack-channel-or-empty>" "<description>"
+  "<session-name>" "<topic-string-or-empty>" "<description>"
 ```
 
-Pass empty strings for `<slack-ts>` and `<slack-channel>` in local mode.
+Pass an empty string for `<topic-string>` in local mode.
 
 ## Errors and recovery
 
 | Situation | Action |
 |-----------|--------|
-| Only one of `--thread`/`--channel` provided | Reject with clear error — either both or neither. |
 | `<session-name>` empty or contains `.` / `:` | Reject. |
+| `--topic` value contains newline / CR | Reject. |
 | `tmux` or `claude` not on PATH | Abort with install hint; nothing spawned. |
 | tmux session `<session-name>` already exists | Warn and reuse; do not fail. |
 | `REQUEST` contains newline or NUL | Reject. |
