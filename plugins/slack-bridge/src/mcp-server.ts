@@ -153,7 +153,7 @@ export class McpBridgeServer {
     ].join(' ');
 
     this.mcp = new Server(
-      { name: 'slack-bridge', version: '0.2.0' },
+      { name: 'slack-bridge', version: '0.3.0' },
       {
         capabilities: {
           experimental: { 'claude/channel': {} },

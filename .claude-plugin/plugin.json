@@ -1,6 +1,6 @@
 {
   "name": "ia-tools",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Root plugin manifest used when dogfooding this repo directly. Distribution happens via .claude-plugin/marketplace.json (team-workflow + slack-bridge).",
   "author": {
     "name": "Julian Buitrago",

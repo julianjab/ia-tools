@@ -41539,7 +41539,7 @@ var McpBridgeServer = class {
       "Use subscribe_slack / unsubscribe_slack to change which topics this session listens to."
     ].join(" ");
     this.mcp = new Server(
-      { name: "slack-bridge", version: "0.2.0" },
+      { name: "slack-bridge", version: "0.3.0" },
       {
         capabilities: {
           experimental: { "claude/channel": {} },
