@@ -41269,14 +41269,14 @@ var McpBridgeServer = class {
     const instructions = [
       "slack-bridge \u2014 Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,",
       "list_subscriptions, claim_message, reply, read_thread, read_channel, list_channels.",
-      "Lifecycle for an incoming Slack message: (1) claim_message(message_ts) \u2014 if",
-      "claimed=false, another session won, stop; (2) reply(...) \u2014 for channel messages",
-      "pass thread_ts to keep the answer in-thread (the server falls back to message_ts",
-      "if you omit thread_ts but is_dm is not true); for DMs reply at the DM root unless",
-      "the source had an explicit thread_ts.",
-      "Default if no router agent is loaded: read what is needed to answer, reply, and",
-      "suggest `/session` for any change. If this Claude session was launched with",
-      "`--agent <id>`, that agent governs \u2014 follow its prompt, not this guidance."
+      "Lifecycle for an incoming Slack message:",
+      "(1) call claim_message(message_ts) first; if claimed=false, another session won \u2014 stop.",
+      "(2) call reply(...). For channel messages always reply in a thread: pass thread_ts",
+      "when known, or pass message_ts (the server uses message_ts as the thread anchor",
+      "when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root",
+      "unless the source had an explicit thread_ts.",
+      "Use read_thread / read_channel to inspect history before replying.",
+      "Use subscribe_slack / unsubscribe_slack to change which topics this session listens to."
     ].join(" ");
     this.mcp = new Server(
       { name: "slack-bridge", version: "0.2.0" },

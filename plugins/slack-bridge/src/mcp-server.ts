@@ -144,21 +144,20 @@ export class McpBridgeServer {
     });
 
     // slack-bridge is a pure I/O transport: it surfaces Slack tools and a
-    // short, mechanical lifecycle guide. It does NOT inject a role. If the
-    // operator wants a router/executor persona, they boot Claude with
-    // `--agent <plugin>:<name>` (for example `team-workflow:session-manager`
-    // for the main router or `team-workflow:orchestrator` for sub-sessions).
+    // short, mechanical lifecycle guide describing how to use them. It has
+    // no opinion about session governance — the active `--agent` prompt
+    // (if any) decides what to do; this text only documents the tools.
     const instructions = [
       'slack-bridge — Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,',
       'list_subscriptions, claim_message, reply, read_thread, read_channel, list_channels.',
-      'Lifecycle for an incoming Slack message: (1) claim_message(message_ts) — if',
-      'claimed=false, another session won, stop; (2) reply(...) — for channel messages',
-      'pass thread_ts to keep the answer in-thread (the server falls back to message_ts',
-      'if you omit thread_ts but is_dm is not true); for DMs reply at the DM root unless',
-      'the source had an explicit thread_ts.',
-      'Default if no router agent is loaded: read what is needed to answer, reply, and',
-      'suggest `/session` for any change. If this Claude session was launched with',
-      '`--agent <id>`, that agent governs — follow its prompt, not this guidance.',
+      'Lifecycle for an incoming Slack message:',
+      '(1) call claim_message(message_ts) first; if claimed=false, another session won — stop.',
+      '(2) call reply(...). For channel messages always reply in a thread: pass thread_ts',
+      'when known, or pass message_ts (the server uses message_ts as the thread anchor',
+      'when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root',
+      'unless the source had an explicit thread_ts.',
+      'Use read_thread / read_channel to inspect history before replying.',
+      'Use subscribe_slack / unsubscribe_slack to change which topics this session listens to.',
     ].join(' ');
 
     this.mcp = new Server(
