@@ -57,8 +57,6 @@ if [ -z "$subject" ]; then
 fi
 
 # ── Built-in pattern table ────────────────────────────────────────────────────
-# Format: "TOOL_NAME|ERE_PATTERN|Reason shown to the user"
-# TOOL_NAME is matched case-insensitively. Use "*" to match any tool.
 PATTERNS=(
   # ── Bash: Git — irreversible remote/local operations ──────────────────────
   "Bash|git[[:space:]].*push[[:space:]].*--force|git push --force reescribe historia compartida en el remoto."
