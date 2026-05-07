@@ -26624,9 +26624,7 @@ var require_dist5 = __commonJS({
 });
 
 // src/mcp-server.ts
-import { realpathSync } from "node:fs";
 import { join as join4 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -41856,160 +41854,148 @@ ${mcpGuidance}` : mcpGuidance;
     });
   }
 };
-function isInvokedAsEntryPoint() {
-  const argvPath = process.argv[1];
-  if (!argvPath) return false;
-  try {
-    return realpathSync(argvPath) === fileURLToPath2(import.meta.url);
-  } catch {
-    return false;
-  }
-}
-var isEntryPoint = isInvokedAsEntryPoint();
-if (isEntryPoint) {
-  await (async () => {
-    process.on("unhandledRejection", (reason) => {
-      process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}
+async function main() {
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}
 `);
-      if (reason instanceof Error) process.stderr.write(reason.stack ?? "");
-      process.stderr.write("\n");
-      process.exit(1);
-    });
-    process.on("uncaughtException", (err) => {
-      process.stderr.write(`[mcp] uncaughtException: ${err.message}
+    if (reason instanceof Error) process.stderr.write(reason.stack ?? "");
+    process.stderr.write("\n");
+    process.exit(1);
+  });
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(`[mcp] uncaughtException: ${err.message}
 ${err.stack ?? ""}
 `);
-      process.exit(1);
-    });
-    const paths = new PathResolver();
-    const bootBuffer = [];
-    const captureLogger = {
-      log: (msg) => bootBuffer.push({ level: "log", msg }),
-      warn: (msg) => bootBuffer.push({ level: "warn", msg }),
-      error: (msg) => bootBuffer.push({ level: "warn", msg }),
-      debug: () => {
-      }
-    };
-    const { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
-      process.ppid,
-      captureLogger
-    );
-    const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
-    const stateFilePath = paths.getStateFilePath(SESSION_ID);
-    const logger = new McpLogger({ sessionId: SESSION_ID, paths });
-    for (const entry of bootBuffer) {
-      if (entry.level === "warn") logger.warn(entry.msg);
-      else logger.log(entry.msg);
+    process.exit(1);
+  });
+  const paths = new PathResolver();
+  const bootBuffer = [];
+  const captureLogger = {
+    log: (msg) => bootBuffer.push({ level: "log", msg }),
+    warn: (msg) => bootBuffer.push({ level: "warn", msg }),
+    error: (msg) => bootBuffer.push({ level: "warn", msg }),
+    debug: () => {
     }
-    logger.log(`session id source: ${SESSION_ID_SOURCE}`);
-    const botToken = process.env.SLACK_BOT_TOKEN;
-    if (!botToken) {
-      logger.error("Missing SLACK_BOT_TOKEN");
-      process.exit(1);
-    }
-    const DAEMON_URL = resolveDaemonUrl();
-    logger.log(
-      `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
-    );
-    const parentCmd = readParentCmd(process.ppid);
-    const hasDevChannels = hasDevChannelsFlag(parentCmd);
-    const agentFlagPresent = hasAgentFlag(parentCmd);
-    logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
-    if (!hasDevChannels) {
-      const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
-      logger.error(msg);
-      const { createInterface } = await import("node:readline");
-      const rl = createInterface({ input: process.stdin });
-      rl.on("line", (line) => {
-        try {
-          const req = JSON.parse(line);
-          if (req.method === "initialize" && req.id !== void 0) {
-            const resp = {
-              jsonrpc: "2.0",
-              id: req.id,
-              error: { code: -32002, message: msg }
-            };
-            process.stdout.write(`${JSON.stringify(resp)}
+  };
+  const { id: SESSION_ID, source: SESSION_ID_SOURCE } = await resolveSessionId(
+    process.ppid,
+    captureLogger
+  );
+  const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
+  const stateFilePath = paths.getStateFilePath(SESSION_ID);
+  const logger = new McpLogger({ sessionId: SESSION_ID, paths });
+  for (const entry of bootBuffer) {
+    if (entry.level === "warn") logger.warn(entry.msg);
+    else logger.log(entry.msg);
+  }
+  logger.log(`session id source: ${SESSION_ID_SOURCE}`);
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  if (!botToken) {
+    logger.error("Missing SLACK_BOT_TOKEN");
+    process.exit(1);
+  }
+  const DAEMON_URL = resolveDaemonUrl();
+  logger.log(
+    `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
+  );
+  const parentCmd = readParentCmd(process.ppid);
+  const hasDevChannels = hasDevChannelsFlag(parentCmd);
+  const agentFlagPresent = hasAgentFlag(parentCmd);
+  logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
+  if (!hasDevChannels) {
+    const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
+    logger.error(msg);
+    const { createInterface } = await import("node:readline");
+    const rl = createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      try {
+        const req = JSON.parse(line);
+        if (req.method === "initialize" && req.id !== void 0) {
+          const resp = {
+            jsonrpc: "2.0",
+            id: req.id,
+            error: { code: -32002, message: msg }
+          };
+          process.stdout.write(`${JSON.stringify(resp)}
 `);
-            setTimeout(() => process.exit(1), 50);
-          }
-        } catch {
+          setTimeout(() => process.exit(1), 50);
         }
-      });
-      setTimeout(() => process.exit(1), 5e3);
-      await new Promise(() => {
-      });
-    }
-    let daemonReady = false;
-    try {
-      await ensureDaemon(
-        DAEMON_URL,
-        {
-          session: SESSION_ID,
-          pid: process.pid,
-          ppid: process.ppid,
-          cwd: process.cwd()
-        },
-        logger
-      );
-      daemonReady = true;
-      try {
-        const res = await fetch(`${DAEMON_URL}/health`);
-        const health = await res.json();
-        logger.log(
-          `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
-        );
-      } catch (err) {
-        logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
-      }
-    } catch (err) {
-      logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
-    }
-    const web = new import_web_api.WebClient(botToken);
-    const webhookSrv = new WebhookServer(async (payload) => {
-      const { message } = payload;
-      logger.debug(
-        `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(",")}`
-      );
-      try {
-        await mcpServer.handleIncomingMessage(payload);
-        logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
-      } catch (err) {
-        logger.error(`[webhook] notification failed: ${err}`);
-        if (err instanceof Error) logger.error(err.stack ?? "");
-        throw err;
+      } catch {
       }
     });
-    const webhookPort = await webhookSrv.start();
-    const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-    const allowedSubscribeUsers = parseAllowedSubscribeUsers(
-      process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS
+    setTimeout(() => process.exit(1), 5e3);
+    await new Promise(() => {
+    });
+  }
+  let daemonReady = false;
+  try {
+    await ensureDaemon(
+      DAEMON_URL,
+      {
+        session: SESSION_ID,
+        pid: process.pid,
+        ppid: process.ppid,
+        cwd: process.cwd()
+      },
+      logger
     );
-    if (allowedSubscribeUsers.size > 0) {
+    daemonReady = true;
+    try {
+      const res = await fetch(`${DAEMON_URL}/health`);
+      const health = await res.json();
       logger.log(
-        `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) \u2014 Slack-originated subscribe/unsubscribe must include requested_by`
+        `daemon ready at ${DAEMON_URL} \u2014 pid=${health.pid ?? "?"} entrypoint=${health.entrypoint ?? "?"}`
       );
-    } else {
-      logger.log(
-        "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
-      );
+    } catch (err) {
+      logger.warn(`daemon ready at ${DAEMON_URL} but /health lookup failed: ${err}`);
     }
-    const sessionManagerPrompt = agentFlagPresent ? "" : loadSessionManagerPrompt(logger);
-    if (agentFlagPresent) {
-      logger.log("agent flag detected in parent argv \u2014 skipping session-manager prompt injection");
+  } catch (err) {
+    logger.warn(`ensureDaemon failed \u2014 continuing in read-only mode: ${err}`);
+  }
+  const web = new import_web_api.WebClient(botToken);
+  const webhookSrv = new WebhookServer(async (payload) => {
+    const { message } = payload;
+    logger.debug(
+      `[webhook] received ts=${message.message_ts} channel=${message.channel_id} user=${message.user_id} is_dm=${message.is_dm} matched=${payload.matched_topics.join(",")}`
+    );
+    try {
+      await mcpServer.handleIncomingMessage(payload);
+      logger.debug(`[webhook] notification sent ts=${message.message_ts}`);
+    } catch (err) {
+      logger.error(`[webhook] notification failed: ${err}`);
+      if (err instanceof Error) logger.error(err.stack ?? "");
+      throw err;
     }
-    const mcpServer = new McpBridgeServer({
-      web,
-      daemonClient,
-      logger,
-      stateFilePath,
-      allowedSubscribeUsers,
-      sessionId: SESSION_ID,
-      sessionManagerPrompt
-    });
-    await mcpServer.connect(new StdioServerTransport());
-  })();
+  });
+  const webhookPort = await webhookSrv.start();
+  const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
+  const allowedSubscribeUsers = parseAllowedSubscribeUsers(
+    process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS
+  );
+  if (allowedSubscribeUsers.size > 0) {
+    logger.log(
+      `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) \u2014 Slack-originated subscribe/unsubscribe must include requested_by`
+    );
+  } else {
+    logger.log(
+      "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
+    );
+  }
+  const sessionManagerPrompt = agentFlagPresent ? "" : loadSessionManagerPrompt(logger);
+  if (agentFlagPresent) {
+    logger.log("agent flag detected in parent argv \u2014 skipping session-manager prompt injection");
+  }
+  const mcpServer = new McpBridgeServer({
+    web,
+    daemonClient,
+    logger,
+    stateFilePath,
+    allowedSubscribeUsers,
+    sessionId: SESSION_ID,
+    sessionManagerPrompt
+  });
+  await mcpServer.connect(new StdioServerTransport());
 }
-export {
-  McpBridgeServer
-};
+
+// src/bin.ts
+await main();
