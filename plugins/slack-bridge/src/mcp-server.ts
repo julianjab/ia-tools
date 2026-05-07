@@ -36,6 +36,7 @@
  *                                           Example: "U02M1QFA0AF,U03ABCDEF"
  */
 
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -541,12 +542,31 @@ export class McpBridgeServer {
 // directory creation, daemon ensure, port allocation, stdio transport
 // connection. Wrapping it in an entry-point guard means importing this
 // module from tests (or other tooling) only loads the class definition —
-// no log dirs leak, no daemon probe, no JSON-RPC reject path. The standard
-// ESM check `process.argv[1] === fileURLToPath(import.meta.url)` is true
-// only when this file was invoked as `node mcp-server.js` (or via the
-// bundled `dist/mcp-server.js`), false on every `import` path.
+// no log dirs leak, no daemon probe, no JSON-RPC reject path.
+//
+// Symlink-safe predicate: `import.meta.url` is always a realpath, but
+// `process.argv[1]` keeps the literal path the OS used to launch node.
+// When the executable is reached through a symlink (the standard
+// Claude plugin-cache layout — `~/.claude/plugins/cache/<plugin>/<ver>/dist/`
+// is a symlink to the consumer's installed bundle, and during local dev
+// the cache itself is a symlink to a worktree), a strict `===` comparison
+// fails and the bootstrap silently never runs. Resolve `argv[1]` through
+// `realpathSync` before comparing so both sides are realpaths.
 
-const isEntryPoint = process.argv[1] === fileURLToPath(import.meta.url);
+function isInvokedAsEntryPoint(): boolean {
+  const argvPath = process.argv[1];
+  if (!argvPath) return false;
+  try {
+    return realpathSync(argvPath) === fileURLToPath(import.meta.url);
+  } catch {
+    // realpath can throw if argv[1] doesn't exist on disk for any reason
+    // (e.g. test bundlers that synthesise argv). Treat as not-entry-point
+    // so imports stay side-effect-free.
+    return false;
+  }
+}
+
+const isEntryPoint = isInvokedAsEntryPoint();
 if (isEntryPoint) {
   await (async () => {
     process.on('unhandledRejection', (reason) => {

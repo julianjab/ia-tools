@@ -26624,6 +26624,7 @@ var require_dist5 = __commonJS({
 });
 
 // src/mcp-server.ts
+import { realpathSync } from "node:fs";
 import { join as join4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
@@ -41855,7 +41856,16 @@ ${mcpGuidance}` : mcpGuidance;
     });
   }
 };
-var isEntryPoint = process.argv[1] === fileURLToPath2(import.meta.url);
+function isInvokedAsEntryPoint() {
+  const argvPath = process.argv[1];
+  if (!argvPath) return false;
+  try {
+    return realpathSync(argvPath) === fileURLToPath2(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+var isEntryPoint = isInvokedAsEntryPoint();
 if (isEntryPoint) {
   await (async () => {
     process.on("unhandledRejection", (reason) => {
