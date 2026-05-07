@@ -5,11 +5,10 @@ Slack <-> Claude Code bridge: a Socket Mode daemon (singleton) + a lightweight M
 > **Pure I/O transport.** This plugin exposes Slack tools (`subscribe_slack`,
 > `claim_message`, `reply`, `read_thread`, `read_channel`, …) and a short
 > mechanical guide as `instructions`. It does **not** inject any role
-> prompt and does **not** sniff the parent argv. To use a router persona
-> (the classifier that turns Slack messages into `/session` calls), boot
-> Claude with `claude --agent team-workflow:session-manager`. The
-> `session-manager` agent now lives in the `team-workflow` plugin like any
-> other plugin agent.
+> prompt and does **not** sniff the parent argv. If you want an agent to
+> manage the session (classify messages, route work, etc.), start Claude
+> with `claude --agent <plugin>:<name>` — slack-bridge stays agnostic
+> about which agent that is.
 
 ## Architecture
 
