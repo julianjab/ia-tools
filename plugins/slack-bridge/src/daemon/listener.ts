@@ -42,6 +42,9 @@ export async function startListener(
 
     if (!text || msg.subtype) return;
 
+    // Only process DMs — channel messages require an @mention (handled by app_mention).
+    if (msg.channel_type !== 'im' && msg.channel_type !== 'mpim') return;
+
     await onMessage({
       channel_id: msg.channel as string,
       user_id: (msg.user as string) ?? 'unknown',
