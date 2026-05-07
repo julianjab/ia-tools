@@ -50,6 +50,7 @@ import { loadConfig, loadConfigFromPath, saveConfig, saveConfigAtPath } from './
 import { DaemonClient } from './daemon-client.js';
 import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
 import type { Logger } from './logger.js';
+import { SESSION_MANAGER_PROMPT } from './session-manager-prompt.js';
 import { McpLogger } from './shared/mcp-logger.js';
 import { PathResolver } from './shared/path-resolver.js';
 import type { MessagePayload, TopicSpec } from './shared/types.js';
@@ -143,6 +144,28 @@ export class McpBridgeServer {
       logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) },
     });
 
+    // Short-form guidance for slack-bridge tools, always present.
+    const mcpGuidance = [
+      'Slack messages arrive as channel notifications with source="slack-bridge".',
+      'When you want to respond to a message, FIRST call claim_message with the message_ts.',
+      'If the claim succeeds, call reply. If it fails, another session already claimed it — do nothing.',
+      'Reply routing priority: (1) if thread_ts is present, always reply in the thread;',
+      '(2) if is_dm=true and no thread_ts, reply directly to the DM — omit thread_ts;',
+      '(3) otherwise reply to the channel.',
+      'Use subscribe_slack at the start of the session to tell the daemon what to listen to.',
+      'Use read_thread or read_channel to fetch conversation history.',
+    ].join(' ');
+
+    // The session-manager role prompt is injected ONLY in main sessions
+    // (IA_TOOLS_ROLE unset/empty). Sub-sessions spawned by /session set
+    // IA_TOOLS_ROLE=orchestrator and load orchestrator.md natively via
+    // `claude --agent team-workflow:orchestrator`, so they must NOT receive
+    // the session-manager prompt here. (In practice sub-sessions are launched
+    // without --dangerously-load-development-channels and so don't even mount
+    // slack-bridge — this check is a defensive belt-and-braces.)
+    const role = process.env.IA_TOOLS_ROLE ?? '';
+    const instructions = role === '' ? `${SESSION_MANAGER_PROMPT}\n\n${mcpGuidance}` : mcpGuidance;
+
     this.mcp = new Server(
       { name: 'slack-bridge', version: '0.2.0' },
       {
@@ -150,16 +173,7 @@ export class McpBridgeServer {
           experimental: { 'claude/channel': {} },
           tools: {},
         },
-        instructions: [
-          'Slack messages arrive as channel notifications with source="slack-bridge".',
-          'When you want to respond to a message, FIRST call claim_message with the message_ts.',
-          'If the claim succeeds, call reply. If it fails, another session already claimed it — do nothing.',
-          'Reply routing priority: (1) if thread_ts is present, always reply in the thread;',
-          '(2) if is_dm=true and no thread_ts, reply directly to the DM — omit thread_ts;',
-          '(3) otherwise reply to the channel.',
-          'Use subscribe_slack at the start of the session to tell the daemon what to listen to.',
-          'Use read_thread or read_channel to fetch conversation history.',
-        ].join(' '),
+        instructions,
       },
     );
 
