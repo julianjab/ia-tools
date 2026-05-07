@@ -5,7 +5,8 @@
 
 import pkg from '@slack/bolt';
 import { log, error as logError } from './logger.js';
-const { App, LogLevel } = pkg;
+
+const { App, Assistant, LogLevel } = pkg;
 
 export interface ListenerConfig {
   botToken: string;
@@ -22,6 +23,10 @@ export interface SlackEvent {
 
 export type MessageHandler = (event: SlackEvent) => Promise<void>;
 
+// Module-level caches shared across all resolutions within one daemon process
+const userCache = new Map<string, string>();
+const channelCache = new Map<string, string>();
+
 export async function startListener(
   config: ListenerConfig,
   onMessage: MessageHandler,
@@ -33,46 +38,69 @@ export async function startListener(
     logLevel: LogLevel.ERROR,
   });
 
-  const userCache = new Map<string, string>();
-  const channelCache = new Map<string, string>();
+  // ── Agent / Assistant — DMs and split-view threads ────────────────────────
+  // Handles all DM messages when the bot is configured as a Slack Agent.
+  // `userMessage` takes precedence over `app.message` for im events in
+  // Bolt v4, so no deduplication is needed — we omit `app.message` entirely.
+  const assistant = new Assistant({
+    threadStarted: async ({ say, setSuggestedPrompts }) => {
+      await say('¡Hola! ¿En qué te ayudo?');
+      await setSuggestedPrompts({
+        prompts: [
+          { title: 'Abrir sesión de trabajo', message: 'Quiero trabajar en...' },
+          { title: 'Estado de sesiones', message: '¿Qué sesiones hay activas?' },
+          { title: 'Ayuda', message: '¿Qué puedes hacer?' },
+        ],
+      });
+    },
 
-  app.message(async ({ message }) => {
-    const msg = message as unknown as Record<string, unknown>;
-    const text = msg.text as string | undefined;
+    threadContextChanged: async ({ saveThreadContext }) => {
+      await saveThreadContext();
+    },
 
-    if (!text || msg.subtype) return;
+    userMessage: async ({ event, setStatus }) => {
+      const msg = event as unknown as Record<string, unknown>;
+      const text = msg.text as string | undefined;
+      if (!text || msg.subtype) return;
 
-    // Only process DMs — channel messages require an @mention (handled by app_mention).
-    if (msg.channel_type !== 'im' && msg.channel_type !== 'mpim') return;
+      // Immediate feedback — fires before the daemon routes to a subscriber
+      await setStatus('está pensando...');
 
-    await onMessage({
-      channel_id: msg.channel as string,
-      user_id: (msg.user as string) ?? 'unknown',
-      text,
-      message_ts: msg.ts as string,
-      thread_ts: msg.thread_ts as string | undefined,
-    });
+      try {
+        await onMessage({
+          channel_id: msg.channel as string,
+          user_id: (msg.user as string) ?? 'unknown',
+          text,
+          message_ts: msg.ts as string,
+          thread_ts: msg.thread_ts as string | undefined,
+        });
+      } catch (err) {
+        logError(`[userMessage] ${err}`);
+      }
+    },
   });
 
+  app.assistant(assistant);
+
+  // ── Channel @mentions ─────────────────────────────────────────────────────
   app.event('app_mention', async ({ event }) => {
     if (!event.text) return;
-
-    await onMessage({
-      channel_id: event.channel,
-      user_id: event.user ?? 'unknown',
-      text: event.text,
-      message_ts: event.ts,
-      thread_ts: event.thread_ts ?? undefined,
-    });
+    try {
+      await onMessage({
+        channel_id: event.channel,
+        user_id: event.user ?? 'unknown',
+        text: event.text,
+        message_ts: event.ts,
+        thread_ts: event.thread_ts ?? undefined,
+      });
+    } catch (err) {
+      logError(`[app_mention] ${err}`);
+    }
   });
 
   app.error(async (error) => {
     logError(`[bolt] ${error}`);
   });
-
-  // Expose caches for name resolution
-  (app as unknown as Record<string, unknown>)._userCache = userCache;
-  (app as unknown as Record<string, unknown>)._channelCache = channelCache;
 
   await app.start();
   log('[daemon] Socket Mode connected');
@@ -82,13 +110,12 @@ export async function startListener(
 
 /** Resolve user ID → display name using Slack API */
 export async function resolveUser(app: InstanceType<typeof App>, userId: string): Promise<string> {
-  const cache = (app as unknown as Record<string, Map<string, string>>)._userCache;
-  if (cache.has(userId)) return cache.get(userId)!;
+  if (userCache.has(userId)) return userCache.get(userId)!;
 
   try {
     const result = await app.client.users.info({ user: userId });
     const name = result.user?.real_name || result.user?.name || userId;
-    cache.set(userId, name);
+    userCache.set(userId, name);
     return name;
   } catch {
     return userId;
@@ -100,13 +127,12 @@ export async function resolveChannel(
   app: InstanceType<typeof App>,
   channelId: string,
 ): Promise<string> {
-  const cache = (app as unknown as Record<string, Map<string, string>>)._channelCache;
-  if (cache.has(channelId)) return cache.get(channelId)!;
+  if (channelCache.has(channelId)) return channelCache.get(channelId)!;
 
   try {
     const result = await app.client.conversations.info({ channel: channelId });
     const name = result.channel?.name || channelId;
-    cache.set(channelId, name);
+    channelCache.set(channelId, name);
     return name;
   } catch {
     return channelId;

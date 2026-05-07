@@ -55686,7 +55686,6 @@ async function startListener(config, onMessage) {
     const msg = message;
     const text = msg.text;
     if (!text || msg.subtype) return;
-    if (msg.channel_type !== "im" && msg.channel_type !== "mpim") return;
     await onMessage({
       channel_id: msg.channel,
       user_id: msg.user ?? "unknown",
