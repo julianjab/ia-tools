@@ -26624,10 +26624,7 @@ var require_dist5 = __commonJS({
 });
 
 // src/mcp-server.ts
-import { execSync } from "node:child_process";
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { homedir } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 
 // ../../node_modules/.pnpm/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -40660,41 +40657,43 @@ var StdioServerTransport = class {
 // src/mcp-server.ts
 var import_web_api = __toESM(require_dist5(), 1);
 
-// src/ack-client.ts
-function warn(msg) {
-  process.stderr.write(`${msg}
-`);
+// src/auth-gate.ts
+function parseAllowedSubscribeUsers(envValue) {
+  return new Set(
+    (envValue ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+  );
 }
-async function clearThinkingAck(web2, args) {
-  const emoji3 = process.env.SLACK_ACK_EMOJI ?? "eyes";
-  const threadTs = args.thread_ts ?? args.message_ts;
-  await Promise.allSettled([
-    web2.reactions.remove({
-      name: emoji3,
-      channel: args.channel_id,
-      timestamp: args.message_ts
-    }).catch((err) => warn(`[ack-client] reactions.remove failed: ${err}`)),
-    (async () => {
-      try {
-        const client = web2;
-        if (client.assistant?.threads?.setStatus) {
-          await client.assistant.threads.setStatus({
-            channel_id: args.channel_id,
-            thread_ts: threadTs,
-            status: ""
-          });
-        } else {
-          await client.apiCall("assistant.threads.setStatus", {
-            channel_id: args.channel_id,
-            thread_ts: threadTs,
-            status: ""
-          });
+function gateSubscribeChange(args, op, allowedSubscribeUsers2, logger2) {
+  const raw = args.requested_by;
+  const requestedBy = typeof raw === "string" && raw.length > 0 ? raw : null;
+  if (!requestedBy) {
+    return null;
+  }
+  if (allowedSubscribeUsers2.size === 0) {
+    logger2.warn(`[gate] ${op} rejected \u2014 Slack-originated, no allowlist configured`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Refused: ${op}_slack requests originating from Slack messages are blocked because no allowlist is configured. Set SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS in the MCP env to authorize specific users.`
         }
-      } catch (err) {
-        warn(`[ack-client] assistant.threads.setStatus failed: ${err}`);
-      }
-    })()
-  ]);
+      ],
+      isError: true
+    };
+  }
+  if (!allowedSubscribeUsers2.has(requestedBy)) {
+    logger2.warn(`[gate] ${op} rejected \u2014 ${requestedBy} not in allowlist`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...allowedSubscribeUsers2].join(", ")}.`
+        }
+      ],
+      isError: true
+    };
+  }
+  return null;
 }
 
 // src/config-watcher.ts
@@ -41029,6 +41028,311 @@ async function ensureDaemon(daemonUrl, spawner, logger2) {
   }
 }
 
+// src/ack-client.ts
+function warn(msg) {
+  process.stderr.write(`${msg}
+`);
+}
+async function clearThinkingAck(web2, args) {
+  const emoji3 = process.env.SLACK_ACK_EMOJI ?? "eyes";
+  const threadTs = args.thread_ts ?? args.message_ts;
+  await Promise.allSettled([
+    web2.reactions.remove({
+      name: emoji3,
+      channel: args.channel_id,
+      timestamp: args.message_ts
+    }).catch((err) => warn(`[ack-client] reactions.remove failed: ${err}`)),
+    (async () => {
+      try {
+        const client = web2;
+        if (client.assistant?.threads?.setStatus) {
+          await client.assistant.threads.setStatus({
+            channel_id: args.channel_id,
+            thread_ts: threadTs,
+            status: ""
+          });
+        } else {
+          await client.apiCall("assistant.threads.setStatus", {
+            channel_id: args.channel_id,
+            thread_ts: threadTs,
+            status: ""
+          });
+        }
+      } catch (err) {
+        warn(`[ack-client] assistant.threads.setStatus failed: ${err}`);
+      }
+    })()
+  ]);
+}
+
+// src/handlers/messaging.ts
+async function handleClaimMessage(args, deps) {
+  try {
+    if (!deps.daemonClient) {
+      throw new Error("DAEMON_URL is not set \u2014 cannot claim messages");
+    }
+    const result = await deps.daemonClient.claim(args.message_ts);
+    if (result.claimed) {
+      return { content: [{ type: "text", text: "Claimed \u2014 you may reply." }] };
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Already claimed by another session (:${result.claimed_by}). Do NOT reply.`
+        }
+      ]
+    };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Claim error: ${err}` }], isError: true };
+  }
+}
+async function handleReply(args, deps) {
+  const { channel_id, text, message_ts, thread_ts } = args;
+  try {
+    const result = await deps.web.chat.postMessage({ channel: channel_id, text, thread_ts });
+    if (message_ts) {
+      await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    }
+    return { content: [{ type: "text", text: `Sent (ts: ${result.ts})` }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+
+// src/handlers/read-only.ts
+async function handleReadThread(args, deps) {
+  const { channel_id, thread_ts, limit } = args;
+  try {
+    const result = await deps.web.conversations.replies({
+      channel: channel_id,
+      ts: thread_ts,
+      limit: limit ?? 20
+    });
+    const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
+    return { content: [{ type: "text", text: messages || "No messages in thread" }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+async function handleReadChannel(args, deps) {
+  const { channel_id, limit } = args;
+  try {
+    const result = await deps.web.conversations.history({
+      channel: channel_id,
+      limit: limit ?? 20
+    });
+    const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
+    return { content: [{ type: "text", text: messages || "No messages in channel" }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+async function handleListChannels(deps) {
+  try {
+    const result = await deps.web.users.conversations({
+      types: "public_channel,private_channel",
+      limit: 100
+    });
+    const channels = (result.channels ?? []).map((c) => `#${c.name} (${c.id})`).join("\n");
+    return { content: [{ type: "text", text: channels || "No channels found" }] };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+
+// src/shared/types.ts
+function normalizeTopic(input) {
+  if (typeof input === "string") return { topic: input };
+  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
+}
+
+// src/topic-helpers.ts
+function mergeTopicSpecs(existing, incoming) {
+  const map2 = /* @__PURE__ */ new Map();
+  for (const t of existing) map2.set(t.topic, t);
+  for (const t of incoming) {
+    const prev = map2.get(t.topic);
+    map2.set(t.topic, {
+      topic: t.topic,
+      ...t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}
+    });
+  }
+  return [...map2.values()];
+}
+function formatSpec(spec) {
+  return spec.label ? `${spec.label}:${spec.topic}` : spec.topic;
+}
+
+// src/handlers/subscribe.ts
+async function handleSubscribe(args, deps) {
+  const blocked = gateSubscribeChange(args, "subscribe", deps.allowedSubscribeUsers, deps.logger);
+  if (blocked) return blocked;
+  try {
+    const raw = args.topics ?? [];
+    const incoming = raw.map(normalizeTopic);
+    if (!incoming.length) {
+      return {
+        content: [{ type: "text", text: "Error: topics[] must be non-empty" }],
+        isError: true
+      };
+    }
+    if (!deps.daemonClient) {
+      throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
+    }
+    await deps.daemonClient.subscribe(incoming, deps.sessionId);
+    deps.setSubscribedTopics(mergeTopicSpecs(deps.getSubscribedTopics(), incoming));
+    try {
+      const existing = deps.readState();
+      const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
+      deps.writeState({ topics: mergeTopicSpecs(existingSpecs, incoming) });
+    } catch (err) {
+      deps.logger.warn(`could not persist subscription \u2014 ${err}`);
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Subscribed on :${deps.daemonClient.port} \u2014 topics: ${incoming.map(formatSpec).join(", ")}`
+        }
+      ]
+    };
+  } catch (err) {
+    return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
+  }
+}
+async function handleUnsubscribe(args, deps) {
+  const blocked = gateSubscribeChange(args, "unsubscribe", deps.allowedSubscribeUsers, deps.logger);
+  if (blocked) return blocked;
+  const requested = args.topics ?? null;
+  const isPartial = Array.isArray(requested) && requested.length > 0;
+  if (deps.daemonClient) {
+    await deps.daemonClient.unsubscribe();
+  }
+  const subscribedTopics = deps.getSubscribedTopics();
+  let remaining = [];
+  let removed = [];
+  if (isPartial) {
+    const toRemove = new Set(requested);
+    removed = subscribedTopics.filter((t) => toRemove.has(t.topic));
+    remaining = subscribedTopics.filter((t) => !toRemove.has(t.topic));
+    if (deps.daemonClient && remaining.length > 0) {
+      await deps.daemonClient.subscribe(remaining, deps.sessionId);
+    }
+  } else {
+    removed = [...subscribedTopics];
+  }
+  deps.setSubscribedTopics(remaining);
+  try {
+    deps.writeState({ topics: remaining });
+  } catch (err) {
+    deps.logger.warn(`could not persist unsubscribe \u2014 ${err}`);
+  }
+  const text = isPartial ? `Unsubscribed from: ${removed.map(formatSpec).join(", ") || "(none \u2014 topic was not subscribed)"}. Remaining: ${remaining.map(formatSpec).join(", ") || "(none)"}` : `Unsubscribed from all topics${removed.length ? ` (${removed.map(formatSpec).join(", ")})` : ""}`;
+  return { content: [{ type: "text", text }] };
+}
+async function handleListSubscriptions(deps) {
+  const subscribedTopics = deps.getSubscribedTopics();
+  const count = subscribedTopics.length;
+  if (count === 0) {
+    return {
+      content: [{ type: "text", text: "No active subscriptions for this session." }]
+    };
+  }
+  const lines = subscribedTopics.map((t, i) => `  ${i + 1}. ${formatSpec(t)}`).join("\n");
+  const json2 = JSON.stringify(subscribedTopics);
+  const header = deps.sessionId ? `Active subscriptions (${count}) for session ${deps.sessionId}:` : `Active subscriptions (${count}):`;
+  return {
+    content: [
+      {
+        type: "text",
+        text: `${header}
+${lines}
+
+JSON: ${json2}`
+      }
+    ]
+  };
+}
+
+// src/parent-process.ts
+import { execSync } from "node:child_process";
+function readParentCmd(ppid) {
+  try {
+    return execSync(`ps -ww -p ${ppid} -o command=`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+function hasAgentFlag(parentCmd2) {
+  return parentCmd2.includes("--agent ");
+}
+function hasDevChannelsFlag(parentCmd2) {
+  return parentCmd2.includes("--dangerously-load-development-channels");
+}
+
+// src/prompt-loader.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+import { join as join3 } from "node:path";
+function loadSessionManagerPrompt(log) {
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  if (!pluginRoot) {
+    log.warn("CLAUDE_PLUGIN_ROOT unset \u2014 session-manager prompt unavailable");
+    return "";
+  }
+  const path = join3(pluginRoot, "agents", "session-manager.md");
+  if (!existsSync2(path)) {
+    log.warn(`session-manager prompt not found at ${path}`);
+    return "";
+  }
+  try {
+    const content = readFileSync2(path, "utf8");
+    log.log(`loaded session-manager prompt (${content.length} chars) from ${path}`);
+    return content;
+  } catch (err) {
+    log.warn(`failed to read session-manager prompt at ${path}: ${err}`);
+    return "";
+  }
+}
+
+// src/session-id-resolver.ts
+import { readFileSync as readFileSync3 } from "node:fs";
+import { homedir } from "node:os";
+async function readClaudeSessionId(ppid) {
+  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
+  const ATTEMPTS = 30;
+  const BACKOFF_MS = 100;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    try {
+      const raw = readFileSync3(path, "utf8");
+      const data = JSON.parse(raw);
+      if (typeof data.sessionId === "string" && data.sessionId.length > 0 && typeof data.status === "string" && data.status.length > 0) {
+        return data.sessionId;
+      }
+    } catch {
+    }
+    if (attempt < ATTEMPTS - 1) {
+      await new Promise((resolve2) => setTimeout(resolve2, BACKOFF_MS));
+    }
+  }
+  return null;
+}
+async function resolveSessionId(ppid, logger2) {
+  const fileId = await readClaudeSessionId(ppid);
+  if (fileId) {
+    logger2.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
+    return { id: fileId, source: "file" };
+  }
+  const fallback = `${ppid}-${process.pid}`;
+  logger2.warn(
+    `claude session id unavailable (ppid=${ppid} file unreadable); using fallback ${fallback}`
+  );
+  return { id: fallback, source: "fallback" };
+}
+
 // src/logger.ts
 import { appendFileSync, mkdirSync as mkdirSync3 } from "node:fs";
 import { dirname as dirname4 } from "node:path";
@@ -41117,12 +41421,6 @@ var McpLogger = class {
     this.inner.debug(msg);
   }
 };
-
-// src/shared/types.ts
-function normalizeTopic(input) {
-  if (typeof input === "string") return { topic: input };
-  return { topic: input.topic, ...input.label ? { label: input.label } : {} };
-}
 
 // src/webhook-server.ts
 import { createServer } from "node:http";
@@ -41221,21 +41519,6 @@ var WebhookServer = class {
 };
 
 // src/mcp-server.ts
-function mergeTopicSpecs(existing, incoming) {
-  const map2 = /* @__PURE__ */ new Map();
-  for (const t of existing) map2.set(t.topic, t);
-  for (const t of incoming) {
-    const prev = map2.get(t.topic);
-    map2.set(t.topic, {
-      topic: t.topic,
-      ...t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}
-    });
-  }
-  return [...map2.values()];
-}
-function formatSpec(spec) {
-  return spec.label ? `${spec.label}:${spec.topic}` : spec.topic;
-}
 var McpBridgeServer = class {
   mcp;
   web;
@@ -41265,7 +41548,7 @@ var McpBridgeServer = class {
     this.stateFilePath = stateFilePath2;
     this.allowedSubscribeUsers = allowedSubscribeUsers2;
     this.sessionId = sessionId;
-    const watchedPath = stateFilePath2 ?? join3(process.cwd(), ".claude", ".slack-bridge.json");
+    const watchedPath = stateFilePath2 ?? join4(process.cwd(), ".claude", ".slack-bridge.json");
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
       onChange: () => this.reloadFromConfig(),
@@ -41433,224 +41716,42 @@ ${mcpGuidance}` : mcpGuidance;
       return this.dispatchTool(name, args);
     });
   }
-  async dispatchTool(name, args) {
-    if (name === "subscribe_slack") return this.handleSubscribe(args);
-    if (name === "unsubscribe_slack") return this.handleUnsubscribe(args);
-    if (name === "claim_message") return this.handleClaimMessage(args);
-    if (name === "reply") return this.handleReply(args);
-    if (name === "read_thread") return this.handleReadThread(args);
-    if (name === "read_channel") return this.handleReadChannel(args);
-    if (name === "list_channels") return this.handleListChannels();
-    if (name === "list_subscriptions") return this.handleListSubscriptions();
-    throw new Error(`Unknown tool: ${name}`);
-  }
-  /**
-   * Authorization gate for subscribe/unsubscribe.
-   *
-   * The agent passes `requested_by` to declare the source of the request:
-   *   - `requested_by` absent  → local CLI invocation (the operator typing
-   *     in Claude Code). Always allowed; the operator is implicitly trusted.
-   *   - `requested_by` present → request originated from a Slack message
-   *     (the agent should set it to the user_id from the triggering
-   *     notification). In this case:
-   *       - allowlist empty  → REJECTED. Slack-originated requests must be
-   *         explicitly authorized via SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS.
-   *       - allowlist set    → must include `requested_by`, otherwise
-   *         REJECTED.
-   *
-   * Returns the tool error response when blocked, or null when the call may
-   * proceed.
-   */
-  gateSubscribeChange(args, op) {
-    const raw = args.requested_by;
-    const requestedBy = typeof raw === "string" && raw.length > 0 ? raw : null;
-    if (!requestedBy) {
-      return null;
-    }
-    if (this.allowedSubscribeUsers.size === 0) {
-      this.logger.warn(`[gate] ${op} rejected \u2014 Slack-originated, no allowlist configured`);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Refused: ${op}_slack requests originating from Slack messages are blocked because no allowlist is configured. Set SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS in the MCP env to authorize specific users.`
-          }
-        ],
-        isError: true
-      };
-    }
-    if (!this.allowedSubscribeUsers.has(requestedBy)) {
-      this.logger.warn(`[gate] ${op} rejected \u2014 ${requestedBy} not in allowlist`);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...this.allowedSubscribeUsers].join(", ")}.`
-          }
-        ],
-        isError: true
-      };
-    }
-    return null;
-  }
-  async handleSubscribe(args) {
-    const blocked = this.gateSubscribeChange(args, "subscribe");
-    if (blocked) return blocked;
-    try {
-      const raw = args.topics ?? [];
-      const incoming = raw.map(normalizeTopic);
-      if (!incoming.length) {
-        return {
-          content: [{ type: "text", text: "Error: topics[] must be non-empty" }],
-          isError: true
-        };
-      }
-      if (!this.daemonClient) {
-        throw new Error("DAEMON_URL is not set \u2014 cannot subscribe");
-      }
-      await this.daemonClient.subscribe(incoming, this.sessionId);
-      this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
-      try {
-        const existing = this.readState();
-        const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
-        this.writeState({ topics: mergeTopicSpecs(existingSpecs, incoming) });
-      } catch (err) {
-        this.logger.warn(`could not persist subscription \u2014 ${err}`);
-      }
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Subscribed on :${this.daemonClient.port} \u2014 topics: ${incoming.map(formatSpec).join(", ")}`
-          }
-        ]
-      };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleUnsubscribe(args) {
-    const blocked = this.gateSubscribeChange(args, "unsubscribe");
-    if (blocked) return blocked;
-    const requested = args.topics ?? null;
-    const isPartial = Array.isArray(requested) && requested.length > 0;
-    if (this.daemonClient) {
-      await this.daemonClient.unsubscribe();
-    }
-    let remaining = [];
-    let removed = [];
-    if (isPartial) {
-      const toRemove = new Set(requested);
-      removed = this.subscribedTopics.filter((t) => toRemove.has(t.topic));
-      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t.topic));
-      if (this.daemonClient && remaining.length > 0) {
-        await this.daemonClient.subscribe(remaining, this.sessionId);
-      }
-    } else {
-      removed = [...this.subscribedTopics];
-    }
-    this.subscribedTopics = remaining;
-    try {
-      this.writeState({ topics: remaining });
-    } catch (err) {
-      this.logger.warn(`could not persist unsubscribe \u2014 ${err}`);
-    }
-    const text = isPartial ? `Unsubscribed from: ${removed.map(formatSpec).join(", ") || "(none \u2014 topic was not subscribed)"}. Remaining: ${remaining.map(formatSpec).join(", ") || "(none)"}` : `Unsubscribed from all topics${removed.length ? ` (${removed.map(formatSpec).join(", ")})` : ""}`;
-    return { content: [{ type: "text", text }] };
-  }
-  async handleClaimMessage(args) {
-    try {
-      if (!this.daemonClient) {
-        throw new Error("DAEMON_URL is not set \u2014 cannot claim messages");
-      }
-      const result = await this.daemonClient.claim(args.message_ts);
-      if (result.claimed) {
-        return { content: [{ type: "text", text: "Claimed \u2014 you may reply." }] };
-      }
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Already claimed by another session (:${result.claimed_by}). Do NOT reply.`
-          }
-        ]
-      };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Claim error: ${err}` }], isError: true };
-    }
-  }
-  async handleReply(args) {
-    const { channel_id, text, message_ts, thread_ts } = args;
-    try {
-      const result = await this.web.chat.postMessage({ channel: channel_id, text, thread_ts });
-      if (message_ts) {
-        await clearThinkingAck(this.web, { channel_id, message_ts, thread_ts });
-      }
-      return { content: [{ type: "text", text: `Sent (ts: ${result.ts})` }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleReadThread(args) {
-    const { channel_id, thread_ts, limit } = args;
-    try {
-      const result = await this.web.conversations.replies({
-        channel: channel_id,
-        ts: thread_ts,
-        limit: limit ?? 20
-      });
-      const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
-      return { content: [{ type: "text", text: messages || "No messages in thread" }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleReadChannel(args) {
-    const { channel_id, limit } = args;
-    try {
-      const result = await this.web.conversations.history({
-        channel: channel_id,
-        limit: limit ?? 20
-      });
-      const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join("\n");
-      return { content: [{ type: "text", text: messages || "No messages in channel" }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleListChannels() {
-    try {
-      const result = await this.web.users.conversations({
-        types: "public_channel,private_channel",
-        limit: 100
-      });
-      const channels = (result.channels ?? []).map((c) => `#${c.name} (${c.id})`).join("\n");
-      return { content: [{ type: "text", text: channels || "No channels found" }] };
-    } catch (err) {
-      return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
-    }
-  }
-  async handleListSubscriptions() {
-    const count = this.subscribedTopics.length;
-    if (count === 0) {
-      return {
-        content: [{ type: "text", text: "No active subscriptions for this session." }]
-      };
-    }
-    const lines = this.subscribedTopics.map((t, i) => `  ${i + 1}. ${formatSpec(t)}`).join("\n");
-    const json2 = JSON.stringify(this.subscribedTopics);
-    const header = this.sessionId ? `Active subscriptions (${count}) for session ${this.sessionId}:` : `Active subscriptions (${count}):`;
+  /** Build the deps bundle the subscribe/unsubscribe/list handlers need. */
+  subscribeDeps() {
     return {
-      content: [
-        {
-          type: "text",
-          text: `${header}
-${lines}
-
-JSON: ${json2}`
-        }
-      ]
+      daemonClient: this.daemonClient,
+      logger: this.logger,
+      allowedSubscribeUsers: this.allowedSubscribeUsers,
+      sessionId: this.sessionId,
+      readState: () => this.readState(),
+      writeState: (patch) => this.writeState(patch),
+      getSubscribedTopics: () => this.subscribedTopics,
+      setSubscribedTopics: (next) => {
+        this.subscribedTopics = next;
+      }
     };
+  }
+  messagingDeps() {
+    return { web: this.web, daemonClient: this.daemonClient };
+  }
+  readOnlyDeps() {
+    return { web: this.web };
+  }
+  async dispatchTool(name, args) {
+    if (name === "subscribe_slack") return handleSubscribe(args, this.subscribeDeps());
+    if (name === "unsubscribe_slack") return handleUnsubscribe(args, this.subscribeDeps());
+    if (name === "claim_message") return handleClaimMessage(args, this.messagingDeps());
+    if (name === "reply") return handleReply(args, this.messagingDeps());
+    if (name === "read_thread") return handleReadThread(args, this.readOnlyDeps());
+    if (name === "read_channel") return handleReadChannel(args, this.readOnlyDeps());
+    if (name === "list_channels") return handleListChannels(this.readOnlyDeps());
+    if (name === "list_subscriptions") {
+      return handleListSubscriptions({
+        sessionId: this.sessionId,
+        getSubscribedTopics: () => this.subscribedTopics
+      });
+    }
+    throw new Error(`Unknown tool: ${name}`);
   }
   registerOnInitialized() {
     this.mcp.oninitialized = async () => {
@@ -41766,37 +41867,6 @@ ${err.stack ?? ""}
 `);
   process.exit(1);
 });
-async function readClaudeSessionId(ppid) {
-  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
-  const ATTEMPTS = 30;
-  const BACKOFF_MS = 100;
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    try {
-      const raw = readFileSync2(path, "utf8");
-      const data = JSON.parse(raw);
-      if (typeof data.sessionId === "string" && data.sessionId.length > 0 && typeof data.status === "string" && data.status.length > 0) {
-        return data.sessionId;
-      }
-    } catch {
-    }
-    if (attempt < ATTEMPTS - 1) {
-      await new Promise((resolve2) => setTimeout(resolve2, BACKOFF_MS));
-    }
-  }
-  return null;
-}
-async function resolveSessionId(ppid, logger2) {
-  const fileId = await readClaudeSessionId(ppid);
-  if (fileId) {
-    logger2.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
-    return { id: fileId, source: "file" };
-  }
-  const fallback = `${ppid}-${process.pid}`;
-  logger2.warn(
-    `claude session id unavailable (ppid=${ppid} file unreadable); using fallback ${fallback}`
-  );
-  return { id: fallback, source: "fallback" };
-}
 var paths = new PathResolver();
 var bootBuffer = [];
 var captureLogger = {
@@ -41827,19 +41897,9 @@ var DAEMON_URL = resolveDaemonUrl();
 logger.log(
   `starting \u2014 session=${SESSION_ID} daemon=${DAEMON_URL} log=${mcpLogPath} state=${stateFilePath}`
 );
-function readParentCmd(ppid) {
-  try {
-    return execSync(`ps -ww -p ${ppid} -o command=`, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-  } catch {
-    return "";
-  }
-}
 var parentCmd = readParentCmd(process.ppid);
-var hasDevChannels = parentCmd.includes("--dangerously-load-development-channels");
-var hasAgentFlag = parentCmd.includes("--agent ");
+var hasDevChannels = hasDevChannelsFlag(parentCmd);
+var agentFlagPresent = hasAgentFlag(parentCmd);
 logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
 if (!hasDevChannels) {
   const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
@@ -41908,8 +41968,8 @@ var webhookSrv = new WebhookServer(async (payload) => {
 });
 var webhookPort = await webhookSrv.start();
 var daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-var allowedSubscribeUsers = new Set(
-  (process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+var allowedSubscribeUsers = parseAllowedSubscribeUsers(
+  process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS
 );
 if (allowedSubscribeUsers.size > 0) {
   logger.log(
@@ -41920,28 +41980,8 @@ if (allowedSubscribeUsers.size > 0) {
     "subscribe gate: no allowlist \u2014 Slack-originated subscribe/unsubscribe will be REJECTED"
   );
 }
-function loadSessionManagerPrompt(log) {
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-  if (!pluginRoot) {
-    log.warn("CLAUDE_PLUGIN_ROOT unset \u2014 session-manager prompt unavailable");
-    return "";
-  }
-  const path = join3(pluginRoot, "agents", "session-manager.md");
-  if (!existsSync2(path)) {
-    log.warn(`session-manager prompt not found at ${path}`);
-    return "";
-  }
-  try {
-    const content = readFileSync2(path, "utf8");
-    log.log(`loaded session-manager prompt (${content.length} chars) from ${path}`);
-    return content;
-  } catch (err) {
-    log.warn(`failed to read session-manager prompt at ${path}: ${err}`);
-    return "";
-  }
-}
-var sessionManagerPrompt = hasAgentFlag ? "" : loadSessionManagerPrompt(logger);
-if (hasAgentFlag) {
+var sessionManagerPrompt = agentFlagPresent ? "" : loadSessionManagerPrompt(logger);
+if (agentFlagPresent) {
   logger.log("agent flag detected in parent argv \u2014 skipping session-manager prompt injection");
 }
 var mcpServer = new McpBridgeServer({

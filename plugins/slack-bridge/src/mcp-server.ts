@@ -36,48 +36,43 @@
  *                                           Example: "U02M1QFA0AF,U03ABCDEF"
  */
 
-import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
-import { clearThinkingAck } from './ack-client.js';
+import { parseAllowedSubscribeUsers } from './auth-gate.js';
 import { ConfigWatcher } from './config-watcher.js';
 import { loadConfig, loadConfigFromPath, saveConfig, saveConfigAtPath } from './config.js';
 import { DaemonClient } from './daemon-client.js';
 import { ensureDaemon, resolveDaemonUrl } from './ensure-daemon.js';
+import {
+  type MessagingHandlerDeps,
+  handleClaimMessage,
+  handleReply,
+} from './handlers/messaging.js';
+import {
+  type ReadOnlyHandlerDeps,
+  handleListChannels,
+  handleReadChannel,
+  handleReadThread,
+} from './handlers/read-only.js';
+import {
+  type SubscribeHandlerDeps,
+  handleListSubscriptions,
+  handleSubscribe,
+  handleUnsubscribe,
+} from './handlers/subscribe.js';
 import type { Logger } from './logger.js';
+import { hasAgentFlag, hasDevChannelsFlag, readParentCmd } from './parent-process.js';
+import { loadSessionManagerPrompt } from './prompt-loader.js';
+import { resolveSessionId } from './session-id-resolver.js';
 import { McpLogger } from './shared/mcp-logger.js';
 import { PathResolver } from './shared/path-resolver.js';
 import type { MessagePayload, TopicSpec } from './shared/types.js';
 import { normalizeTopic } from './shared/types.js';
+import { formatSpec, mergeTopicSpecs } from './topic-helpers.js';
 import { WebhookServer } from './webhook-server.js';
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Merge two TopicSpec lists by topic string. Later entries' labels win
- * so a re-subscribe can rebrand a topic.
- */
-function mergeTopicSpecs(existing: TopicSpec[], incoming: TopicSpec[]): TopicSpec[] {
-  const map = new Map<string, TopicSpec>();
-  for (const t of existing) map.set(t.topic, t);
-  for (const t of incoming) {
-    const prev = map.get(t.topic);
-    map.set(t.topic, {
-      topic: t.topic,
-      ...(t.label ? { label: t.label } : prev?.label ? { label: prev.label } : {}),
-    });
-  }
-  return [...map.values()];
-}
-
-function formatSpec(spec: TopicSpec): string {
-  return spec.label ? `${spec.label}:${spec.topic}` : spec.topic;
-}
 
 // ─── McpBridgeServer ─────────────────────────────────────────────────────────
 
@@ -374,290 +369,48 @@ export class McpBridgeServer {
     });
   }
 
+  /** Build the deps bundle the subscribe/unsubscribe/list handlers need. */
+  private subscribeDeps(): SubscribeHandlerDeps {
+    return {
+      daemonClient: this.daemonClient,
+      logger: this.logger,
+      allowedSubscribeUsers: this.allowedSubscribeUsers,
+      sessionId: this.sessionId,
+      readState: () => this.readState(),
+      writeState: (patch) => this.writeState(patch),
+      getSubscribedTopics: () => this.subscribedTopics,
+      setSubscribedTopics: (next) => {
+        this.subscribedTopics = next;
+      },
+    };
+  }
+
+  private messagingDeps(): MessagingHandlerDeps {
+    return { web: this.web, daemonClient: this.daemonClient };
+  }
+
+  private readOnlyDeps(): ReadOnlyHandlerDeps {
+    return { web: this.web };
+  }
+
   private async dispatchTool(
     name: string,
     args: Record<string, unknown>,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-    if (name === 'subscribe_slack') return this.handleSubscribe(args);
-    if (name === 'unsubscribe_slack') return this.handleUnsubscribe(args);
-    if (name === 'claim_message') return this.handleClaimMessage(args);
-    if (name === 'reply') return this.handleReply(args);
-    if (name === 'read_thread') return this.handleReadThread(args);
-    if (name === 'read_channel') return this.handleReadChannel(args);
-    if (name === 'list_channels') return this.handleListChannels();
-    if (name === 'list_subscriptions') return this.handleListSubscriptions();
+    if (name === 'subscribe_slack') return handleSubscribe(args, this.subscribeDeps());
+    if (name === 'unsubscribe_slack') return handleUnsubscribe(args, this.subscribeDeps());
+    if (name === 'claim_message') return handleClaimMessage(args, this.messagingDeps());
+    if (name === 'reply') return handleReply(args, this.messagingDeps());
+    if (name === 'read_thread') return handleReadThread(args, this.readOnlyDeps());
+    if (name === 'read_channel') return handleReadChannel(args, this.readOnlyDeps());
+    if (name === 'list_channels') return handleListChannels(this.readOnlyDeps());
+    if (name === 'list_subscriptions') {
+      return handleListSubscriptions({
+        sessionId: this.sessionId,
+        getSubscribedTopics: () => this.subscribedTopics,
+      });
+    }
     throw new Error(`Unknown tool: ${name}`);
-  }
-
-  /**
-   * Authorization gate for subscribe/unsubscribe.
-   *
-   * The agent passes `requested_by` to declare the source of the request:
-   *   - `requested_by` absent  → local CLI invocation (the operator typing
-   *     in Claude Code). Always allowed; the operator is implicitly trusted.
-   *   - `requested_by` present → request originated from a Slack message
-   *     (the agent should set it to the user_id from the triggering
-   *     notification). In this case:
-   *       - allowlist empty  → REJECTED. Slack-originated requests must be
-   *         explicitly authorized via SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS.
-   *       - allowlist set    → must include `requested_by`, otherwise
-   *         REJECTED.
-   *
-   * Returns the tool error response when blocked, or null when the call may
-   * proceed.
-   */
-  private gateSubscribeChange(
-    args: Record<string, unknown>,
-    op: 'subscribe' | 'unsubscribe',
-  ): { content: Array<{ type: 'text'; text: string }>; isError: true } | null {
-    const raw = args.requested_by;
-    const requestedBy = typeof raw === 'string' && raw.length > 0 ? raw : null;
-    if (!requestedBy) {
-      // Local CLI invocation — implicitly trusted operator.
-      return null;
-    }
-    if (this.allowedSubscribeUsers.size === 0) {
-      this.logger.warn(`[gate] ${op} rejected — Slack-originated, no allowlist configured`);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Refused: ${op}_slack requests originating from Slack messages are blocked because no allowlist is configured. Set SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS in the MCP env to authorize specific users.`,
-          },
-        ],
-        isError: true,
-      };
-    }
-    if (!this.allowedSubscribeUsers.has(requestedBy)) {
-      this.logger.warn(`[gate] ${op} rejected — ${requestedBy} not in allowlist`);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Refused: user ${requestedBy} is not authorized to change subscriptions. Allowed: ${[...this.allowedSubscribeUsers].join(', ')}.`,
-          },
-        ],
-        isError: true,
-      };
-    }
-    return null;
-  }
-
-  private async handleSubscribe(
-    args: Record<string, unknown>,
-  ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-    const blocked = this.gateSubscribeChange(args, 'subscribe');
-    if (blocked) return blocked;
-
-    try {
-      const raw = (args.topics as Array<string | TopicSpec> | undefined) ?? [];
-      const incoming = raw.map(normalizeTopic);
-
-      if (!incoming.length) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: topics[] must be non-empty' }],
-          isError: true,
-        };
-      }
-
-      if (!this.daemonClient) {
-        throw new Error('DAEMON_URL is not set — cannot subscribe');
-      }
-
-      await this.daemonClient.subscribe(incoming, this.sessionId);
-      this.subscribedTopics = mergeTopicSpecs(this.subscribedTopics, incoming);
-
-      // Persist merged topics to the state file.
-      try {
-        const existing = this.readState();
-        const existingSpecs = (existing.topics ?? []).map(normalizeTopic);
-        this.writeState({ topics: mergeTopicSpecs(existingSpecs, incoming) });
-      } catch (err) {
-        this.logger.warn(`could not persist subscription — ${err}`);
-      }
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Subscribed on :${this.daemonClient.port} — topics: ${incoming.map(formatSpec).join(', ')}`,
-          },
-        ],
-      };
-    } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
-    }
-  }
-
-  private async handleUnsubscribe(args: Record<string, unknown>): Promise<{
-    content: Array<{ type: 'text'; text: string }>;
-    isError?: boolean;
-  }> {
-    const blocked = this.gateSubscribeChange(args, 'unsubscribe');
-    if (blocked) return blocked;
-
-    const requested = (args.topics as string[] | undefined) ?? null;
-    const isPartial = Array.isArray(requested) && requested.length > 0;
-
-    // Always tear down the existing subscription on the daemon — the registry
-    // doesn't expose a "remove these topics" op, so partial unsubscribe is
-    // implemented as full unsubscribe + resubscribe with the remainder.
-    if (this.daemonClient) {
-      await this.daemonClient.unsubscribe();
-    }
-
-    let remaining: TopicSpec[] = [];
-    let removed: TopicSpec[] = [];
-    if (isPartial) {
-      const toRemove = new Set(requested);
-      removed = this.subscribedTopics.filter((t) => toRemove.has(t.topic));
-      remaining = this.subscribedTopics.filter((t) => !toRemove.has(t.topic));
-      if (this.daemonClient && remaining.length > 0) {
-        await this.daemonClient.subscribe(remaining, this.sessionId);
-      }
-    } else {
-      removed = [...this.subscribedTopics];
-    }
-
-    this.subscribedTopics = remaining;
-
-    // Persist the new topic list (or empty) to the state file.
-    try {
-      this.writeState({ topics: remaining });
-    } catch (err) {
-      this.logger.warn(`could not persist unsubscribe — ${err}`);
-    }
-
-    const text = isPartial
-      ? `Unsubscribed from: ${removed.map(formatSpec).join(', ') || '(none — topic was not subscribed)'}. Remaining: ${remaining.map(formatSpec).join(', ') || '(none)'}`
-      : `Unsubscribed from all topics${removed.length ? ` (${removed.map(formatSpec).join(', ')})` : ''}`;
-    return { content: [{ type: 'text' as const, text }] };
-  }
-
-  private async handleClaimMessage(args: Record<string, unknown>): Promise<{
-    content: Array<{ type: 'text'; text: string }>;
-    isError?: boolean;
-  }> {
-    try {
-      if (!this.daemonClient) {
-        throw new Error('DAEMON_URL is not set — cannot claim messages');
-      }
-      const result = await this.daemonClient.claim(args.message_ts as string);
-      if (result.claimed) {
-        return { content: [{ type: 'text' as const, text: 'Claimed — you may reply.' }] };
-      }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Already claimed by another session (:${result.claimed_by}). Do NOT reply.`,
-          },
-        ],
-      };
-    } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Claim error: ${err}` }], isError: true };
-    }
-  }
-
-  private async handleReply(args: Record<string, unknown>): Promise<{
-    content: Array<{ type: 'text'; text: string }>;
-    isError?: boolean;
-  }> {
-    const { channel_id, text, message_ts, thread_ts } = args as {
-      channel_id: string;
-      text: string;
-      message_ts?: string;
-      thread_ts?: string;
-    };
-
-    try {
-      const result = await this.web.chat.postMessage({ channel: channel_id, text, thread_ts });
-      if (message_ts) {
-        await clearThinkingAck(this.web, { channel_id, message_ts, thread_ts });
-      }
-      return { content: [{ type: 'text' as const, text: `Sent (ts: ${result.ts})` }] };
-    } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
-    }
-  }
-
-  private async handleReadThread(args: Record<string, unknown>): Promise<{
-    content: Array<{ type: 'text'; text: string }>;
-    isError?: boolean;
-  }> {
-    const { channel_id, thread_ts, limit } = args as {
-      channel_id: string;
-      thread_ts: string;
-      limit?: number;
-    };
-    try {
-      const result = await this.web.conversations.replies({
-        channel: channel_id,
-        ts: thread_ts,
-        limit: limit ?? 20,
-      });
-      const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join('\n');
-      return { content: [{ type: 'text' as const, text: messages || 'No messages in thread' }] };
-    } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
-    }
-  }
-
-  private async handleReadChannel(args: Record<string, unknown>): Promise<{
-    content: Array<{ type: 'text'; text: string }>;
-    isError?: boolean;
-  }> {
-    const { channel_id, limit } = args as { channel_id: string; limit?: number };
-    try {
-      const result = await this.web.conversations.history({
-        channel: channel_id,
-        limit: limit ?? 20,
-      });
-      const messages = (result.messages ?? []).map((m) => `${m.user}: ${m.text}`).join('\n');
-      return { content: [{ type: 'text' as const, text: messages || 'No messages in channel' }] };
-    } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
-    }
-  }
-
-  private async handleListChannels(): Promise<{
-    content: Array<{ type: 'text'; text: string }>;
-    isError?: boolean;
-  }> {
-    try {
-      const result = await this.web.users.conversations({
-        types: 'public_channel,private_channel',
-        limit: 100,
-      });
-      const channels = (result.channels ?? []).map((c) => `#${c.name} (${c.id})`).join('\n');
-      return { content: [{ type: 'text' as const, text: channels || 'No channels found' }] };
-    } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
-    }
-  }
-
-  private async handleListSubscriptions(): Promise<{
-    content: Array<{ type: 'text'; text: string }>;
-  }> {
-    const count = this.subscribedTopics.length;
-    if (count === 0) {
-      return {
-        content: [{ type: 'text' as const, text: 'No active subscriptions for this session.' }],
-      };
-    }
-    const lines = this.subscribedTopics.map((t, i) => `  ${i + 1}. ${formatSpec(t)}`).join('\n');
-    const json = JSON.stringify(this.subscribedTopics);
-    const header = this.sessionId
-      ? `Active subscriptions (${count}) for session ${this.sessionId}:`
-      : `Active subscriptions (${count}):`;
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `${header}\n${lines}\n\nJSON: ${json}`,
-        },
-      ],
-    };
   }
 
   private registerOnInitialized(): void {
@@ -794,89 +547,6 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-/**
- * Claude writes ~/.claude/sessions/<claude_pid>.json with a `sessionId` UUID
- * when it boots. The MCP server is spawned as a child of Claude, so
- * process.ppid points at that exact file. Reading it lets us use the
- * canonical Claude session UUID as the directory namespace, making
- * correlation with Claude's own logs trivial (~/.claude/projects/.../
- * <sessionId>.jsonl, ~/.claude/debug/<sessionId>.txt).
- *
- * Settle gate: Claude rewrites this file twice during a `--resume`: once
- * with a placeholder sessionId on initial boot, then again with the resumed
- * transcript's sessionId once settled. The first write does not include a
- * `status` field, so we use that as our "is settled" gate. Without this
- * gate the MCP would persist the placeholder and create a
- * `/tmp/slack-bridge/<placeholder>/` directory that diverges from
- * `~/.claude/projects/<cwd>/<id>.jsonl`.
- *
- * Race: Claude often writes the session file in parallel with spawning the
- * MCP, so the first read can hit ENOENT or an empty/partial JSON. We retry
- * up to ~3 s before falling back, which covers both the cold-boot race and
- * the resume-settle window with margin while still bounding the worst case.
- *
- * Falls back to <ppid>-<pid> if the file is still unreadable / unsettled
- * after retries (e.g. the MCP being run standalone outside Claude).
- */
-async function readClaudeSessionId(ppid: number): Promise<string | null> {
-  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
-  const ATTEMPTS = 30;
-  const BACKOFF_MS = 100;
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    try {
-      const raw = readFileSync(path, 'utf8');
-      const data = JSON.parse(raw) as { sessionId?: string; status?: string };
-      // Require BOTH a sessionId AND a non-empty `status`. The status field
-      // is set by Claude only after it finishes booting / settling a resumed
-      // transcript; before that the sessionId may be a placeholder that is
-      // about to be overwritten.
-      if (
-        typeof data.sessionId === 'string' &&
-        data.sessionId.length > 0 &&
-        typeof data.status === 'string' &&
-        data.status.length > 0
-      ) {
-        return data.sessionId;
-      }
-    } catch {
-      /* not yet — fall through to backoff */
-    }
-    if (attempt < ATTEMPTS - 1) {
-      await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS));
-    }
-  }
-  return null;
-}
-
-/**
- * Resolve the Claude session id with a 2-level fallback chain:
- *   1. ~/.claude/sessions/<ppid>.json — the per-process session file Claude
- *      writes at boot, polled with retry+backoff to absorb the spawn race.
- *      Covers 100% of cases when the MCP runs as a child of `claude`.
- *   2. <ppid>-<pid> — last-resort synthetic id when the file never appears
- *      (e.g. running the MCP standalone outside Claude).
- *
- * Note: an earlier draft also tried `CLAUDE_CODE_SESSION_ID` in the parent's
- * env via `ps eww`, but Claude does not expose that variable in its own
- * process environment — only on subprocesses it spawns for shell tools — so
- * the env probe never fired in practice. Dropped to keep the chain minimal.
- */
-async function resolveSessionId(
-  ppid: number,
-  logger: Logger,
-): Promise<{ id: string; source: 'file' | 'fallback' }> {
-  const fileId = await readClaudeSessionId(ppid);
-  if (fileId) {
-    logger.log(`session id from ~/.claude/sessions/${ppid}.json: ${fileId}`);
-    return { id: fileId, source: 'file' };
-  }
-  const fallback = `${ppid}-${process.pid}`;
-  logger.warn(
-    `claude session id unavailable (ppid=${ppid} file unreadable); using fallback ${fallback}`,
-  );
-  return { id: fallback, source: 'fallback' };
-}
-
 const paths = new PathResolver();
 // Capture log lines from resolveSessionId until the real logger exists, then
 // replay them so the resolution outcome lands in the per-session log file.
@@ -915,25 +585,14 @@ logger.log(
 // is only enabled when Claude is started with --dangerously-load-development-channels.
 // That flag is not propagated to MCP child processes via env, but the parent
 // process (Claude itself) preserves it in its argv — readable via `ps`.
-function readParentCmd(ppid: number): string {
-  try {
-    return execSync(`ps -ww -p ${ppid} -o command=`, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return '';
-  }
-}
-
 const parentCmd = readParentCmd(process.ppid);
-const hasDevChannels = parentCmd.includes('--dangerously-load-development-channels');
+const hasDevChannels = hasDevChannelsFlag(parentCmd);
 // Detecting `--agent <name>` (with the trailing space) lets us tell whether
 // the operator picked a specific agent at boot. When they did, we leave that
 // agent's prompt as the active personality and skip the session-manager role
 // injection. When they didn't, we load the .md file at startup and surface
 // it as the MCP `instructions` so the main session adopts session-manager.
-const hasAgentFlag = parentCmd.includes('--agent ');
+const agentFlagPresent = hasAgentFlag(parentCmd);
 logger.log(`parent argv: ${parentCmd || '(unavailable)'}`);
 if (!hasDevChannels) {
   const msg =
@@ -1016,11 +675,8 @@ const webhookSrv = new WebhookServer(async (payload: MessagePayload) => {
 
 const webhookPort = await webhookSrv.start();
 const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-const allowedSubscribeUsers = new Set(
-  (process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean),
+const allowedSubscribeUsers = parseAllowedSubscribeUsers(
+  process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS,
 );
 if (allowedSubscribeUsers.size > 0) {
   logger.log(
@@ -1032,38 +688,12 @@ if (allowedSubscribeUsers.size > 0) {
   );
 }
 
-/**
- * Load the session-manager role prompt from `${CLAUDE_PLUGIN_ROOT}/agents/session-manager.md`.
- * Returns an empty string (and logs a warning) on any failure — empty is the
- * "skip injection" sentinel that the constructor honours.
- */
-function loadSessionManagerPrompt(log: Logger): string {
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-  if (!pluginRoot) {
-    log.warn('CLAUDE_PLUGIN_ROOT unset — session-manager prompt unavailable');
-    return '';
-  }
-  const path = join(pluginRoot, 'agents', 'session-manager.md');
-  if (!existsSync(path)) {
-    log.warn(`session-manager prompt not found at ${path}`);
-    return '';
-  }
-  try {
-    const content = readFileSync(path, 'utf8');
-    log.log(`loaded session-manager prompt (${content.length} chars) from ${path}`);
-    return content;
-  } catch (err) {
-    log.warn(`failed to read session-manager prompt at ${path}: ${err}`);
-    return '';
-  }
-}
-
 // Decide once at startup. If the parent Claude was started with `--agent`,
 // the operator picked a specific persona — leave it alone. Otherwise the
 // main session is unspecialised and slack-bridge supplies the session-manager
 // role via the MCP `instructions` field.
-const sessionManagerPrompt = hasAgentFlag ? '' : loadSessionManagerPrompt(logger);
-if (hasAgentFlag) {
+const sessionManagerPrompt = agentFlagPresent ? '' : loadSessionManagerPrompt(logger);
+if (agentFlagPresent) {
   logger.log('agent flag detected in parent argv — skipping session-manager prompt injection');
 }
 
