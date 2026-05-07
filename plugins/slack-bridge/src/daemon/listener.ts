@@ -57,15 +57,12 @@ export async function startListener(
       await saveThreadContext();
     },
 
-    userMessage: async ({ event, setTitle, setStatus, getThreadContext }) => {
+    userMessage: async ({ event, setTitle, getThreadContext }) => {
       // Narrow MessageEvent union to GenericMessageEvent (subtype: undefined).
       // All other subtypes (bot_message, channel_join, etc.) are not user messages.
       if (event.subtype !== undefined) return;
       const text = event.text;
       if (!text) return;
-
-      // Immediate feedback — fires before the daemon routes to a subscriber
-      await setStatus('está pensando...');
 
       // Set the thread title to the first ~50 chars of the message so the
       // user can identify the conversation in the Agent split-view sidebar.
@@ -113,13 +110,6 @@ export async function startListener(
     } catch (err) {
       logError(`[app_mention] ${err}`);
     }
-  });
-
-  // ── Feedback button acknowledgment ────────────────────────────────────────
-  // Ack feedback block_actions immediately so Slack doesn't show an error.
-  // No further processing needed — reactions are logged via Slack's native UX.
-  app.action(/^feedback_(thumbs_up|thumbs_down)$/, async ({ ack }) => {
-    await ack();
   });
 
   app.error(async (error) => {

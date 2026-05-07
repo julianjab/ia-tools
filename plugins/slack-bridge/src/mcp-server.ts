@@ -49,6 +49,7 @@ import {
   type MessagingHandlerDeps,
   handleClaimMessage,
   handleReply,
+  handleReplyUpdate,
 } from './handlers/messaging.js';
 import {
   type ReadOnlyHandlerDeps,
@@ -144,13 +145,15 @@ export class McpBridgeServer {
     // (if any) decides what to do; this text only documents the tools.
     const instructions = [
       'slack-bridge — Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,',
-      'list_subscriptions, claim_message, reply, read_thread, read_channel, list_channels.',
+      'list_subscriptions, claim_message, reply, reply_update, read_thread, read_channel, list_channels.',
       'Lifecycle for an incoming Slack message:',
       '(1) call claim_message(message_ts) first; if claimed=false, another session won — stop.',
-      '(2) call reply(...). For channel messages always reply in a thread: pass thread_ts',
-      'when known, or pass message_ts (the server uses message_ts as the thread anchor',
-      'when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root',
+      '(2) Compose your full response. The thinking indicator (set on claim) stays visible until reply() is called — do NOT send a placeholder "..." message.',
+      '(3) call reply(full_text_or_first_chunk). For channel messages always reply in a thread:',
+      'pass thread_ts when known, or pass message_ts (the server uses message_ts as the thread',
+      'anchor when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root',
       'unless the source had an explicit thread_ts.',
+      '(4) Optionally call reply_update(ts, more_text) one or more times with growing text to stream.',
       'Use read_thread / read_channel to inspect history before replying.',
       'Use subscribe_slack / unsubscribe_slack to change which topics this session listens to.',
     ].join(' ');
@@ -267,13 +270,24 @@ export class McpBridgeServer {
           name: 'claim_message',
           description:
             'Claim a Slack message before replying. First session to claim wins. ' +
-            'ALWAYS call this before reply_slack. If claimed=false, do NOT reply.',
+            'ALWAYS call this before reply. If claimed=false, do NOT reply. ' +
+            'Pass channel_id (and thread_ts if available) to activate the thinking indicator ' +
+            'immediately on successful claim.',
           inputSchema: {
             type: 'object' as const,
             properties: {
               message_ts: {
                 type: 'string',
                 description: 'The message_ts from the channel notification',
+              },
+              channel_id: {
+                type: 'string',
+                description:
+                  'Channel ID from the notification. Required to show the thinking indicator.',
+              },
+              thread_ts: {
+                type: 'string',
+                description: 'Thread ts from the notification (if present).',
               },
             },
             required: ['message_ts'],
@@ -310,6 +324,29 @@ export class McpBridgeServer {
               },
             },
             required: ['channel_id', 'text'],
+          },
+        },
+        {
+          name: 'reply_update',
+          description:
+            'Edit a previously sent Slack message to stream content progressively. ' +
+            'Call reply() first to create the initial placeholder message and get its ts, ' +
+            'then call reply_update() one or more times with growing text to simulate streaming. ' +
+            'The final reply_update() call should contain the complete message.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              channel_id: { type: 'string', description: 'Channel ID' },
+              ts: {
+                type: 'string',
+                description: 'Timestamp of the message to update (returned by reply)',
+              },
+              text: {
+                type: 'string',
+                description: 'New full text to replace the message with (Slack mrkdwn)',
+              },
+            },
+            required: ['channel_id', 'ts', 'text'],
           },
         },
         {
@@ -392,6 +429,7 @@ export class McpBridgeServer {
     if (name === 'unsubscribe_slack') return handleUnsubscribe(args, this.subscribeDeps());
     if (name === 'claim_message') return handleClaimMessage(args, this.messagingDeps());
     if (name === 'reply') return handleReply(args, this.messagingDeps());
+    if (name === 'reply_update') return handleReplyUpdate(args, this.messagingDeps());
     if (name === 'read_thread') return handleReadThread(args, this.readOnlyDeps());
     if (name === 'read_channel') return handleReadChannel(args, this.readOnlyDeps());
     if (name === 'list_channels') return handleListChannels(this.readOnlyDeps());
@@ -500,9 +538,7 @@ export class McpBridgeServer {
     // Access control gate — deny-by-default (empty set blocks everyone)
     if (message.is_dm) {
       if (!this.allowedUsersDm.has(message.user_id)) {
-        this.logger.log(
-          `[gate] DM from ${message.user_id} blocked — not in ALLOWED_USERS_DM`,
-        );
+        this.logger.log(`[gate] DM from ${message.user_id} blocked — not in ALLOWED_USERS_DM`);
         return;
       }
     } else {

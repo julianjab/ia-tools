@@ -5,7 +5,7 @@
  */
 
 import type { WebClient } from '@slack/web-api';
-import { clearThinkingAck } from '../ack-client.js';
+import { addThinkingAck, clearThinkingAck } from '../ack-client.js';
 import type { DaemonClient } from '../daemon-client.js';
 
 /**
@@ -31,8 +31,16 @@ export async function handleClaimMessage(
     if (!deps.daemonClient) {
       throw new Error('DAEMON_URL is not set — cannot claim messages');
     }
-    const result = await deps.daemonClient.claim(args.message_ts as string);
+    const { message_ts, channel_id, thread_ts } = args as {
+      message_ts: string;
+      channel_id?: string;
+      thread_ts?: string;
+    };
+    const result = await deps.daemonClient.claim(message_ts);
     if (result.claimed) {
+      if (channel_id) {
+        await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+      }
       return { content: [{ type: 'text' as const, text: 'Claimed — you may reply.' }] };
     }
     return {
@@ -52,12 +60,11 @@ export async function handleReply(
   args: Record<string, unknown>,
   deps: MessagingHandlerDeps,
 ): Promise<ToolResult> {
-  const { channel_id, text, message_ts, thread_ts, is_dm } = args as {
+  const { channel_id, text, message_ts, thread_ts } = args as {
     channel_id: string;
     text: string;
     message_ts?: string;
     thread_ts?: string;
-    is_dm?: boolean;
   };
 
   try {
@@ -66,38 +73,20 @@ export async function handleReply(
       await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
     }
 
-    // Append feedback buttons for Agent DM threads so the user can rate
-    // the response. The daemon acks block_actions to prevent Slack errors.
-    if (is_dm && thread_ts) {
-      await deps.web.chat
-        .postMessage({
-          channel: channel_id,
-          thread_ts,
-          text: '¿Fue útil esta respuesta?',
-          blocks: [
-            {
-              type: 'actions',
-              elements: [
-                {
-                  type: 'button',
-                  text: { type: 'plain_text', text: '👍', emoji: true },
-                  action_id: 'feedback_thumbs_up',
-                  value: result.ts ?? '',
-                },
-                {
-                  type: 'button',
-                  text: { type: 'plain_text', text: '👎', emoji: true },
-                  action_id: 'feedback_thumbs_down',
-                  value: result.ts ?? '',
-                },
-              ],
-            },
-          ],
-        })
-        .catch(() => {});
-    }
-
     return { content: [{ type: 'text' as const, text: `Sent (ts: ${result.ts})` }] };
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
+  }
+}
+
+export async function handleReplyUpdate(
+  args: Record<string, unknown>,
+  deps: MessagingHandlerDeps,
+): Promise<ToolResult> {
+  const { channel_id, ts, text } = args as { channel_id: string; ts: string; text: string };
+  try {
+    await deps.web.chat.update({ channel: channel_id, ts, text });
+    return { content: [{ type: 'text' as const, text: 'Updated.' }] };
   } catch (err) {
     return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
   }

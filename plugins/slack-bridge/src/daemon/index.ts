@@ -26,8 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { buildSlackMessage } from '../shared/build-message.js';
 import { DaemonLogger } from '../shared/daemon-logger.js';
 import { PathResolver } from '../shared/path-resolver.js';
-import { type MessagePayload, type SlackMessage, parseTopic } from '../shared/types.js';
-import { addThinkingAck } from './ack.js';
+import { type MessagePayload, parseTopic } from '../shared/types.js';
 import { type SlackEvent, resolveChannel, resolveUser, startListener } from './listener.js';
 import { Registry } from './registry.js';
 import { createApiServer } from './server.js';
@@ -51,11 +50,6 @@ function arg(name: string): string | undefined {
 const botToken = arg('bot-token') ?? process.env.SLACK_BOT_TOKEN;
 const appToken = arg('app-token') ?? process.env.SLACK_APP_TOKEN;
 const port = Number.parseInt(process.env.DAEMON_PORT ?? '3800', 10);
-
-
-// Ack configuration — read once at module top, not per-message
-const ACK_EMOJI = process.env.SLACK_ACK_EMOJI ?? 'eyes';
-const ACK_STATUS = process.env.SLACK_ACK_STATUS ?? 'thinking...';
 
 if (!botToken || !appToken) {
   error('Missing --bot-token / SLACK_BOT_TOKEN or --app-token / SLACK_APP_TOKEN');
@@ -84,26 +78,7 @@ if (spawnerSession) {
 // Bind the port BEFORE starting Socket Mode so that if another daemon is
 // already running we exit immediately with EADDRINUSE instead of opening a
 // duplicate Slack connection. The listen port is the singleton mutex.
-// Recent messages cache — populated at fan-out, consumed by the /claim
-// callback to set the thinking-ack on the right Slack message. Entries
-// auto-expire after RECENT_MSG_TTL_MS.
-const RECENT_MSG_TTL_MS = 5 * 60 * 1000;
-const recentMessages = new Map<string, SlackMessage>();
-function rememberMessage(msg: SlackMessage): void {
-  recentMessages.set(msg.message_ts, msg);
-  setTimeout(() => recentMessages.delete(msg.message_ts), RECENT_MSG_TTL_MS).unref();
-}
-
-// onClaimed: invoked by the /claim handler on the first successful claim.
-// Adds the eyes reaction + thinking status only now (not at fan-out) so the
-// signals in Slack only appear when a session actually picks up the message.
-function onClaimed(messageTs: string): void {
-  const msg = recentMessages.get(messageTs);
-  if (!msg) return;
-  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
-}
-
-const api = createApiServer(registry, startedAt, () => socketStatus, onClaimed, daemonLogger);
+const api = createApiServer(registry, startedAt, () => socketStatus, undefined, daemonLogger);
 await new Promise<void>((resolveListen, rejectListen) => {
   const onError = (err: NodeJS.ErrnoException) => {
     api.off('listening', onListening);
@@ -220,12 +195,6 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
     }
     log(`[route] specificity max=${maxScore} — ${targets.length} winner(s), ${dropped} pre-empted`);
   }
-
-  // Remember this message so the /claim callback can set the thinking-ack
-  // on the right channel/ts when a subscriber wins the claim. The ack is no
-  // longer added at fan-out time; it appears only after a session takes the
-  // message. If no one claims, no ack is added — nothing to clean up.
-  rememberMessage(msg);
 
   await Promise.allSettled(
     targets.map(async ({ subscriber: sub, matched }) => {

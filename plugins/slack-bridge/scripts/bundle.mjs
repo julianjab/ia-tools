@@ -28,7 +28,9 @@ const options = {
   platform: 'node',
   format: 'esm',
   target: 'node22',
-  sourcemap: false,
+  // Sourcemaps are opt-in: bloat the committed dist by ~5MB so we keep them off
+  // by default and let local debugging enable via SLACK_BRIDGE_SOURCEMAPS=1.
+  sourcemap: process.env.SLACK_BRIDGE_SOURCEMAPS ? 'linked' : false,
   legalComments: 'none',
   banner: {
     js: "import{createRequire}from'module';const require=createRequire(import.meta.url);",
