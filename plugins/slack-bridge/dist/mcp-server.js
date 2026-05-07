@@ -41547,16 +41547,26 @@ ${err.stack ?? ""}
 `);
   process.exit(1);
 });
-function readClaudeSessionId(ppid) {
-  try {
-    const raw = readFileSync2(`${homedir()}/.claude/sessions/${ppid}.json`, "utf8");
-    const data = JSON.parse(raw);
-    return typeof data.sessionId === "string" && data.sessionId.length > 0 ? data.sessionId : null;
-  } catch {
-    return null;
+async function readClaudeSessionId(ppid) {
+  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
+  const ATTEMPTS = 10;
+  const BACKOFF_MS = 100;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    try {
+      const raw = readFileSync2(path, "utf8");
+      const data = JSON.parse(raw);
+      if (typeof data.sessionId === "string" && data.sessionId.length > 0) {
+        return data.sessionId;
+      }
+    } catch {
+    }
+    if (attempt < ATTEMPTS - 1) {
+      await new Promise((resolve2) => setTimeout(resolve2, BACKOFF_MS));
+    }
   }
+  return null;
 }
-var claudeSessionId = readClaudeSessionId(process.ppid);
+var claudeSessionId = await readClaudeSessionId(process.ppid);
 var SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
 var mcpLogPath = `/tmp/slack-bridge/${SESSION_ID}/mcp-logs.json`;
 var logger = createLogger({ logPath: mcpLogPath, label: "mcp", stderr: true });

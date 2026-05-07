@@ -624,26 +624,42 @@ process.on('uncaughtException', (err) => {
 
 /**
  * Claude writes ~/.claude/sessions/<claude_pid>.json with a `sessionId` UUID
- * when it boots. The MCP server is spawned as a child of Claude, so process.ppid
- * points at that exact file. Reading it lets us use the canonical Claude
- * session UUID as the log directory, making correlation with Claude's
- * own session logs (~/.claude/projects/.../<sessionId>.jsonl,
- * ~/.claude/debug/<sessionId>.txt) trivial.
+ * when it boots. The MCP server is spawned as a child of Claude, so
+ * process.ppid points at that exact file. Reading it lets us use the
+ * canonical Claude session UUID as the directory namespace, making
+ * correlation with Claude's own logs trivial (~/.claude/projects/.../
+ * <sessionId>.jsonl, ~/.claude/debug/<sessionId>.txt).
  *
- * Falls back to <ppid>-<pid> if the file is unreadable (race at very early
- * startup, or the MCP being run standalone outside Claude).
+ * Race: Claude often writes the session file in parallel with spawning the
+ * MCP, so the first read can hit ENOENT or an empty/partial JSON. We retry
+ * up to ~1 s before falling back, which covers the common case (<150 ms)
+ * with margin and still bounds the worst-case startup delay.
+ *
+ * Falls back to <ppid>-<pid> if the file is still unreadable after retries
+ * (e.g. the MCP being run standalone outside Claude).
  */
-function readClaudeSessionId(ppid: number): string | null {
-  try {
-    const raw = readFileSync(`${homedir()}/.claude/sessions/${ppid}.json`, 'utf8');
-    const data = JSON.parse(raw) as { sessionId?: string };
-    return typeof data.sessionId === 'string' && data.sessionId.length > 0 ? data.sessionId : null;
-  } catch {
-    return null;
+async function readClaudeSessionId(ppid: number): Promise<string | null> {
+  const path = `${homedir()}/.claude/sessions/${ppid}.json`;
+  const ATTEMPTS = 10;
+  const BACKOFF_MS = 100;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    try {
+      const raw = readFileSync(path, 'utf8');
+      const data = JSON.parse(raw) as { sessionId?: string };
+      if (typeof data.sessionId === 'string' && data.sessionId.length > 0) {
+        return data.sessionId;
+      }
+    } catch {
+      /* not yet — fall through to backoff */
+    }
+    if (attempt < ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS));
+    }
   }
+  return null;
 }
 
-const claudeSessionId = readClaudeSessionId(process.ppid);
+const claudeSessionId = await readClaudeSessionId(process.ppid);
 const SESSION_ID = claudeSessionId ?? `${process.ppid}-${process.pid}`;
 const paths = new PathResolver();
 const mcpLogPath = paths.getMcpLogPath(SESSION_ID);
