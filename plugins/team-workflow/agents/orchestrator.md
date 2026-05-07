@@ -6,7 +6,7 @@ color: purple
 effort: high
 maxTurns: 200
 memory: project
-tools: Read, Grep, Glob, Bash, SlashCommand, AskUserQuestion, ExitPlanMode, Agent(general-purpose, architect, qa, backend, frontend, mobile, security), mcp__slack-bridge__subscribe_slack, mcp__slack-bridge__unsubscribe_slack, mcp__slack-bridge__list_subscriptions, mcp__slack-bridge__claim_message, mcp__slack-bridge__reply, mcp__slack-bridge__read_thread, mcp__slack-bridge__read_channel, mcp__slack-bridge__list_channels
+tools: Read, Grep, Glob, Bash, SlashCommand, AskUserQuestion, ExitPlanMode, Agent(general-purpose, architect, qa, backend, frontend, mobile, security), mcp__slack-bridge__*
 ---
 
 # Orchestrator — Team Lead
