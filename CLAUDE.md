@@ -143,7 +143,10 @@ push to `main`.
 - **`.github/workflows/verify.yml`** — runs on every PR and push to `main`.
   Steps: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`,
   `pnpm build`, drift check + auto-rebuild of `plugins/slack-bridge/dist/`,
-  `scripts/check-slack-bridge-dist.sh`, `pnpm --filter @ia-tools/slack-bridge test`.
+  and `scripts/check-slack-bridge-dist.sh`. The `slack-bridge` vitest step
+  is currently disabled in the workflow (commented out) until the
+  access-control refactor in `Registry.match` lands; see the inline note in
+  `verify.yml`.
   When `dist/` drifts on a same-repo PR, the workflow rebuilds and pushes the
   result back to the PR branch as a `chore(slack-bridge): rebuild dist [skip ci]`
   commit so devs don't have to remember `pnpm build` before pushing. Fork PRs
