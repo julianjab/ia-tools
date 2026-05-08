@@ -134,6 +134,43 @@ agent discovery.
 - Git hooks: `pre-commit install` (enforces Biome, JSON/YAML hygiene, and
   Conventional Commits on `commit-msg`)
 
+## CI / Release
+
+GitHub Actions enforces build, lint, typecheck, and tests on every PR; releases
+are cut by [release-please](https://github.com/googleapis/release-please) on
+push to `main`.
+
+- **`.github/workflows/verify.yml`** — runs on every PR and push to `main`.
+  Steps: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`,
+  `pnpm build`, drift check + auto-rebuild of `plugins/slack-bridge/dist/`,
+  and `scripts/check-slack-bridge-dist.sh`. The `slack-bridge` vitest step
+  is currently disabled in the workflow (commented out) until the
+  access-control refactor in `Registry.match` lands; see the inline note in
+  `verify.yml`.
+  When `dist/` drifts on a same-repo PR, the workflow rebuilds and pushes the
+  result back to the PR branch as a `chore(slack-bridge): rebuild dist [skip ci]`
+  commit so devs don't have to remember `pnpm build` before pushing. Fork PRs
+  cannot push back, so the workflow hard-fails them on drift.
+- **`.github/workflows/release.yml`** — runs on push to `main`. Uses
+  `googleapis/release-please-action@v4` in **manifest mode**:
+  - Config: `.github/release-please-config.json`
+  - State: `.github/.release-please-manifest.json`
+  - Each plugin (`team-workflow`, `slack-bridge`, `scaffold`) versions
+    independently. Conventional-commit scopes drive bumps:
+    - `feat(slack-bridge): …` → minor bump on `slack-bridge` only
+    - `fix(team-workflow): …` → patch bump on `team-workflow` only
+    - Commits without a known scope bump no plugin
+  - Tags follow `<plugin>-v<x.y.z>` (e.g. `slack-bridge-v0.4.0`); each tag has
+    its own GitHub Release + per-plugin `CHANGELOG.md`.
+  - `release-please` keeps `<plugin>/.claude-plugin/plugin.json` in sync via
+    `extra-files` so consumers always see the released version on the plugin
+    manifest.
+
+**Pinning recommendation for consumers.** Consumers should reference a tagged
+version of the marketplace clone, e.g. `git fetch --tags && git checkout
+slack-bridge-v0.4.0`, rather than tracking `main`. This isolates the consumer
+from in-flight changes between releases.
+
 ## MCP Servers
 
 The Slack bridge is a self-contained Claude plugin at `plugins/slack-bridge/`,
