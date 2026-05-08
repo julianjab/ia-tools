@@ -1,0 +1,109 @@
+name: verify
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# One concurrent run per ref. Cancels superseded runs on the same PR.
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write       # needed to push the auto-rebuilt dist/ back to PR branches
+  pull-requests: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    # Anti-loop: if the previous commit was the bot rebuilding dist/, skip.
+    # The bot commit message marker is "[skip ci]" but we double-guard here
+    # in case someone re-runs the workflow manually.
+    if: >-
+      !contains(github.event.head_commit.message, 'chore(slack-bridge): rebuild dist')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Use a token that can push back to the PR branch when dist drifts.
+          # GITHUB_TOKEN works for same-repo PRs; fork PRs will skip the push step.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Required for git diff against the merge base.
+          fetch-depth: 0
+          # On pull_request events, checkout the PR head (not the merge commit)
+          # so any auto-commit lands on the contributor's branch.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (Biome)
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Detect dist/ drift
+        id: dist
+        run: |
+          if git diff --quiet -- plugins/slack-bridge/dist; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::plugins/slack-bridge/dist is out of sync with src/. CI will rebuild and commit if possible."
+          fi
+
+      - name: Validate dist/ is in sync (fork PRs / push to main)
+        # On fork PRs we can't push back, and on direct pushes to main the
+        # auto-commit step below already runs, so this hard-fail only fires
+        # when drift is detected AND the auto-commit cannot run.
+        if: >-
+          steps.dist.outputs.drift == 'true' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.fork == true
+        run: |
+          echo "error: dist/ drift detected on a fork PR — CI cannot push the rebuild." >&2
+          echo "       Run locally: pnpm --filter @ia-tools/slack-bridge build && git add plugins/slack-bridge/dist" >&2
+          exit 1
+
+      - name: Auto-commit rebuilt dist/
+        if: >-
+          steps.dist.outputs.drift == 'true' &&
+          (github.event_name == 'push' ||
+           (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false))
+        env:
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugins/slack-bridge/dist
+          git commit -m "chore(slack-bridge): rebuild dist [skip ci]"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git push origin "HEAD:${PR_BRANCH}"
+          else
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Verify dist/ in sync (post-rebuild safety net)
+        run: bash scripts/check-slack-bridge-dist.sh
+
+      - name: Test (slack-bridge)
+        run: pnpm --filter @ia-tools/slack-bridge test
