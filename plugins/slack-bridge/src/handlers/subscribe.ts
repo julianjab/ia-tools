@@ -7,6 +7,7 @@
  */
 
 import { gateSubscribeChange } from '../auth-gate.js';
+
 import type { SlackChannelConfig } from '../config.js';
 import type { DaemonClient } from '../daemon-client.js';
 import type { Logger } from '../logger.js';
@@ -18,7 +19,6 @@ import { formatSpec, mergeTopicSpecs } from '../topic-helpers.js';
 export interface SubscribeHandlerDeps {
   daemonClient: DaemonClient | null;
   logger: Logger;
-  allowedSubscribeUsers: Set<string>;
   /** Display-only session id, surfaced in `list_subscriptions` output. */
   sessionId: string | undefined;
   /** Read the current persisted topic state. */
@@ -40,7 +40,7 @@ export async function handleSubscribe(
   args: Record<string, unknown>,
   deps: SubscribeHandlerDeps,
 ): Promise<ToolResult> {
-  const blocked = gateSubscribeChange(args, 'subscribe', deps.allowedSubscribeUsers, deps.logger);
+  const blocked = gateSubscribeChange(args, 'subscribe', deps.logger);
   if (blocked) return blocked;
 
   try {
@@ -87,7 +87,7 @@ export async function handleUnsubscribe(
   args: Record<string, unknown>,
   deps: SubscribeHandlerDeps,
 ): Promise<ToolResult> {
-  const blocked = gateSubscribeChange(args, 'unsubscribe', deps.allowedSubscribeUsers, deps.logger);
+  const blocked = gateSubscribeChange(args, 'unsubscribe', deps.logger);
   if (blocked) return blocked;
 
   const requested = (args.topics as string[] | undefined) ?? null;

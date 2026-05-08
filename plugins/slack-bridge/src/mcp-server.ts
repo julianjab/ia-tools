@@ -23,15 +23,16 @@
  *   SLACK_TOPICS                          — Comma-separated topics (overrides the
  *                                           state file on auto-subscribe)
  *                                           e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,..."
- *   SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS  — Comma-separated Slack user IDs that
- *                                           are authorized to request topic
- *                                           subscription changes. When set,
- *                                           subscribe_slack and unsubscribe_slack
- *                                           require a `requested_by: <user_id>`
- *                                           argument and reject any value not in
- *                                           this list. When empty / unset → no
- *                                           gate (backward-compatible default).
- *                                           Example: "U02M1QFA0AF,U03ABCDEF"
+ *   ALLOWED_USERS_MENTIONS — Comma-separated Slack user IDs whose @mentions the
+ *                            bot processes. Unset / empty → block all mentions.
+ *                            Example: "U02M1QFA0AF,U03ABCDEF"
+ *   ALLOWED_USERS_DM       — Comma-separated Slack user IDs who can DM the bot
+ *                            (Agent split-view). Unset / empty → block all DMs.
+ *                            Example: "U02M1QFA0AF"
+ *
+ * Note: subscribe_slack / unsubscribe_slack are unconditionally blocked when
+ * the request originates from a Slack message (requested_by present). Only
+ * local Claude Code sessions can change subscriptions.
  */
 
 import { join } from 'node:path';
@@ -39,7 +40,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WebClient } from '@slack/web-api';
-import { parseAllowedSubscribeUsers } from './auth-gate.js';
+import { parseAllowedUsers } from './auth-gate.js';
 import { ConfigWatcher } from './config-watcher.js';
 import { loadConfig, loadConfigFromPath, saveConfig, saveConfigAtPath } from './config.js';
 import { DaemonClient } from './daemon-client.js';
@@ -48,6 +49,7 @@ import {
   type MessagingHandlerDeps,
   handleClaimMessage,
   handleReply,
+  handleReplyUpdate,
 } from './handlers/messaging.js';
 import {
   type ReadOnlyHandlerDeps,
@@ -85,18 +87,15 @@ export interface McpBridgeServerOptions {
    */
   stateFilePath?: string;
   /**
-   * Slack user IDs authorized to request subscribe/unsubscribe changes via
-   * the agent. Empty set = no gate (any caller passes). When non-empty,
-   * subscribe_slack / unsubscribe_slack must receive a `requested_by`
-   * argument that is in this set, otherwise the call is rejected.
-   */
-  allowedSubscribeUsers: Set<string>;
-  /**
    * Optional session id used purely for display in the `list_subscriptions`
    * output so the operator can correlate the response with the Claude session
    * directory under `/tmp/slack-bridge/<session-id>/`.
    */
   sessionId?: string;
+  /** ALLOWED_USERS_DM — user IDs allowed to DM the bot. Empty = block all. */
+  allowedUsersDm: Set<string>;
+  /** ALLOWED_USERS_MENTIONS — user IDs whose @mentions the bot processes. Empty = block all. */
+  allowedUsersMentions: Set<string>;
 }
 
 export class McpBridgeServer {
@@ -104,7 +103,6 @@ export class McpBridgeServer {
   private readonly web: WebClient;
   private readonly daemonClient: DaemonClient | null;
   private readonly logger: Logger;
-  private readonly allowedSubscribeUsers: Set<string>;
   /** Display-only session id surfaced in list_subscriptions output. */
   private readonly sessionId: string | undefined;
   /** All topic specs this subscriber is currently registered for. */
@@ -113,21 +111,27 @@ export class McpBridgeServer {
   private readonly configWatcher: ConfigWatcher;
   /** Absolute path to the state file, or undefined for legacy mode. */
   private readonly stateFilePath: string | undefined;
+  /** User IDs allowed to DM the bot. Empty set = block all. */
+  private readonly allowedUsersDm: Set<string>;
+  /** User IDs whose @mentions the bot processes. Empty set = block all. */
+  private readonly allowedUsersMentions: Set<string>;
 
   constructor({
     web,
     daemonClient,
     logger,
     stateFilePath,
-    allowedSubscribeUsers,
     sessionId,
+    allowedUsersDm,
+    allowedUsersMentions,
   }: McpBridgeServerOptions) {
     this.web = web;
     this.daemonClient = daemonClient;
     this.logger = logger;
     this.stateFilePath = stateFilePath;
-    this.allowedSubscribeUsers = allowedSubscribeUsers;
     this.sessionId = sessionId;
+    this.allowedUsersDm = allowedUsersDm;
+    this.allowedUsersMentions = allowedUsersMentions;
     const watchedPath = stateFilePath ?? join(process.cwd(), '.claude', '.slack-bridge.json');
     this.configWatcher = new ConfigWatcher({
       configPath: watchedPath,
@@ -141,13 +145,15 @@ export class McpBridgeServer {
     // (if any) decides what to do; this text only documents the tools.
     const instructions = [
       'slack-bridge — Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,',
-      'list_subscriptions, claim_message, reply, read_thread, read_channel, list_channels.',
+      'list_subscriptions, claim_message, reply, reply_update, read_thread, read_channel, list_channels.',
       'Lifecycle for an incoming Slack message:',
       '(1) call claim_message(message_ts) first; if claimed=false, another session won — stop.',
-      '(2) call reply(...). For channel messages always reply in a thread: pass thread_ts',
-      'when known, or pass message_ts (the server uses message_ts as the thread anchor',
-      'when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root',
+      '(2) Compose your full response. The thinking indicator (set on claim) stays visible until reply() is called — do NOT send a placeholder "..." message.',
+      '(3) call reply(full_text_or_first_chunk). For channel messages always reply in a thread:',
+      'pass thread_ts when known, or pass message_ts (the server uses message_ts as the thread',
+      'anchor when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root',
       'unless the source had an explicit thread_ts.',
+      '(4) Optionally call reply_update(ts, more_text) one or more times with growing text to stream.',
       'Use read_thread / read_channel to inspect history before replying.',
       'Use subscribe_slack / unsubscribe_slack to change which topics this session listens to.',
     ].join(' ');
@@ -264,13 +270,24 @@ export class McpBridgeServer {
           name: 'claim_message',
           description:
             'Claim a Slack message before replying. First session to claim wins. ' +
-            'ALWAYS call this before reply_slack. If claimed=false, do NOT reply.',
+            'ALWAYS call this before reply. If claimed=false, do NOT reply. ' +
+            'Pass channel_id (and thread_ts if available) to activate the thinking indicator ' +
+            'immediately on successful claim.',
           inputSchema: {
             type: 'object' as const,
             properties: {
               message_ts: {
                 type: 'string',
                 description: 'The message_ts from the channel notification',
+              },
+              channel_id: {
+                type: 'string',
+                description:
+                  'Channel ID from the notification. Required to show the thinking indicator.',
+              },
+              thread_ts: {
+                type: 'string',
+                description: 'Thread ts from the notification (if present).',
               },
             },
             required: ['message_ts'],
@@ -307,6 +324,29 @@ export class McpBridgeServer {
               },
             },
             required: ['channel_id', 'text'],
+          },
+        },
+        {
+          name: 'reply_update',
+          description:
+            'Edit a previously sent Slack message to stream content progressively. ' +
+            'Call reply() first to create the initial placeholder message and get its ts, ' +
+            'then call reply_update() one or more times with growing text to simulate streaming. ' +
+            'The final reply_update() call should contain the complete message.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              channel_id: { type: 'string', description: 'Channel ID' },
+              ts: {
+                type: 'string',
+                description: 'Timestamp of the message to update (returned by reply)',
+              },
+              text: {
+                type: 'string',
+                description: 'New full text to replace the message with (Slack mrkdwn)',
+              },
+            },
+            required: ['channel_id', 'ts', 'text'],
           },
         },
         {
@@ -363,7 +403,6 @@ export class McpBridgeServer {
     return {
       daemonClient: this.daemonClient,
       logger: this.logger,
-      allowedSubscribeUsers: this.allowedSubscribeUsers,
       sessionId: this.sessionId,
       readState: () => this.readState(),
       writeState: (patch) => this.writeState(patch),
@@ -390,6 +429,7 @@ export class McpBridgeServer {
     if (name === 'unsubscribe_slack') return handleUnsubscribe(args, this.subscribeDeps());
     if (name === 'claim_message') return handleClaimMessage(args, this.messagingDeps());
     if (name === 'reply') return handleReply(args, this.messagingDeps());
+    if (name === 'reply_update') return handleReplyUpdate(args, this.messagingDeps());
     if (name === 'read_thread') return handleReadThread(args, this.readOnlyDeps());
     if (name === 'read_channel') return handleReadChannel(args, this.readOnlyDeps());
     if (name === 'list_channels') return handleListChannels(this.readOnlyDeps());
@@ -494,6 +534,22 @@ export class McpBridgeServer {
   /** Called by the webhook server when a message arrives from the daemon. */
   async handleIncomingMessage(payload: MessagePayload): Promise<void> {
     const { message, matched_topics } = payload;
+
+    // Access control gate — deny-by-default (empty set blocks everyone)
+    if (message.is_dm) {
+      if (!this.allowedUsersDm.has(message.user_id)) {
+        this.logger.log(`[gate] DM from ${message.user_id} blocked — not in ALLOWED_USERS_DM`);
+        return;
+      }
+    } else {
+      if (!this.allowedUsersMentions.has(message.user_id)) {
+        this.logger.log(
+          `[gate] mention from ${message.user_id} in #${message.channel_name} blocked — not in ALLOWED_USERS_MENTIONS`,
+        );
+        return;
+      }
+    }
+
     await this.mcp.notification({
       method: 'notifications/claude/channel',
       params: {
@@ -507,6 +563,7 @@ export class McpBridgeServer {
           message_ts: message.message_ts,
           thread_ts: message.thread_ts ?? '',
           is_dm: message.is_dm ? 'true' : 'false',
+          thread_context: message.thread_context ? JSON.stringify(message.thread_context) : '',
           // Per-topic labels surface the subscriber's intent for this match
           // (e.g. "ship-pr-42") so the agent can decide what to do with the
           // message based on WHY it was subscribed, not just the topic string.
@@ -670,26 +727,14 @@ export async function main(): Promise<void> {
 
   const webhookPort = await webhookSrv.start();
   const daemonClient = daemonReady ? new DaemonClient(DAEMON_URL, webhookPort) : null;
-  const allowedSubscribeUsers = parseAllowedSubscribeUsers(
-    process.env.SLACK_BRIDGE_SUBSCRIBE_ALLOWED_USERS,
-  );
-  if (allowedSubscribeUsers.size > 0) {
-    logger.log(
-      `subscribe gate: allowlist active (${allowedSubscribeUsers.size} user(s)) — Slack-originated subscribe/unsubscribe must include requested_by`,
-    );
-  } else {
-    logger.log(
-      'subscribe gate: no allowlist — Slack-originated subscribe/unsubscribe will be REJECTED',
-    );
-  }
-
   const mcpServer = new McpBridgeServer({
     web,
     daemonClient,
     logger,
     stateFilePath,
-    allowedSubscribeUsers,
     sessionId: SESSION_ID,
+    allowedUsersDm: parseAllowedUsers(process.env.ALLOWED_USERS_DM),
+    allowedUsersMentions: parseAllowedUsers(process.env.ALLOWED_USERS_MENTIONS),
   });
 
   await mcpServer.connect(new StdioServerTransport());

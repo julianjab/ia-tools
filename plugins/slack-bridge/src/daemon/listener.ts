@@ -4,8 +4,10 @@
  */
 
 import pkg from '@slack/bolt';
+import { channelCache, userCache } from './caches.js';
 import { log, error as logError } from './logger.js';
-const { App, LogLevel } = pkg;
+
+const { App, Assistant, LogLevel } = pkg;
 
 export interface ListenerConfig {
   botToken: string;
@@ -18,6 +20,8 @@ export interface SlackEvent {
   text: string;
   message_ts: string;
   thread_ts?: string;
+  /** Thread context from the Slack Agent (originating channel/workspace). */
+  thread_context?: Record<string, unknown>;
 }
 
 export type MessageHandler = (event: SlackEvent) => Promise<void>;
@@ -33,46 +37,84 @@ export async function startListener(
     logLevel: LogLevel.ERROR,
   });
 
-  const userCache = new Map<string, string>();
-  const channelCache = new Map<string, string>();
+  // ── Agent / Assistant — DMs and split-view threads ────────────────────────
+  // Handles all DM messages when the bot is configured as a Slack Agent.
+  // `userMessage` takes precedence over `app.message` for im events in
+  // Bolt v4, so no deduplication is needed — we omit `app.message` entirely.
+  const assistant = new Assistant({
+    threadStarted: async ({ say, setSuggestedPrompts }) => {
+      await say('¡Hola! ¿En qué te ayudo?');
+      await setSuggestedPrompts({
+        prompts: [
+          { title: 'Abrir sesión de trabajo', message: 'Quiero trabajar en...' },
+          { title: 'Estado de sesiones', message: '¿Qué sesiones hay activas?' },
+          { title: 'Ayuda', message: '¿Qué puedes hacer?' },
+        ],
+      });
+    },
 
-  app.message(async ({ message }) => {
-    const msg = message as unknown as Record<string, unknown>;
-    const text = msg.text as string | undefined;
+    threadContextChanged: async ({ saveThreadContext }) => {
+      await saveThreadContext();
+    },
 
-    if (!text || msg.subtype) return;
+    userMessage: async ({ event, setTitle, getThreadContext }) => {
+      // Narrow MessageEvent union to GenericMessageEvent (subtype: undefined).
+      // All other subtypes (bot_message, channel_join, etc.) are not user messages.
+      if (event.subtype !== undefined) return;
+      const text = event.text;
+      if (!text) return;
 
-    // Only process DMs — channel messages require an @mention (handled by app_mention).
-    if (msg.channel_type !== 'im' && msg.channel_type !== 'mpim') return;
+      // Set the thread title to the first ~50 chars of the message so the
+      // user can identify the conversation in the Agent split-view sidebar.
+      await setTitle(text.slice(0, 50)).catch(() => {});
 
-    await onMessage({
-      channel_id: msg.channel as string,
-      user_id: (msg.user as string) ?? 'unknown',
-      text,
-      message_ts: msg.ts as string,
-      thread_ts: msg.thread_ts as string | undefined,
-    });
+      // Read thread context (what channel/workspace the user was viewing when
+      // they opened the Assistant thread). Forwarded to subscribers so the
+      // agent knows the originating context without a separate API call.
+      let threadCtx: Record<string, unknown> | undefined;
+      try {
+        const ctx = await getThreadContext();
+        if (ctx && typeof ctx === 'object') threadCtx = ctx as Record<string, unknown>;
+      } catch {
+        // Context may be absent on the first message in a new thread.
+      }
+
+      try {
+        await onMessage({
+          channel_id: event.channel,
+          user_id: event.user ?? 'unknown',
+          text,
+          message_ts: event.ts,
+          thread_ts: event.thread_ts,
+          thread_context: threadCtx,
+        });
+      } catch (err) {
+        logError(`[userMessage] ${err}`);
+      }
+    },
   });
 
-  app.event('app_mention', async ({ event }) => {
-    if (!event.text) return;
+  app.assistant(assistant);
 
-    await onMessage({
-      channel_id: event.channel,
-      user_id: event.user ?? 'unknown',
-      text: event.text,
-      message_ts: event.ts,
-      thread_ts: event.thread_ts ?? undefined,
-    });
+  // ── Channel @mentions ─────────────────────────────────────────────────────
+  app.event('app_mention', async ({ event }) => {
+    if (!event.text || !event.user) return;
+    try {
+      await onMessage({
+        channel_id: event.channel,
+        user_id: event.user,
+        text: event.text,
+        message_ts: event.ts,
+        thread_ts: event.thread_ts ?? undefined,
+      });
+    } catch (err) {
+      logError(`[app_mention] ${err}`);
+    }
   });
 
   app.error(async (error) => {
     logError(`[bolt] ${error}`);
   });
-
-  // Expose caches for name resolution
-  (app as unknown as Record<string, unknown>)._userCache = userCache;
-  (app as unknown as Record<string, unknown>)._channelCache = channelCache;
 
   await app.start();
   log('[daemon] Socket Mode connected');
@@ -82,13 +124,13 @@ export async function startListener(
 
 /** Resolve user ID → display name using Slack API */
 export async function resolveUser(app: InstanceType<typeof App>, userId: string): Promise<string> {
-  const cache = (app as unknown as Record<string, Map<string, string>>)._userCache;
-  if (cache.has(userId)) return cache.get(userId)!;
+  const cached = userCache.get(userId);
+  if (cached !== undefined) return cached;
 
   try {
     const result = await app.client.users.info({ user: userId });
     const name = result.user?.real_name || result.user?.name || userId;
-    cache.set(userId, name);
+    userCache.set(userId, name);
     return name;
   } catch {
     return userId;
@@ -100,13 +142,13 @@ export async function resolveChannel(
   app: InstanceType<typeof App>,
   channelId: string,
 ): Promise<string> {
-  const cache = (app as unknown as Record<string, Map<string, string>>)._channelCache;
-  if (cache.has(channelId)) return cache.get(channelId)!;
+  const cached = channelCache.get(channelId);
+  if (cached !== undefined) return cached;
 
   try {
     const result = await app.client.conversations.info({ channel: channelId });
     const name = result.channel?.name || channelId;
-    cache.set(channelId, name);
+    channelCache.set(channelId, name);
     return name;
   } catch {
     return channelId;

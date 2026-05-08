@@ -13,6 +13,12 @@ export interface SlackMessage {
   thread_ts?: string;
   /** True when the message originates from a DM channel (channel_id starts with 'D'). */
   is_dm: boolean;
+  /**
+   * Thread context saved by the Slack Agent (channel/workspace the user was
+   * viewing when they opened the Assistant thread). Forwarded to subscribers
+   * so the agent knows the originating context.
+   */
+  thread_context?: Record<string, unknown>;
 }
 
 /**

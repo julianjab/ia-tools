@@ -15,6 +15,7 @@ export interface SlackMessageFields {
   text: string;
   message_ts: string;
   thread_ts?: string;
+  thread_context?: Record<string, unknown>;
 }
 
 /**
@@ -32,5 +33,6 @@ export function buildSlackMessage(fields: SlackMessageFields): SlackMessage {
     message_ts: fields.message_ts,
     thread_ts: fields.thread_ts,
     is_dm: fields.channel_id.startsWith('D'),
+    thread_context: fields.thread_context,
   };
 }

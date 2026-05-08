@@ -5,7 +5,7 @@
  */
 
 import type { WebClient } from '@slack/web-api';
-import { clearThinkingAck } from '../ack-client.js';
+import { addThinkingAck, clearThinkingAck } from '../ack-client.js';
 import type { DaemonClient } from '../daemon-client.js';
 
 /**
@@ -31,8 +31,16 @@ export async function handleClaimMessage(
     if (!deps.daemonClient) {
       throw new Error('DAEMON_URL is not set — cannot claim messages');
     }
-    const result = await deps.daemonClient.claim(args.message_ts as string);
+    const { message_ts, channel_id, thread_ts } = args as {
+      message_ts: string;
+      channel_id?: string;
+      thread_ts?: string;
+    };
+    const result = await deps.daemonClient.claim(message_ts);
     if (result.claimed) {
+      if (channel_id) {
+        await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+      }
       return { content: [{ type: 'text' as const, text: 'Claimed — you may reply.' }] };
     }
     return {
@@ -64,7 +72,21 @@ export async function handleReply(
     if (message_ts) {
       await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
     }
+
     return { content: [{ type: 'text' as const, text: `Sent (ts: ${result.ts})` }] };
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
+  }
+}
+
+export async function handleReplyUpdate(
+  args: Record<string, unknown>,
+  deps: MessagingHandlerDeps,
+): Promise<ToolResult> {
+  const { channel_id, ts, text } = args as { channel_id: string; ts: string; text: string };
+  try {
+    await deps.web.chat.update({ channel: channel_id, ts, text });
+    return { content: [{ type: 'text' as const, text: 'Updated.' }] };
   } catch (err) {
     return { content: [{ type: 'text' as const, text: `Error: ${err}` }], isError: true };
   }

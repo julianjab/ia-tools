@@ -4,7 +4,9 @@
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp-server.js"],
       "env": {
-        "DAEMON_URL": "${DAEMON_URL:-http://localhost:3800}"
+        "DAEMON_URL": "${DAEMON_URL:-http://localhost:3800}",
+        "ALLOWED_USERS_DM": "${ALLOWED_USERS_DM:-}",
+        "ALLOWED_USERS_MENTIONS": "${ALLOWED_USERS_MENTIONS:-}"
       }
     }
   }

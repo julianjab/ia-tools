@@ -54962,7 +54962,7 @@ var require_Assistant = __commonJS({
     var helpers_1 = require_helpers2();
     var process_1 = __importDefault(require_process());
     var ASSISTANT_PAYLOAD_TYPES = /* @__PURE__ */ new Set(["assistant_thread_started", "assistant_thread_context_changed", "message"]);
-    var Assistant = class {
+    var Assistant2 = class {
       threadContextStore;
       /** 'assistant_thread_started' */
       threadStarted;
@@ -55017,7 +55017,7 @@ var require_Assistant = __commonJS({
         }
       }
     };
-    exports.Assistant = Assistant;
+    exports.Assistant = Assistant2;
     function enrichAssistantArgs(threadContextStore, args) {
       const { next: _next, ...assistantArgs } = args;
       const preparedArgs = { ...assistantArgs };
@@ -55465,7 +55465,8 @@ function buildSlackMessage(fields) {
     text: fields.text,
     message_ts: fields.message_ts,
     thread_ts: fields.thread_ts,
-    is_dm: fields.channel_id.startsWith("D")
+    is_dm: fields.channel_id.startsWith("D"),
+    thread_context: fields.thread_context
   };
 }
 
@@ -55628,6 +55629,13 @@ function normalizeTopic(input) {
   return { topic: input.topic, ...input.label ? { label: input.label } : {} };
 }
 
+// src/daemon/listener.ts
+var import_bolt = __toESM(require_dist7(), 1);
+
+// src/daemon/caches.ts
+var userCache = /* @__PURE__ */ new Map();
+var channelCache = /* @__PURE__ */ new Map();
+
 // src/daemon/logger.ts
 function resolveDefaultLogPath() {
   const fromEnv = process.env.DAEMON_LOG?.trim();
@@ -55636,43 +55644,11 @@ function resolveDefaultLogPath() {
 }
 var defaultLogger = new DaemonLogger({ logPath: resolveDefaultLogPath() });
 var log = (msg) => defaultLogger.log(msg);
-var warn = (msg) => defaultLogger.warn(msg);
 var error = (msg) => defaultLogger.error(msg);
 var logPath = defaultLogger.logPath;
 
-// src/daemon/ack.ts
-async function addThinkingAck(app2, msg, opts) {
-  const emoji = opts?.emoji ?? "eyes";
-  const status = opts?.status ?? "thinking...";
-  await Promise.allSettled([
-    app2.client.reactions.add({
-      name: emoji,
-      channel: msg.channel_id,
-      timestamp: msg.message_ts
-    }).catch((err) => warn(`[ack] reactions.add failed: ${err}`)),
-    (async () => {
-      const threadTs = msg.thread_ts ?? msg.message_ts;
-      try {
-        await setAssistantStatus(app2, msg.channel_id, threadTs, status);
-      } catch (err) {
-        warn(`[ack] assistant.threads.setStatus failed: ${err}`);
-      }
-    })()
-  ]);
-}
-async function setAssistantStatus(app2, channelId, threadTs, status) {
-  const client = app2.client;
-  const args = { channel_id: channelId, thread_ts: threadTs, status };
-  if (client.assistant?.threads?.setStatus) {
-    await client.assistant.threads.setStatus(args);
-  } else {
-    await client.apiCall("assistant.threads.setStatus", args);
-  }
-}
-
 // src/daemon/listener.ts
-var import_bolt = __toESM(require_dist7(), 1);
-var { App, LogLevel } = import_bolt.default;
+var { App, Assistant, LogLevel } = import_bolt.default;
 async function startListener(config, onMessage) {
   const app2 = new App({
     token: config.botToken,
@@ -55680,59 +55656,87 @@ async function startListener(config, onMessage) {
     socketMode: true,
     logLevel: LogLevel.ERROR
   });
-  const userCache = /* @__PURE__ */ new Map();
-  const channelCache = /* @__PURE__ */ new Map();
-  app2.message(async ({ message }) => {
-    const msg = message;
-    const text = msg.text;
-    if (!text || msg.subtype) return;
-    if (msg.channel_type !== "im" && msg.channel_type !== "mpim") return;
-    await onMessage({
-      channel_id: msg.channel,
-      user_id: msg.user ?? "unknown",
-      text,
-      message_ts: msg.ts,
-      thread_ts: msg.thread_ts
-    });
+  const assistant = new Assistant({
+    threadStarted: async ({ say, setSuggestedPrompts }) => {
+      await say("\xA1Hola! \xBFEn qu\xE9 te ayudo?");
+      await setSuggestedPrompts({
+        prompts: [
+          { title: "Abrir sesi\xF3n de trabajo", message: "Quiero trabajar en..." },
+          { title: "Estado de sesiones", message: "\xBFQu\xE9 sesiones hay activas?" },
+          { title: "Ayuda", message: "\xBFQu\xE9 puedes hacer?" }
+        ]
+      });
+    },
+    threadContextChanged: async ({ saveThreadContext }) => {
+      await saveThreadContext();
+    },
+    userMessage: async ({ event, setTitle, getThreadContext }) => {
+      if (event.subtype !== void 0) return;
+      const text = event.text;
+      if (!text) return;
+      await setTitle(text.slice(0, 50)).catch(() => {
+      });
+      let threadCtx;
+      try {
+        const ctx = await getThreadContext();
+        if (ctx && typeof ctx === "object") threadCtx = ctx;
+      } catch {
+      }
+      try {
+        await onMessage({
+          channel_id: event.channel,
+          user_id: event.user ?? "unknown",
+          text,
+          message_ts: event.ts,
+          thread_ts: event.thread_ts,
+          thread_context: threadCtx
+        });
+      } catch (err) {
+        error(`[userMessage] ${err}`);
+      }
+    }
   });
+  app2.assistant(assistant);
   app2.event("app_mention", async ({ event }) => {
-    if (!event.text) return;
-    await onMessage({
-      channel_id: event.channel,
-      user_id: event.user ?? "unknown",
-      text: event.text,
-      message_ts: event.ts,
-      thread_ts: event.thread_ts ?? void 0
-    });
+    if (!event.text || !event.user) return;
+    try {
+      await onMessage({
+        channel_id: event.channel,
+        user_id: event.user,
+        text: event.text,
+        message_ts: event.ts,
+        thread_ts: event.thread_ts ?? void 0
+      });
+    } catch (err) {
+      error(`[app_mention] ${err}`);
+    }
   });
   app2.error(async (error3) => {
     error(`[bolt] ${error3}`);
   });
-  app2._userCache = userCache;
-  app2._channelCache = channelCache;
   await app2.start();
   log("[daemon] Socket Mode connected");
   return app2;
 }
 async function resolveUser(app2, userId) {
-  const cache = app2._userCache;
-  if (cache.has(userId)) return cache.get(userId);
+  const cached = userCache.get(userId);
+  if (cached !== void 0) return cached;
   try {
     const result = await app2.client.users.info({ user: userId });
     const name = result.user?.real_name || result.user?.name || userId;
-    cache.set(userId, name);
+    userCache.set(userId, name);
     return name;
   } catch {
     return userId;
   }
 }
 async function resolveChannel(app2, channelId) {
-  const cache = app2._channelCache;
-  if (cache.has(channelId)) return cache.get(channelId);
+  const cached = channelCache.get(channelId);
+  if (cached !== void 0) return cached;
   try {
     const result = await app2.client.conversations.info({ channel: channelId });
     const name = result.channel?.name || channelId;
-    cache.set(channelId, name);
+    channelCache.set(channelId, name);
     return name;
   } catch {
     return channelId;
@@ -55932,7 +55936,7 @@ function json(res, status, data) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
 }
-function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2, logger = NOOP_LOGGER2) {
+function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed, logger = NOOP_LOGGER2) {
   const log3 = (msg) => logger.log(msg);
   setInterval(() => {
     const now2 = Date.now();
@@ -56017,7 +56021,7 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed2, log
         const claimer = registry2.get(body.subscriber_port);
         const sessionSeg = claimer?.session_id ? ` (session=${claimer.session_id})` : "";
         log3(`[claim] ${messageTs} \u2192 :${body.subscriber_port}${sessionSeg}`);
-        onClaimed2?.(messageTs);
+        onClaimed?.(messageTs);
         json(res, 200, resp);
       } catch (err) {
         json(res, 400, { error: String(err) });
@@ -56054,7 +56058,7 @@ var paths = new PathResolver();
 var daemonLogPath = process.env.DAEMON_LOG?.trim() || paths.getDaemonLogPath();
 var daemonLogger = new DaemonLogger({ logPath: daemonLogPath });
 var log2 = (msg) => daemonLogger.log(msg);
-var warn2 = (msg) => daemonLogger.warn(msg);
+var warn = (msg) => daemonLogger.warn(msg);
 var error2 = (msg) => daemonLogger.error(msg);
 var logPath2 = daemonLogger.logPath;
 function arg(name) {
@@ -56065,8 +56069,6 @@ function arg(name) {
 var botToken = arg("bot-token") ?? process.env.SLACK_BOT_TOKEN;
 var appToken = arg("app-token") ?? process.env.SLACK_APP_TOKEN;
 var port = Number.parseInt(process.env.DAEMON_PORT ?? "3800", 10);
-var ACK_EMOJI = process.env.SLACK_ACK_EMOJI ?? "eyes";
-var ACK_STATUS = process.env.SLACK_ACK_STATUS ?? "thinking...";
 if (!botToken || !appToken) {
   error2("Missing --bot-token / SLACK_BOT_TOKEN or --app-token / SLACK_APP_TOKEN");
   process.exit(1);
@@ -56084,18 +56086,7 @@ if (spawnerSession) {
 } else {
   log2("[daemon] spawned manually (no DAEMON_SPAWNER_* env)");
 }
-var RECENT_MSG_TTL_MS = 5 * 60 * 1e3;
-var recentMessages = /* @__PURE__ */ new Map();
-function rememberMessage(msg) {
-  recentMessages.set(msg.message_ts, msg);
-  setTimeout(() => recentMessages.delete(msg.message_ts), RECENT_MSG_TTL_MS).unref();
-}
-function onClaimed(messageTs) {
-  const msg = recentMessages.get(messageTs);
-  if (!msg) return;
-  addThinkingAck(app, msg, { emoji: ACK_EMOJI, status: ACK_STATUS });
-}
-var api = createApiServer(registry, startedAt, () => socketStatus, onClaimed, daemonLogger);
+var api = createApiServer(registry, startedAt, () => socketStatus, void 0, daemonLogger);
 await new Promise((resolveListen, rejectListen) => {
   const onError = (err) => {
     api.off("listening", onListening);
@@ -56111,7 +56102,7 @@ await new Promise((resolveListen, rejectListen) => {
   api.listen(port);
 }).catch((err) => {
   if (err.code === "EADDRINUSE") {
-    warn2(`[daemon] port ${port} already bound \u2014 another daemon is running. Exiting.`);
+    warn(`[daemon] port ${port} already bound \u2014 another daemon is running. Exiting.`);
     process.exit(0);
   }
   error2(`[daemon] failed to bind :${port} \u2014 ${err.message}`);
@@ -56163,7 +56154,8 @@ var app = await startListener({ botToken, appToken }, async (event) => {
     user_name: userName,
     text: event.text,
     message_ts: event.message_ts,
-    thread_ts: event.thread_ts
+    thread_ts: event.thread_ts,
+    thread_context: event.thread_context
   });
   const targets = registry.match(msg);
   if (targets.length === 0) {
@@ -56189,7 +56181,6 @@ var app = await startListener({ botToken, appToken }, async (event) => {
     }
     log2(`[route] specificity max=${maxScore} \u2014 ${targets.length} winner(s), ${dropped} pre-empted`);
   }
-  rememberMessage(msg);
   await Promise.allSettled(
     targets.map(async ({ subscriber: sub, matched }) => {
       const payload = {
@@ -56209,13 +56200,13 @@ var app = await startListener({ botToken, appToken }, async (event) => {
           body: JSON.stringify(payload)
         });
         if (!res.ok) {
-          warn2(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} \u2014 removing`);
+          warn(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} \u2014 removing`);
           registry.remove(sub.port);
           return;
         }
         registry.markSeen(sub.port);
       } catch (_err) {
-        warn2(`[route] subscriber :${sub.port}${sessionSeg} unreachable \u2014 removing`);
+        warn(`[route] subscriber :${sub.port}${sessionSeg} unreachable \u2014 removing`);
         registry.remove(sub.port);
       }
     })
