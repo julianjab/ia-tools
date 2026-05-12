@@ -83,6 +83,32 @@ Always pass absolute paths to tools. For git operations use
 
 The mode is fixed at boot.
 
+## Resume semantics
+
+Agent teams have a documented limitation: **in-process teammates do not
+survive `/resume` or `claude --resume`**
+(https://code.claude.com/docs/en/agent-teams#limitations). The team
+config at `~/.claude/teams/{team-name}/config.json` is recreated by the
+runtime — never pre-author it, never commit a project-level
+`.claude/teams/teams.json` (Claude Code treats it as an ordinary file).
+
+When `/session` is invoked with `--resume-from <sessions_dir>`, treat the
+boot as a **fresh team spawn**:
+
+1. Read `<sessions_dir>/plan-draft.md` as the plan seed (Phase 1).
+2. Read `<sessions_dir>/prs.md` if it exists — every entry tells you
+   which worktrees already produced a PR, what their security verdict
+   was, and which are still open. Skip Phase 3 provisioning for any
+   worktree whose PR is already merged; re-provision the rest.
+3. Skip teammate-mention shortcuts that depend on prior in-process
+   teammates (`SendMessage(to=<old-name>, ...)`). Re-spawn the team in
+   Phase 3 from scratch, even if the old `tasks.md` still references
+   names from the previous run.
+4. The TaskCreated/TaskCompleted/TeammateIdle hooks shipped by this
+   plugin (`hooks.json`) read the same `<sessions_dir>` to enforce
+   invariants — keep writing `prs.md` and the audit log there so resume
+   doesn't drop enforcement state.
+
 ## The single hard invariant
 
 The user's approval of the global plan (Phase 1) is the gate for every
@@ -260,6 +286,16 @@ If `API contract: none`, skip this phase.
    Repo-local agents are auto-loaded by Claude Code from the directory
    added by `/add-dir`, so you can refer to them by `name` when
    spawning the team in step 3.
+
+   **Multi-repo dispatch shortcut.** Once each worktree is `/add-dir`'d,
+   the agent-teams runtime resolves `@<repo>` mentions in spawn prompts
+   to repos under the active set
+   (https://code.claude.com/docs/en/agent-view#from-agent-view). Use it
+   to scope each teammate's workspace without retyping the absolute
+   path. Example: `Spawn @subscriptions-backend at
+   @backend-python-subscriptions with prompt: …`. The absolute path is
+   still required in the spawn prompt for `git -C <path>` operations;
+   `@<repo>` only resolves the CWD.
 
 3. **Create the team** in natural language. Use the implementer name
    you selected per repo. Example:

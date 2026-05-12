@@ -42,6 +42,10 @@
 >   blocks `Edit`/`Write`/`MultiEdit` on protected paths when the current
 >   branch is `main`/`master`. If you see `Pipeline violation: you are on
 >   main`, run `/worktree init feat/<name>` — the block is intentional.
+> - **Quality-gate hooks** for agent teams
+>   (`plugins/team-workflow/hooks/scripts/{task-created,task-completed,teammate-idle}.sh`)
+>   enforce invariants 2 and 3 at task completion / teammate idle time.
+>   See AGENTS.md → "Hook-enforced quality gates".
 >
 > **Consumer `.gitignore` guidance.** Add these to your consumer repo's root
 > `.gitignore`:

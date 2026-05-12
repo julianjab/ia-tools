@@ -10,7 +10,7 @@
 # touch git.
 #
 # Usage:
-#   bash start-session.sh <session-name> <slack-topic|""> <request>
+#   bash start-session.sh <session-name> <slack-topic|""> <request> [run-mode]
 #
 # Positional args:
 #   $1  session-name   Label for the session; also the tmux session name.
@@ -25,6 +25,15 @@
 #                      claude (positional, NOT via shell — survives any
 #                      quoting, backticks, $-vars, ampersands, semicolons,
 #                      parentheses, long text).
+#   $4  run-mode       Optional. "tmux" (default) or "bg".
+#                      - tmux: spawn a fresh tmux session and run claude
+#                        inside it. Recommended for Slack-anchored
+#                        sub-sessions (survives supervisor idle cull).
+#                      - bg:   run `claude --bg --agent
+#                        team-workflow:orchestrator "$REQUEST"` via the
+#                        per-user supervisor. Surfaces in `claude agents`
+#                        and uses worktrees under `.claude/worktrees/`.
+#                        See https://code.claude.com/docs/en/agent-view.
 #
 # Mode detection:
 #   slack-topic non-empty → slack mode
@@ -45,6 +54,7 @@ SESSION_NAME=""
 SLACK_TOPIC=""
 REQUEST=""
 MODE=""
+RUN_MODE="tmux"  # tmux (default) | bg
 CWD=""
 ENV_ARGS=()      # K=V pairs for env(1)
 CLAUDE_ARGV=()   # full argv for tmux to exec after `--`
@@ -62,18 +72,25 @@ _reject_unsafe() {
 # input:  "$@" from main
 # output: SESSION_NAME, SLACK_TOPIC, REQUEST set
 parse_args() {
-  SESSION_NAME="${1:?Usage: start-session.sh <session-name> <slack-topic|\"\"> <request>}"
+  SESSION_NAME="${1:?Usage: start-session.sh <session-name> <slack-topic|\"\"> <request> [run-mode]}"
   SLACK_TOPIC="${2:-}"
   REQUEST="${3:-}"
+  RUN_MODE="${4:-tmux}"
 
   _reject_unsafe "session-name" "$SESSION_NAME"
   _reject_unsafe "slack-topic"  "$SLACK_TOPIC"
   _reject_unsafe "request"      "$REQUEST"
+  _reject_unsafe "run-mode"     "$RUN_MODE"
 
   [ -n "$SESSION_NAME" ] || die "session-name cannot be empty"
 
   case "$SESSION_NAME" in
     *.*|*:*) die "session-name must not contain '.' or ':' (got: ${SESSION_NAME})" ;;
+  esac
+
+  case "$RUN_MODE" in
+    tmux|bg) ;;
+    *) die "run-mode must be 'tmux' or 'bg' (got: ${RUN_MODE})" ;;
   esac
 }
 
@@ -88,19 +105,25 @@ detect_mode() {
   fi
 }
 
-# check_dependencies — ensure tmux + claude are reachable on PATH.
-# input:  PATH, $HOME
-# output: PATH possibly extended; dies if either binary is missing
+# check_dependencies — ensure claude (and tmux, when RUN_MODE=tmux) are on PATH.
+# input:  PATH, $HOME, RUN_MODE
+# output: PATH possibly extended; dies if a required binary is missing
 check_dependencies() {
   log "Checking dependencies..."
-  command -v tmux >/dev/null 2>&1 || die "tmux not installed"
+  if [ "$RUN_MODE" = "tmux" ]; then
+    command -v tmux >/dev/null 2>&1 || die "tmux not installed"
+  fi
   if ! command -v claude >/dev/null 2>&1; then
     for p in "$HOME/.claude/local/claude" "$HOME/.local/bin/claude" "/usr/local/bin/claude"; do
       [ -x "$p" ] && { export PATH="$(dirname "$p"):$PATH"; break; }
     done
   fi
   command -v claude >/dev/null 2>&1 || die "claude CLI not found (checked PATH and ~/.claude/local/)"
-  ok "tmux + claude OK"
+  if [ "$RUN_MODE" = "tmux" ]; then
+    ok "tmux + claude OK"
+  else
+    ok "claude OK (bg mode)"
+  fi
 }
 
 # resolve_oauth — pick the OAuth token to inject into the launched claude.
@@ -130,8 +153,9 @@ build_env_vars() {
 }
 
 # build_claude_argv — assemble the full argv (env + claude + flags + prompt).
-# input:  ENV_ARGS, REQUEST
-# output: CLAUDE_ARGV array filled (consumed by launch_claude after tmux's `--`)
+# input:  ENV_ARGS, RUN_MODE, REQUEST
+# output: CLAUDE_ARGV array filled (consumed by launch_claude after tmux's `--`,
+#         or by launch_bg directly)
 build_claude_argv() {
   CLAUDE_ARGV=(
     env
@@ -139,8 +163,15 @@ build_claude_argv() {
     claude
     --agent team-workflow:orchestrator
     --dangerously-skip-permissions
-    --teammate-mode tmux
   )
+  if [ "$RUN_MODE" = "tmux" ]; then
+    # tmux pane-per-teammate. See SKILL.md for the rationale.
+    CLAUDE_ARGV+=(--teammate-mode tmux)
+  else
+    # bg mode: supervisor + `claude agents`. Teammates run in-process and
+    # are reached via Shift+Down inside `claude agents` after attaching.
+    CLAUDE_ARGV+=(--bg --teammate-mode in-process)
+  fi
   # The user's request is passed as the prompt POSITIONAL ARG. This is the
   # critical fix: argv is preserved literally by exec, so backticks, quotes,
   # $-signs, &, ;, parens, long text — all survive without ever touching a
@@ -172,6 +203,18 @@ ensure_tmux_session() {
   launch_claude
 }
 
+# launch_bg — invoke `claude --bg`, letting the supervisor host the session.
+# input:  CWD, CLAUDE_ARGV
+# output: claude --bg writes the new session short ID to stdout; we surface
+#         it via stdout. No process is left attached to this script's tty.
+launch_bg() {
+  log "Launching Claude in background mode (supervisor)..."
+  # We exec into env+claude --bg, NOT through a shell, so REQUEST quoting is
+  # preserved. claude --bg detaches itself and prints its short ID.
+  ( cd "$CWD" && "${CLAUDE_ARGV[@]}" ) || die "claude --bg failed to launch"
+  ok "background session dispatched"
+}
+
 # print_header — banner shown before work starts.
 # input:  globals
 # output: stdout
@@ -180,6 +223,7 @@ print_header() {
   printf "────────────────────────────────────────────────\n"
   printf "  Session: ${CYAN}%s${RESET}\n" "$SESSION_NAME"
   printf "  Mode:    ${CYAN}%s${RESET}\n" "$MODE"
+  printf "  Runtime: ${CYAN}%s${RESET}\n" "$RUN_MODE"
   if [ "$MODE" = "slack" ]; then
     printf "  Topic:   ${CYAN}%s${RESET}\n" "$SLACK_TOPIC"
   fi
@@ -195,11 +239,17 @@ report() {
   printf "\n${BOLD}Summary:${RESET}\n"
   printf "  Session: ${CYAN}%s${RESET}\n" "$SESSION_NAME"
   printf "  Mode:    ${CYAN}%s${RESET}\n" "$MODE"
+  printf "  Runtime: ${CYAN}%s${RESET}\n" "$RUN_MODE"
   printf "  CWD:     ${CYAN}%s${RESET}\n" "$CWD"
   if [ "$MODE" = "slack" ]; then
     printf "  Topic:   ${CYAN}%s${RESET}\n" "$SLACK_TOPIC"
   fi
-  printf "\nAttach with: ${BOLD}tmux attach -t %s${RESET}\n" "$SESSION_NAME"
+  if [ "$RUN_MODE" = "tmux" ]; then
+    printf "\nAttach with: ${BOLD}tmux attach -t %s${RESET}\n" "$SESSION_NAME"
+  else
+    printf "\nList background sessions: ${BOLD}claude agents${RESET}\n"
+    printf "Attach: ${BOLD}claude attach <id>${RESET} (the id was printed by claude --bg above)\n"
+  fi
 }
 
 # main — orchestrate the phases.
@@ -211,7 +261,11 @@ main() {
   build_env_vars
   build_claude_argv
   CWD="$(pwd)"
-  ensure_tmux_session
+  if [ "$RUN_MODE" = "tmux" ]; then
+    ensure_tmux_session
+  else
+    launch_bg
+  fi
   report
 }
 

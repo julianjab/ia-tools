@@ -271,6 +271,70 @@ extraction run there to keep the orchestrator's context lean.
 `orchestrator.md`. Replaced by the four invariants listed above plus runtime
 team-lead decisions.
 
+## Resume semantics — in-process teammates do NOT survive resume
+
+Per https://code.claude.com/docs/en/agent-teams#limitations, `/resume` and
+`claude --resume` do not restore in-process teammates. The runtime team
+config at `~/.claude/teams/{team-name}/config.json` is recreated each
+time the lead boots; the project never owns this file. A
+`.claude/teams/teams.json` checked into a consumer repo is treated as
+ordinary file content by Claude Code and has no effect.
+
+This means `/session --resume-from <sessions_dir>` is **not** a teammate
+resume. It is a fresh team spawn that re-uses the plan seed and PR
+ledger:
+
+1. The orchestrator reads `<sessions_dir>/plan-draft.md` for the plan.
+2. It reads `<sessions_dir>/prs.md` to skip worktrees whose PRs already
+   merged, and to know which security verdicts were already issued.
+3. It re-creates the team and tasks from scratch — never mentions any
+   teammate name from the previous run.
+
+The TaskCreated / TaskCompleted / TeammateIdle hooks (see
+`plugins/team-workflow/hooks/hooks.json`) read the same
+`<sessions_dir>` so cross-task enforcement (qa:red → green, security →
+pr) keeps holding across a resume.
+
+## Hook-enforced quality gates
+
+Three plugin hooks turn the invariants from convention into enforced
+rules. They live under `plugins/team-workflow/hooks/scripts/` and are
+registered in `plugins/team-workflow/hooks/hooks.json`:
+
+| Hook            | Script                  | What it enforces                                                                                                  |
+|-----------------|-------------------------|-------------------------------------------------------------------------------------------------------------------|
+| `TaskCreated`   | `task-created.sh`       | Audit-only: every task subject is logged to `<sessions_dir>/hook-audit.log`; stack/pr tasks get a stderr nudge to add `blockedBy` via `TaskUpdate`. Never blocks creation (TaskCreated payload has no `blockedBy` field yet). |
+| `TaskCompleted` | `task-completed.sh`     | Blocks (exit 2) completion of `*:pr*` tasks when `<sessions_dir>/prs.md` lacks a matching `security: APPROVED` line for the same worktree prefix; blocks `*:green*` completion when no `qa:red completed <prefix>` marker is in the audit log. |
+| `TeammateIdle`  | `teammate-idle.sh`      | Blocks (exit 2) `qa` teammates from idling until the transcript contains `RED confirmed`; blocks `security` teammates until the transcript contains `APPROVED` or `REJECTED`. |
+
+The hooks scan transcript files and `.sessions/<label>/` artifacts; when
+they cannot reach those (e.g. inline `Agent()` calls with no session
+dir) they fall back to allow, never to spurious rejection. The
+orchestrator is still responsible for writing `prs.md` entries and the
+`qa:red completed <prefix>` marker — the hooks only fail loudly when
+those markers are missing at completion time.
+
+## Agent-view alternative — `claude --bg` + `claude agents`
+
+Tmux-based `/session` is the default because it keeps Slack-linked
+sub-sessions alive past the supervisor's ~1h idle cull and gives the
+operator a single `tmux attach -t <label>` to see lead + teammates as
+panes. The agent-view path (`claude --bg --agent
+team-workflow:orchestrator "<req>"` + `claude agents` for the dashboard;
+https://code.claude.com/docs/en/agent-view) is supported as an opt-in
+via `/session --mode bg`:
+
+- Recommended for local (non-Slack) `/session` calls with short
+  expected lifetimes.
+- Not recommended for Slack-bridge-anchored sessions; the supervisor
+  may stop the process after ~1h of idleness and the next inbound
+  Slack event will respawn it from disk state, which loses any
+  in-memory `SendMessage` queues to teammates.
+- File edits in `--bg` mode default to `.claude/worktrees/` (managed by
+  the supervisor) instead of `.worktrees/`. The orchestrator must use
+  whichever path the supervisor reports and pass it through
+  `/add-dir`.
+
 ## Plugin frontmatter limitations
 
 `ia-tools` ships as a Claude Code plugin (`.claude-plugin/plugin.json`).
