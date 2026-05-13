@@ -6,7 +6,7 @@ color: purple
 effort: high
 maxTurns: 200
 memory: project
-tools: Read, Grep, Glob, Bash, Edit, Write, MultiEdit, SlashCommand, AskUserQuestion, ExitPlanMode, Agent(general-purpose), mcp__slack-bridge__*
+disallowedTools: NotebookEdit
 ---
 
 # Team-lead — Feature Orchestrator
@@ -292,6 +292,11 @@ When every task is `completed`:
 
 ## Hard rules
 
+- **Subagents.** When you need a sub-agent, only use `general-purpose`
+  for pre-analysis. For implementer / qa / security / architect work,
+  spawn through the agent-teams framework (teammate names from your
+  discovery pass) — not via `Agent(...)`. Other built-in subagent
+  types (Explore, etc.) are not for the team-lead's flow.
 - Plan must be approved before any worktree is provisioned.
 - The task list is built **ONCE** after discovery. Do not recompute mid-flight; add new tasks with proper `blockedBy` when scope changes.
 - `owner` is set at task creation. To change an owner, mark the old task `deleted` and create a new one.
