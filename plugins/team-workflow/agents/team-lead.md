@@ -242,10 +242,33 @@ graph in one pass. For each worktree (let `P` be its `wt_prefix`):
 | Task subject              | Owner      | metadata.expected_marker            | blockedBy           |
 |---------------------------|------------|-------------------------------------|---------------------|
 | `P:qa:red`                | `agents.qa`| `✅ RED confirmed for P`            | —                   |
-| `P:impl:green`            | `agents.impl` | `green for P`                    | `P:qa:red`          |
-| `P:security`              | `agents.sec` | `security: APPROVED for P`        | `P:impl:green`      |
+| `P:impl:green`            | `agents.impl` | `green for P (staged)`           | `P:qa:red`          |
+| `P:security`              | `agents.sec` | `security: APPROVED for P (staged-diff)` | `P:impl:green`  |
 | `P:pr`                    | `agents.impl`| `pr_url for P`                    | `P:security`        |
 | `P:team-review`           | `team-lead`| `team-review requested for P`       | `P:pr`              |
+
+**Staging contract (closes the security/commit-set gap).** Each
+`:impl:green` task is not complete until the implementer has:
+
+1. Run tests and confirmed GREEN.
+2. Run `git add <explicit file list>` from inside the worktree — only
+   the files that belong in the commit. NEVER `git add .` (that
+   stages stray edits, untracked tooling artifacts, lockfile bumps,
+   etc. that security never audited).
+3. Confirmed the staged set with `git -C <wt> diff --cached --name-only`.
+4. Marked the worktree entry in `state.md` with the literal marker
+   `green for <P> (staged)` plus a `staged_files:` list of the
+   exact paths.
+
+`:security` then audits `git -C <wt> diff --cached` — the bytes that
+will become the commit. It refuses to run if nothing is staged. Its
+verdict line is `security: APPROVED for <P> (staged-diff)`.
+
+`:pr` MUST commit exactly the already-staged set. The `/pr` skill is
+configured to refuse `git add .` and abort if nothing is staged at
+invocation time. Any change to the working tree between security
+APPROVED and `/pr` that the operator wants in the commit requires
+re-staging AND a re-run of `:security`.
 
 The `:team-review` task is **optional**. Omit it entirely when:
 - `TEAM_REVIEW_CHANNEL` is not configured (no env, no CLAUDE.md), OR

@@ -11,15 +11,21 @@ Run a security audit on the current project.
 | Check | If false |
 |---|---|
 | `git rev-parse --is-inside-work-tree` succeeds | STOP — "not in a git repo" |
-| Scope is decidable (current diff if on feature branch, OR whole repo if explicitly requested) | STOP — "specify --scope diff or --scope repo" |
+| On a feature branch (not `main`/`master`) OR `--scope repo` flag passed | STOP — "specify --scope repo to audit main" |
+| For PR-style audit: `git diff --cached --quiet` returns NON-zero (i.e. something IS staged) | STOP — "stage the approved file set first via `git add <files>`, then re-invoke. Audit must run against the bytes that will be committed, not the working tree." |
 
 Decide the scope:
 
-- If a feature branch is checked out and `git diff main...HEAD` is
-  non-empty → audit the **diff** by default (PR-style audit).
-- If on `main`/`master` → audit the **whole repo** (full sweep).
+- **PR-style (default, on feature branch)**: audit ONLY `git diff --cached`.
+  This is the set of bytes that will be committed by the next `/pr` call.
+  Files in the working tree that are NOT staged are out of scope —
+  if they should be in the commit, the caller must stage them first.
+- **Full sweep (`--scope repo`)**: audit the whole tree. Used when
+  auditing `main` directly, or for ad-hoc inspections.
 
-Report the chosen scope on the first line of the output.
+Report the chosen scope on the first line of the output, and on the
+verdict line append `(staged-diff)` or `(full-repo)` so the caller can
+confirm what was actually checked.
 
 ### Step 1 — Hardcoded secrets
 
