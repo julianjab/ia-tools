@@ -1,6 +1,6 @@
 {
   "name": "@ia-tools/slack-bridge",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Slack ↔ Claude Code bridge: daemon (Socket Mode singleton) + MCP server (lightweight subscriber)",
   "type": "module",
   "bin": {
