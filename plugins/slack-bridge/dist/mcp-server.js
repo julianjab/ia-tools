@@ -41957,7 +41957,9 @@ ${err.stack ?? ""}
   const parentCmd = readParentCmd(process.ppid);
   const hasDevChannels = hasDevChannelsFlag(parentCmd) || process.env.SLACK_BRIDGE_DEV_CHANNELS === "1";
   logger.log(`parent argv: ${parentCmd || "(unavailable)"}`);
-  logger.log(`dev-channels: ${hasDevChannels} (argv=${hasDevChannelsFlag(parentCmd)} env=${process.env.SLACK_BRIDGE_DEV_CHANNELS === "1"})`);
+  logger.log(
+    `dev-channels: ${hasDevChannels} (argv=${hasDevChannelsFlag(parentCmd)} env=${process.env.SLACK_BRIDGE_DEV_CHANNELS === "1"})`
+  );
   if (!hasDevChannels) {
     const msg = "slack-bridge requires Claude to be started with --dangerously-load-development-channels. Restart with: claude --dangerously-load-development-channels plugin:slack-bridge@ia-tools";
     logger.error(msg);

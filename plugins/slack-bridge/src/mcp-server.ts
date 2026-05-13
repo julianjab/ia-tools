@@ -655,9 +655,12 @@ export async function main(): Promise<void> {
   // parent argv no longer contains the original flags, so we also accept
   // SLACK_BRIDGE_DEV_CHANNELS=1 set by start-router.sh / start-lead.sh.
   const parentCmd = readParentCmd(process.ppid);
-  const hasDevChannels = hasDevChannelsFlag(parentCmd) || process.env.SLACK_BRIDGE_DEV_CHANNELS === '1';
+  const hasDevChannels =
+    hasDevChannelsFlag(parentCmd) || process.env.SLACK_BRIDGE_DEV_CHANNELS === '1';
   logger.log(`parent argv: ${parentCmd || '(unavailable)'}`);
-  logger.log(`dev-channels: ${hasDevChannels} (argv=${hasDevChannelsFlag(parentCmd)} env=${process.env.SLACK_BRIDGE_DEV_CHANNELS === '1'})`);
+  logger.log(
+    `dev-channels: ${hasDevChannels} (argv=${hasDevChannelsFlag(parentCmd)} env=${process.env.SLACK_BRIDGE_DEV_CHANNELS === '1'})`,
+  );
   if (!hasDevChannels) {
     const msg =
       'slack-bridge requires Claude to be started with --dangerously-load-development-channels. ' +
