@@ -13,70 +13,59 @@ NOT inspect argv.
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ MAIN SESSION  (claude --agent team-workflow:session-manager)│
-│ - Always alive, listens to Slack DMs + subscribed chans    │
-│ - Prompt: plugins/team-workflow/agents/session-manager.md  │
-│   (loaded natively by Claude Code from the team-workflow   │
-│   plugin — same mechanism as any other plugin agent)       │
-│ - Tool whitelist: read-only (Read/Grep/Glob/Bash-ro)       │
-│ - Classifies every message into 5 intents:                 │
-│     read-only       → reply inline in the thread           │
-│     trivial-config  → Agent(orchestrator), no branch       │
-│     small-change    → branch + Agent(orchestrator)         │
-│     scope-check     → /scope-check → verdict → route       │
-│     change          → /session → spawn sub-session         │
-│ - NEVER plans, NEVER edits without delegating              │
+│ - Always alive, listens to Slack DMs + subscribed channels  │
+│ - Prompt: plugins/team-workflow/agents/session-manager.md   │
+│ - Tool inheritance: disallowedTools = Edit/Write/Multi/Note │
+│   (everything else inherits, including MCP)                 │
+│ - Classifies every message into one of THREE intents:       │
+│     answer    → reply inline (with Agent(Explore) if deep)  │
+│     ask       → reply with proposed action; wait for OK     │
+│     dispatch  → /session → spawn team-lead sub-session      │
+│ - NEVER edits files; only routes                            │
 └────────────────────────────────────────────────────────────┘
-         │ /scope-check (inline, no tmux)    │ /session
-         ▼                                   ▼
-┌──────────────────────┐     ┌────────────────────────────────────────────┐
-│ SCOPE-CHECK (inline) │     │ SUB-SESSION (claude --agent                │
-│ orchestrator subagent│     │   team-workflow:orchestrator, booted by    │
-│ mode=scope-check     │     │   /session)                                │
-│ Writes:              │     │ - One per Slack topic / session            │
-│   .sessions/         │     │ - Prompt: plugins/team-workflow/agents/    │
-│     scope.md         │     │   orchestrator.md (plugin agent)           │
-│     plan-draft.md    │     │ - slack-bridge surfaces only its tools     │
-│     verdict.json     │     │   and a short lifecycle guide; the         │
-│ Returns verdict JSON │     │   orchestrator prompt is the personality   │
-│                      │     │ - Standard: dedicated worktree + tmux      │
-│                      │     │ - Subscribed to one Slack topic (slack)    │
-└──────────────────────┘     └────────────────────────────────────────────┘
+                              │ /session
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ SUB-SESSION  (claude --agent team-workflow:team-lead,       │
+│   booted by /session via start-team-lead.sh)                │
+│ - One per Slack topic / feature                             │
+│ - Prompt: plugins/team-workflow/agents/team-lead.md         │
+│ - Dedicated tmux session, subscribed to the topic           │
+│ - Per-repo worktrees provisioned on the fly                 │
+│ - State persisted at $HOME/.claude/team-workflow/state/...  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-There is no `IA_TOOLS_ROLE` env var, no `SessionStart` hook, and no
-argv-sniffing. Personas come from `--agent`; without it Claude runs
-unspecialised and only slack-bridge tools + their mechanical guide are
-visible.
+No `IA_TOOLS_ROLE` env var, no `SessionStart` hook, no argv-sniffing. Personas
+come from `--agent` only.
 
 ## Invariants — not negotiable
 
-The orchestrator used to execute a fixed 11-phase pipeline. As of the
-agent-teams refactor, it is a **team lead** that decides at runtime which
-teammates to spawn, in what order, and with what parallelism. The only
-workflow rules that remain hardcoded are these four:
+team-lead decides at runtime which teammates to spawn, in what order, and
+with what parallelism. The four invariants below are the only hardcoded
+workflow rules:
 
 1. **Approval gate.** Every change-intent message goes through plan →
-   approval (✅ in slack, `Aprobar` in local) before any code changes.
-   No autonomous execution of the plan.
-2. **QA writes tests first.** No stack teammate (`backend`, `frontend`,
-   `mobile`) leaves plan mode until `qa` reports `✅ RED confirmed` on
-   the shared task list. Enforced via: (a) `blockedBy: qa:red` on every
-   stack task, (b) spawning stack teammates with plan approval mode.
+   approval (text reply `aprobar` in Slack, `AskUserQuestion` in local)
+   before any code changes. No autonomous execution of the plan.
+2. **QA writes tests first.** No `impl:green` task may complete until the
+   matching `qa:red` task is completed and `state.md` records the marker
+   `✅ RED confirmed for <wt_prefix>`. Enforced via `blockedBy: qa:red`
+   in the task list and the `TaskCompleted` hook.
 3. **Security APPROVED required per PR (once per touched consumer repo).**
-   `security` must return `APPROVED` for each PR before it is opened.
-   In multi-repo mode: security runs once per teammate worktree, BEFORE
-   that teammate runs `/pr`. `HIGH`/`MEDIUM` findings are blocking and
-   escalate to the user. `LOW`-only findings pass through as PR comments.
+   The `security` task must record `security: APPROVED for <wt_prefix>` in
+   `state.md` before the `:pr` task can complete. In multi-repo mode:
+   security runs once per worktree, BEFORE that worktree's `:pr` task.
+   `HIGH`/`MEDIUM` findings escalate to the user; `LOW`-only findings pass
+   through as PR comments.
 4. **`/pr` is the only path to main — per repo.** No `git push origin main`,
-   no local merges, no amended commits on a remote-tracked branch.
-   In multi-repo tasks: N PRs (one per touched consumer repo). Each PR
-   goes through its own security gate. Single-repo tasks still produce
-   one PR.
+   no local merges, no amended commits on a remote-tracked branch. In
+   multi-repo tasks: N PRs (one per touched consumer repo). Each PR goes
+   through its own security gate. Single-repo tasks still produce one PR.
 
-Everything outside these four rules — which teammates to spawn, whether
-to parallelize, whether `architect` is needed, whether `security` runs
-as a teammate or a one-shot — the orchestrator decides in runtime based
-on the approved plan.
+Outside these four rules — which teammates to spawn, whether to parallelize,
+whether `architect` is needed, whether `security` runs as a teammate or a
+one-shot — team-lead decides at runtime based on the approved plan.
 
 ## Workflow shape
 
@@ -84,393 +73,247 @@ on the approved plan.
 Slack message arrives
     ↓
 SESSION-MANAGER classifies (main session)
-    ├─ read-only → reply inline in the thread. DONE.
-    ├─ trivial-config → Agent(orchestrator) inline. DONE.
-    ├─ small-change → branch + Agent(orchestrator) inline. DONE.
-    │
-    ├─ scope-check → /scope-check (inline, no tmux)
-    │                    ↓
-    │               verdict = read-only  → reply inline. DONE.
-    │               verdict = inline     → downgrade to small-change/trivial-config.
-    │               verdict = new-session
-    │                    ↓
-    │               CONFIRMATION GATE (unless explicit session-open phrase)
-    │                    ↓
-    │               /session --resume-from <sessions_dir>
-    │
-    └─ change → /session → worktree + tmux + orchestrator boot
+    ├─ answer   → reply inline (Agent(Explore) when deep). DONE.
+    ├─ ask      → reply proposing action; wait for 'aprobar' / 'cancelar' / edit text.
+    │             on 'aprobar' → re-classify as dispatch.
+    └─ dispatch → /session → spawns team-lead in tmux
                  ↓
-             (both change and scope-check/new-session converge here)
+             team-lead boot:
+               - reads $IA_TW_TOPIC / $IA_TW_FEATURE / $IA_TW_REQUEST / $IA_TW_STATE_DIR
+               - if state.md exists → resumes from recorded phase
+               - else → boot guard (list_subscriptions probe), then Plan phase
                  ↓
-             PLAN (orchestrator)
-               - resume-from: reads plan-draft.md from sessions_dir as seed
-               - single-repo: writes .sdlc/tasks.md from scratch
-               both: publish plan + BLOCK on approval gate
+             PLAN (team-lead)
+               - Agent(general-purpose) for pre-analysis (multi-repo detection,
+                 acceptance criteria, repo-local agent discovery)
+               - Publish plan to topic (Slack reply or AskUserQuestion locally)
+               - BLOCK on aprobar / cancelar / text-edit
                  ↓
-             APPROVAL GATE ← ✅ / ❌ / text-edit / timeout
+             APPROVAL GATE ← aprobar / cancelar / text-edit / timeout
                  ↓
-             SPEC (.sdlc/specs/REQ-NNN/requirement.md + research.md)
+             PROVISION (1..N worktrees)
+               - For each touched repo:
+                 /worktree init $IA_TW_FEATURE --repo <repo-abs>
+                  → init.sh + auto /add-dir (via SlashCommand) ← single contract
+                 Glob <worktree>/.claude/agents/*.md → classify into
+                 impl/qa/sec/arch buckets, fall back to plugin
+                 'implementer' / 'team-lead' when bucket is empty.
+                 Append entry to state.md.
                  ↓
-             DECIDE DELEGATIONS: orchestrator picks teammates, creates
-             the agent team. In multi-repo mode, orchestrator creates one
-             worktree per target repo via /worktree init --repo <path>,
-             /add-dir's each worktree, scans <worktree>/.claude/agents/*.md
-             to discover repo-local implementers, and assigns each
-             worktree to either its repo-local agent (preferred) or the
-             stack-agnostic fallback (backend|frontend|mobile).
-             Task dependencies:
-               qa:red BLOCKS every <impl>:* task
-               <impl>:* GREEN (no PR yet) BLOCKS security:audit (per worktree)
-               security:audit APPROVED BLOCKS pr:open (per worktree)
+             BUILD TASK LIST (declarative, single pass)
+               For each worktree (let P = wt_prefix):
+                 P:qa:red       → owner = bucket.qa
+                 P:impl:green   → owner = bucket.impl       (blockedBy P:qa:red)
+                 P:security     → owner = bucket.sec        (blockedBy P:impl:green)
+                 P:pr           → owner = bucket.impl       (blockedBy P:security)
+               + optional feature:arch:contract when api_contract != none.
                  ↓
-             TEAM RUNS (each stack teammate works in its assigned worktree;
-             orchestrator runs security per worktree before /pr;
-             N PRs open in sequence; orchestrator writes prs.md)
+             DISPATCH LOOP (until all tasks completed)
+               - Pick lowest-id pending task with deps satisfied.
+               - Spawn via Agent() / SendMessage based on owner type.
+               - team-lead does it inline when owner = 'team-lead'.
                  ↓
-             DONE SUMMARY → all N PR URLs reported
+             N PRs opened (one per touched repo).
                  ↓
-             FOLLOW-UP (orchestrator stays alive; each fix re-enters
-             the team via new tasks with the same dependency shape)
-                 ↓
-             CLEAN UP TEAM + exit (slack: auto after 2h idle + terminal
-             PR; local: on user request)
+             CLEAN UP team + report (slack: auto after merge + idle;
+             local: on user request).
 ```
 
 ## End-to-end example — lahaus multi-repo task
 
-**Scenario**: "agrega tracking de pagos que se refleje en la app y el backend"
-touching `backend/python/subscriptions` (new endpoint) and `mobile/ai-mobile-app`
-(new UI screen).
-
 ```
-User DM: "agrega tracking de pagos que se refleje en la app y el backend"
+User DM (Slack): "agrega un endpoint mock GET /demo en client-api;
+                  consúmelo desde mobile/ai-mobile-app en pantalla principal
+                  y desde frontend/lh-seller-v2-frontend en un widget del dashboard"
     ↓
-session-manager: intent = scope-check
+session-manager: classify → dispatch (hard signal "agrega")
+    - Derives feature name: `feat/demo-api-client-api`
+    - Posts ack reply in the thread; captures `<channel>:*:<thread_ts>`.
+    - bash start-team-lead.sh "feat/demo-api-client-api" "<topic>" "<request>"
     ↓
-/scope-check --description "agrega tracking..."
-    → orchestrator (inline, scope-check context)
-    → writes .sessions/feat-payment-tracking/{scope.md, plan-draft.md, verdict.json}
-    → returns verdict = new-session, touched_repos = [subscriptions, ai-mobile-app]
+team-lead booted in tmux 'feat/demo-api-client-api'
+    - $IA_TW_TOPIC = D0AMP0P0UKY:*:1778681006...
+    - $IA_TW_STATE_DIR = ~/.claude/team-workflow/state/<hash>
+    - Boot guard: list_subscriptions → OK
+    - state.md created with phase: planning
+    - Pre-analysis via general-purpose: 3 repos touched
     ↓
-session-manager: confirmation gate
-    reply: "El análisis detectó cambios en 2 repos:
-            - backend/python/subscriptions (POST /payments)
-            - mobile/ai-mobile-app (UI de tracking)
-            ¿Abro sesión? ✅ para continuar."
+PLAN published to thread; user replies 'aprobar'
     ↓
-User confirms (✅ reaction or text reply)
+PROVISION:
+    /worktree init feat/demo-api-client-api --repo /lahaus/backend/python/subscriptions
+      → /add-dir <wt-backend> → Glob → impl=python-developer, qa=python-unittest-expert
+    /worktree init feat/demo-api-client-api --repo /lahaus/mobile/ai-mobile-app
+      → /add-dir <wt-mobile>  → Glob → impl=flutter-dev, qa=flutter-test-writer, sec=flutter-reviewer
+    /worktree init feat/demo-api-client-api --repo /lahaus/frontend/lh-seller-v2-frontend
+      → /add-dir <wt-frontend>→ Glob → impl=vue-dev, qa=vue-test-writer, sec=vue-reviewer
     ↓
-/session feat-payment-tracking
-         --resume-from /lahaus/.sessions/feat-payment-tracking
-         --thread <ts-of-confirmation> --channel <channel>
+TASKS created (12 tasks: 4 per worktree). Dispatch loop runs them in
+parallel where deps allow.
     ↓
-start-session.sh: resume-from mode
-  - skips worktree creation
-  - orchestrator CWD = /lahaus/
-  - writes /lahaus/.claude/settings.local.json
-    (IA_TOOLS_SESSION_DIR=<sessions_dir>)
-    ↓
-ORCHESTRATOR (resume-from mode)
-  reads plan-draft.md → expands → publishes plan → APPROVAL GATE
-    ↓
-APPROVAL (✅)
-    ↓
-SPEC → DELEGATE
-  orchestrator creates worktrees + add-dir + discovers repo agents:
-    /worktree init feat/payment-tracking --repo /lahaus/backend/python/subscriptions
-    /add-dir /lahaus/backend/python/subscriptions/.worktrees/feat-payment-tracking
-    Glob .../.claude/agents/*.md → finds "subscriptions-backend"
-    /worktree init feat/payment-tracking --repo /lahaus/mobile/ai-mobile-app
-    /add-dir /lahaus/mobile/ai-mobile-app/.worktrees/feat-payment-tracking
-    Glob .../.claude/agents/*.md → none → fallback to plugin "mobile"
-  orchestrator creates team: qa, subscriptions-backend (repo-local), mobile (fallback)
-  subscriptions-backend receives: "Work in /lahaus/backend/python/subscriptions/.worktrees/feat-payment-tracking"
-  mobile receives:                "Work in /lahaus/mobile/ai-mobile-app/.worktrees/feat-payment-tracking"
-    ↓
-qa writes RED tests → ✅ RED confirmed
-    ↓
-subscriptions-backend + mobile (unblocked, parallel):
-  each works in the worktree the orchestrator already provisioned
-  each implements + runs tests GREEN (local, PR not yet opened)
-    ↓
-SECURITY (per teammate, before /pr):
-  orchestrator → Agent(security, worktree_path=backend-worktree) → APPROVED
-  orchestrator → tells backend to run /pr
-  orchestrator → Agent(security, worktree_path=backend-worktree) → APPROVED
-  orchestrator → tells backend to run /pr
-  backend opens PR #123 in subscriptions, reports URL to orchestrator
-  orchestrator → writes prs.md entry for PR #123
-  orchestrator → Agent(security, worktree_path=mobile-worktree) → APPROVED
-  orchestrator → tells mobile to run /pr
-  mobile opens PR #456 in ai-mobile-app, reports URL to orchestrator
-  orchestrator → writes prs.md entry for PR #456
-    ↓
-DONE SUMMARY:
-  ✅ 2 PRs opened:
-    - https://github.com/lahaus/subscriptions/pull/123 (backend)
-    - https://github.com/lahaus/ai-mobile-app/pull/456 (mobile)
+3 PRs opened (one per repo). state.md final phase = merged.
 ```
 
-Key points:
-- **Two PRs** opened (one per touched consumer repo)
-- **Two security passes** (one per worktree, before each `/pr`)
-- **Orchestrator** creates both worktrees and writes `prs.md` — stack agents focus only on implementation
-- Single-repo consumers route to `change` directly; no scope-check, no `.sessions/`
+## Team Structure — 3 plugin agents
 
-## Team Structure — 8 agents
+| Agent             | File                                              | Role                                                     | Model  | Color  |
+|-------------------|---------------------------------------------------|----------------------------------------------------------|--------|--------|
+| `session-manager` | `plugins/team-workflow/agents/session-manager.md` | Main session router. Classifies + routes; never edits.    | sonnet | cyan   |
+| `team-lead`       | `plugins/team-workflow/agents/team-lead.md`       | Per-feature orchestrator. Plan, provision, dispatch.      | opus   | purple |
+| `implementer`     | `plugins/team-workflow/agents/implementer.md`     | Stack-aware fallback subagent when a repo has no impl.    | sonnet | green  |
 
-| Agent          | File                    | Primary mode                              | Model  | Color  | Why that mode                                                                 |
-|----------------|-------------------------|-------------------------------------------|--------|--------|-------------------------------------------------------------------------------|
-| `session-manager` | `plugins/team-workflow/agents/session-manager.md` | main session (load with `--agent team-workflow:session-manager`) | sonnet | cyan   | Router, single session, no parallelism needed.                                |
-| `orchestrator` | `plugins/team-workflow/agents/orchestrator.md`| main-thread subagent + **team lead**      | opus   | purple | Only session allowed to spawn specialists + create the team.                  |
-| `architect`    | `plugins/team-workflow/agents/architect.md`   | one-shot subagent (optional teammate)     | opus   | orange | Produces a single `api-contract.md` and exits.                                |
-| `qa`           | `plugins/team-workflow/agents/qa.md`          | **teammate**                              | sonnet | yellow | Persistent context across RED → verify GREEN → re-test follow-ups.            |
-| `backend`      | `plugins/team-workflow/agents/backend.md`     | **teammate**                              | sonnet | green  | Own slice of files; iterative GREEN cycles benefit from persistent context.   |
-| `frontend`     | `plugins/team-workflow/agents/frontend.md`    | **teammate**                              | sonnet | blue   | Same.                                                                         |
-| `mobile`       | `plugins/team-workflow/agents/mobile.md`      | **teammate**                              | sonnet | pink   | Same.                                                                         |
-| `security`     | `plugins/team-workflow/agents/security.md`    | one-shot subagent (optional teammate)     | opus   | red    | Gate before `/pr`. Fresh context per invocation reduces anchoring bias.       |
+Everything else — qa, security, architect, per-stack implementers — is
+**discovered at runtime** from each touched repo's `<repo>/.claude/agents/`.
+The plugin no longer ships fallback agents per stack; the single
+`implementer` covers all stacks via boot-time CLAUDE.md / manifest detection.
 
-All 6 non-main agents carry `memory: project` so they accumulate project
-patterns across tasks in `.claude/agent-memory/<agent>/`.
+`qa` and `security` have no plugin fallback: when a repo lacks them,
+team-lead writes the tests / runs the audit itself (using its `Edit`/
+`Write` tools and the `/security-audit` skill respectively). This
+preserves the invariants (QA-first + Security-APPROVED before `/pr`)
+regardless of repo coverage.
 
-### Repo-local implementer discovery
+### Repo-local agent discovery
 
-`backend`, `frontend`, and `mobile` are **fallback** implementers. When
-the orchestrator provisions a worktree for a touched repo, it:
+For every worktree provisioned, team-lead:
 
-1. Runs `/add-dir <worktree>` so Claude Code loads agents from
-   `<worktree>/.claude/agents/`.
-2. Globs `<worktree>/.claude/agents/*.md` and reads frontmatter `name`
-   and `description`.
-3. If a repo-local agent matches the role declared in the plan, it
-   becomes the implementer for that worktree; otherwise the
-   stack-agnostic fallback is used.
+1. `/worktree init <branch> --repo <repo>` — provisions the worktree AND
+   runs `/add-dir <worktree-abs>` (registered with the active session).
+2. Globs `<worktree>/.claude/agents/*.md` and reads each frontmatter
+   `name` + `description`.
+3. Classifies by name regex:
+   - `^(qa|tester)(-.*)?$` → `qa` bucket
+   - `^(security|sec-review|sec)(-.*)?$` → `sec` bucket
+   - `^(architect|api)(-.*)?$` → `arch` bucket
+   - description aligns with worktree `stack` → `impl` bucket
+   - else → ignored
+4. Picks per bucket:
+   - `impl`: first match; else `implementer` (plugin fallback)
+   - `qa`:   first match; else `team-lead` (inline)
+   - `sec`:  first match; else `team-lead` (runs `/security-audit`)
+   - `arch`: first match; else `implementer`
+5. Persists the choice in `state.md` under the worktree entry.
 
-`qa` and `security` are always the plugin's own agents — they enforce
-workflow invariants (RED-first tests, security audit) and must not be
-overridden by repos.
+## Operating mode — coercive in team-lead
 
-That said, the plugin `qa` **complements itself** with repo-local
-helpers. During discovery the orchestrator also classifies any
-repo-local agent whose name matches `qa`, `tester`, `qa-*`, or
-`tester-*` as a QA helper and forwards the list to the spawned plugin
-`qa`. The plugin `qa` keeps the RED-first contract and final GREEN
-verdict; it calls the helpers via `Agent()` for repo-specific
-framework, runner, fixture, and naming guidance.
+team-lead reads `$IA_TW_TOPIC` at boot. The result is permanent for the
+session and gates all user-facing interaction:
 
-The orchestrator also delegates the Phase-1 pre-analysis pass to
-Claude Code's built-in `general-purpose` agent before drafting the
-plan. Repo discovery, stack detection, and acceptance-criteria
-extraction run there to keep the orchestrator's context lean.
+- `IA_TW_TOPIC != "local"` → **Slack mode**. Replies via the channel's
+  `reply` tool, always passes back the inbound `thread_ts`. `AskUserQuestion`
+  is FORBIDDEN. Boot guard probes the channel via `list_subscriptions`;
+  fails loudly if unreachable.
+- `IA_TW_TOPIC == "local"` → **Local mode**. `AskUserQuestion` for gates,
+  assistant messages for status. Slack tools are not used.
 
-**Removed in the April 2026 reorganization:** `issue-refiner`, `backend-lead`,
-`frontend-lead`, `mobile-lead`, `api-agent`, `domain-agent`, `ui-agent`,
-`mobile-agent`. Their responsibilities were collapsed into the 8 above.
+The mode is fixed at boot. team-lead must not silently downgrade.
 
-**Removed in the agent-teams refactor:** the fixed `Phase 2..11` pipeline in
-`orchestrator.md`. Replaced by the four invariants listed above plus runtime
-team-lead decisions.
+## State and persistence
 
-## Resume semantics — in-process teammates do NOT survive resume
+Per-feature state lives outside any repo:
 
-Per https://code.claude.com/docs/en/agent-teams#limitations, `/resume` and
-`claude --resume` do not restore in-process teammates. The runtime team
-config at `~/.claude/teams/{team-name}/config.json` is recreated each
-time the lead boots; the project never owns this file. A
-`.claude/teams/teams.json` checked into a consumer repo is treated as
-ordinary file content by Claude Code and has no effect.
+```
+$HOME/.claude/team-workflow/state/<topic_hash>/
+  state.md          ← YAML frontmatter + plan + worktrees + audit log
+  hook-audit.log    ← TaskCreated / TaskCompleted log
+  api-contract.md   ← (optional) when api_contract != none
+```
 
-This means `/session --resume-from <sessions_dir>` is **not** a teammate
-resume. It is a fresh team spawn that re-uses the plan seed and PR
-ledger:
-
-1. The orchestrator reads `<sessions_dir>/plan-draft.md` for the plan.
-2. It reads `<sessions_dir>/prs.md` to skip worktrees whose PRs already
-   merged, and to know which security verdicts were already issued.
-3. It re-creates the team and tasks from scratch — never mentions any
-   teammate name from the previous run.
-
-The TaskCreated / TaskCompleted / TeammateIdle hooks (see
-`plugins/team-workflow/hooks/hooks.json`) read the same
-`<sessions_dir>` so cross-task enforcement (qa:red → green, security →
-pr) keeps holding across a resume.
+- `<topic_hash>` = `sha1(IA_TW_TOPIC)[:12]` or `sha1("local:<feature>")[:12]`.
+- Resume: a team-lead boot that sees an existing `state.md` reads it,
+  reconstructs the worktree map, and continues from the recorded phase —
+  it does NOT re-run pre-analysis.
 
 ## Hook-enforced quality gates
 
-Three plugin hooks turn the invariants from convention into enforced
-rules. They live under `plugins/team-workflow/hooks/scripts/` and are
-registered in `plugins/team-workflow/hooks/hooks.json`:
+Three plugin hooks turn the invariants from convention into enforced rules.
+They live under `plugins/team-workflow/hooks/scripts/` and resolve the
+state dir via `$IA_TW_STATE_DIR` (or fall back to a v1 `.sessions/<label>/`
+layout during a transition window).
 
-| Hook            | Script                  | What it enforces                                                                                                  |
-|-----------------|-------------------------|-------------------------------------------------------------------------------------------------------------------|
-| `TaskCreated`   | `task-created.sh`       | Audit-only: every task subject is logged to `<sessions_dir>/hook-audit.log`; stack/pr tasks get a stderr nudge to add `blockedBy` via `TaskUpdate`. Never blocks creation (TaskCreated payload has no `blockedBy` field yet). |
-| `TaskCompleted` | `task-completed.sh`     | Blocks (exit 2) completion of `*:pr*` tasks when `<sessions_dir>/prs.md` lacks a matching `security: APPROVED` line for the same worktree prefix; blocks `*:green*` completion when no `qa:red completed <prefix>` marker is in the audit log. |
-| `TeammateIdle`  | `teammate-idle.sh`      | Blocks (exit 2) `qa` teammates from idling until the transcript contains `RED confirmed`; blocks `security` teammates until the transcript contains `APPROVED` or `REJECTED`. |
+| Hook            | Script                  | Effect                                                                                                          |
+|-----------------|-------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `TaskCreated`   | `task-created.sh`       | Audit-only — logs each task subject; warns when a stack/pr task is created without a clear `blockedBy` prefix. |
+| `TaskCompleted` | `task-completed.sh`     | Blocks (exit 2) `*:pr*` completion when `state.md` lacks `security: APPROVED for <wt_prefix>`; blocks `*:green*` without `RED confirmed for <wt_prefix>`. |
+| `TeammateIdle`  | `teammate-idle.sh`      | Blocks `qa` teammates from idling until the transcript contains `RED confirmed`; blocks `security` teammates until verdict.                              |
 
-The hooks scan transcript files and `.sessions/<label>/` artifacts; when
-they cannot reach those (e.g. inline `Agent()` calls with no session
-dir) they fall back to allow, never to spurious rejection. The
-orchestrator is still responsible for writing `prs.md` entries and the
-`qa:red completed <prefix>` marker — the hooks only fail loudly when
-those markers are missing at completion time.
-
-## Agent-view alternative — `claude --bg` + `claude agents`
-
-Tmux-based `/session` is the default because it keeps Slack-linked
-sub-sessions alive past the supervisor's ~1h idle cull and gives the
-operator a single `tmux attach -t <label>` to see lead + teammates as
-panes. The agent-view path (`claude --bg --agent
-team-workflow:orchestrator "<req>"` + `claude agents` for the dashboard;
-https://code.claude.com/docs/en/agent-view) is supported as an opt-in
-via `/session --mode bg`:
-
-- Recommended for local (non-Slack) `/session` calls with short
-  expected lifetimes.
-- Not recommended for Slack-bridge-anchored sessions; the supervisor
-  may stop the process after ~1h of idleness and the next inbound
-  Slack event will respawn it from disk state, which loses any
-  in-memory `SendMessage` queues to teammates.
-- File edits in `--bg` mode default to `.claude/worktrees/` (managed by
-  the supervisor) instead of `.worktrees/`. The orchestrator must use
-  whichever path the supervisor reports and pass it through
-  `/add-dir`.
+The hooks scan transcripts and `state.md`; when they cannot reach those
+(no state dir), they fall back to allow.
 
 ## Plugin frontmatter limitations
 
-`ia-tools` ships as a Claude Code plugin (`.claude-plugin/plugin.json`).
-Two documented limitations affect every agent file in this repo:
+`ia-tools` ships as a Claude Code plugin. Two documented limits affect every
+agent file:
 
 1. **Plugin subagents ignore `hooks`, `mcpServers`, and `permissionMode`.**
-   These three frontmatter fields are silently dropped when an agent is
-   loaded from a plugin. We do not set them in any agent file. Enforcement
-   that would normally use them has been moved to:
-   - **Tool allowlists** (`tools:` field) — the only plugin-enforceable
-     capability restriction.
-   - **Body instructions** — the agent is told what not to do; compliance
-     is convention, not enforcement.
-   - **`settings.json` at the plugin / consumer level** — hooks that need
-     to fire go here (out of scope for this PR).
-   Consumers who need `PreToolUse` hooks or `permissionMode: plan` must
-   copy the relevant agent file into their own `.claude/agents/`.
+   These three fields are silently dropped. Don't set them; use the
+   `tools:`/`disallowedTools:` field for capability gating and the body
+   for behavioral rules. Hooks live in `hooks/hooks.json` at the plugin
+   level instead.
+2. **Teammates ignore `skills:` and `mcpServers:`.** Tool inheritance is
+   the path. Use `disallowedTools` to deny, and let everything else
+   (including MCP tools) inherit by default.
 
-2. **Teammates ignore `skills:` and `mcpServers:`.** When a subagent
-   definition runs as a teammate (agent teams), those two fields are
-   dropped. Skill preload that would happen via frontmatter is done
-   instead by instructing the agent body to invoke the skill on boot
-   (see `qa.md` and `security.md`). MCP servers must be configured at
-   the session level.
-
-Fields that DO work in plugin agents: `name`, `description`, `tools`,
-`disallowedTools`, `model`, `maxTurns`, `memory`, `background`, `effort`,
-`isolation`, `color`, `initialPrompt`, `skills` (as subagent, not as
-teammate).
+Fields that DO work: `name`, `description`, `tools`, `disallowedTools`,
+`model`, `maxTurns`, `memory`, `background`, `effort`, `isolation`, `color`,
+`initialPrompt`, `skills` (only as one-shot subagent, not as teammate).
 
 ## Parallel development with git worktrees
 
-Single-repo sessions: the orchestrator lives in its own worktree under
-`.worktrees/<dir-name>`.
+Each team-lead provisions one worktree per touched consumer repo via
+`/worktree init <feature> --repo <repo>`. The worktree:
 
-Multi-repo sessions: the orchestrator runs in the consumer repo root (no dedicated
-worktree). The orchestrator creates one worktree per target repo via
-`/worktree init <branch> --repo <target_repo>`, then assigns each to a stack teammate.
+- lives at `<repo>/.worktrees/<feature-as-dirname>/`
+- has `.worktrees/` added to the repo's `.gitignore` if missing
+- gets registered with the active Claude Code session via `/add-dir`
+  (the `/worktree` skill runs this automatically — repo-local agents
+  inside the worktree are then callable via `Agent(...)`).
 
-Worktrees are created by `/worktree init` (local-only) or `/session` (Slack-linked).
-
-- **Committing**: `/commit` works identically inside worktrees.
-- **Quality checks**: `/review` validates formatting, tests, coverage, standards.
-- **PRs**: `/pr` runs `/review --fix` before pushing, then opens the PR.
-- **Reviews**: `/worktree init --review 42` or `/session review/pr-42 --review 42 …`.
-- **Cleanup**: `/worktree cleanup --merged` removes merged worktrees.
-- **Overview**: `/worktree status` for all active worktrees.
-
-Each sub-session's worktree has its own `.claude/settings.local.json` generated by
-`start-session.sh`. That file forces `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-so agent teams are available, and disables
-`slack@claude-plugins-official` (which conflicts with `slack-bridge`). The
-worktree does NOT inherit the repo root's `.claude/` directory.
+The `enforce-worktree.sh` PreToolUse hook is **gitignore-aware**: it
+blocks Edit/Write/MultiEdit on any tracked file outside a
+`.worktrees/*` path when the session has `IA_TW_FEATURE` set, and
+blocks tracked-file edits on `main`/`master` in any session.
 
 ## Consumer `.gitignore` guidance
 
-Consumer repos should add the following to their root `.gitignore`:
+Consumer repos need:
 
 ```
 .worktrees/
-.sessions/
 ```
 
-- **`.worktrees/`** — git worktrees created by `/worktree init` and `/session`. These
-  are ephemeral per-session isolation; never committed.
-- **`.sessions/`** — per-session coordination state created by `/scope-check` and
-  `/session --resume-from`. Contains `scope.md`, `plan-draft.md`, `verdict.json`,
-  `prs.md`. Never committed; retained after `/pr` for audit; cleaned up
-  by `/worktree cleanup` or manually.
-
-`start-session.sh` automatically adds `.worktrees/` to `.gitignore` if missing.
-`.sessions/` must be added manually by the consumer repo admin (or done once
-per consumer via a setup script).
+The `/worktree init` skill auto-adds this on first use. No `.sessions/`
+entry needed in v2 — state lives outside the repo.
 
 ## Rules — all agents
 
-1. **`session-manager` is the only main session.** No other agent listens to
-   DMs or classifies incoming messages. No other agent edits code from the
-   main session.
-2. **Every change runs through approval.** A one-line doc fix still goes
+1. **session-manager is the only main session.** No other agent listens to
+   DMs or classifies incoming messages. No other agent edits code from
+   the main session.
+2. **Every change runs through approval.** Even a one-line doc fix goes
    through plan → approval → PR. Shortcuts are prohibited.
-3. **The plan must be approved before execution.** Orchestrator blocks on
-   the approval gate. No autonomous execution of the plan.
-4. **Architect is conditional.** It runs only when the plan explicitly
-   declares a new or changed API contract. Not for refactors or bug fixes.
-5. **QA writes tests first.** No stack teammate leaves plan mode until
-   `qa` reports `✅ RED confirmed`. Enforced via task dependencies + plan
-   approval mode.
-6. **Stack agents never touch each other's code.** `backend` does not
-   touch `frontend/`, `frontend` does not touch `mobile/`, etc.
-   Cross-stack coordination happens through `api-contract.md`.
-7. **Security gate is blocking** for HIGH/MEDIUM findings. LOW-only
+3. **QA writes tests first.** No impl task GREEN completes until the
+   matching qa:red is completed and the marker is in state.md.
+4. **Security gate is blocking** for HIGH/MEDIUM findings. LOW-only
    findings pass through as PR comments.
-8. **Branch rule.** Nothing merges directly to main. The only path to
+5. **Branch rule.** Nothing merges directly to main. The only path to
    main is via PR. Use `/pr`, never `git push origin main`.
-9. **Worktree commands use `-C`.** Always `git -C <worktree-path>` and
-   the stack's equivalent path flag for build/test commands. Never `cd` into
-   a worktree.
-10. **Logs never reach the repo.** `.gitignore` covers `*.log`. If a log
-    file appears as untracked, extend `.gitignore` — never stage it.
-11. **Plugin is repo-agnostic.** Agents detect the consumer repo's stack
-    via `skills/shared/stack-detection.md` rather than hardcoding paths.
-    The only paths hardcoded in this plugin are its own (`.sdlc/`,
-    `.worktrees/`, `.sessions/`).
-12. **Only the team lead cleans up the team.** Teammates never run
-    cleanup (per the agent-teams docs, teammate cleanup can leave
-    resources in an inconsistent state).
-13. **`.sessions/<label>/` is orchestrator-owned.** Only the orchestrator
-    reads and writes under `.sessions/`. Stack agents never access it.
-14. **N PRs per session.** Multi-repo sessions produce one PR per touched
-    consumer repo. Security APPROVED is required per PR before `/pr` runs.
-    Single-repo sessions produce one PR.
+6. **Worktree commands use `-C`.** Always `git -C <worktree-path>` and
+   the stack's equivalent path flag. Never `cd` into a worktree.
+7. **`.claude/agent-memory/` is the only memory path.** Plugin-owned;
+   agents append, never delete.
+8. **N PRs per session.** Multi-repo sessions produce one PR per touched
+   consumer repo. Security APPROVED required per PR.
 
 ## Autonomy boundaries
 
-The orchestrator is autonomous **within** the invariants. It is NOT
-autonomous across:
+team-lead is autonomous **within** the invariants. It is NOT autonomous
+across:
 
-- **The approval gate.** Always blocks on ✅.
-- **Security HIGH/MEDIUM findings.** Always escalates.
-- **Ambiguous merge conflicts.** Always asks before force-push / discard.
-- **Spec drift.** If `.sdlc/tasks.md` and actual work diverge, stop and
-  report.
+- The approval gate. Always blocks on aprobar.
+- Security HIGH/MEDIUM findings. Always escalates.
+- Ambiguous merge conflicts. Always asks before force-push / discard.
+- Spec drift. If state.md and actual work diverge, stop and report.
 
-Within those boundaries, the orchestrator decides team composition,
-parallelism, and dependency ordering without prompting the user.
-
-Session-manager is autonomous on classification, never on execution — it only
-replies, calls `/scope-check`, or calls `/session`. It only delegates via `Agent`
-to `orchestrator` (for `trivial-config` and `small-change` paths).
-
-## Branch & merge rules
-
-- Implementation happens on feature branches inside worktrees.
-- The only path to main is `/pr` → review → merge.
-- Agents never run `git push origin main` or `git merge main …`.
-- If an agent wakes up on main, the PreToolUse hook in the consumer's
-  `settings.json` blocks writes to protected paths. See
-  `plugins/team-workflow/hooks/scripts/enforce-worktree.sh`.
+session-manager is autonomous on classification, never on execution — it
+only replies, asks for confirmation, or calls `/session`.
