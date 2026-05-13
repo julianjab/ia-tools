@@ -19,6 +19,16 @@ topic_hash=$(printf '%s' "$hash_key" | shasum | head -c 12)
 state_dir="$HOME/.claude/team-workflow/state/$topic_hash"
 mkdir -p "$state_dir"
 
+# If CWD is a git repo, ensure .worktrees/ is in its .gitignore.
+# For multi-repo features the team-lead handles the same step per
+# target repo when it provisions each worktree.
+if git -C "$PWD" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  gi="$(git -C "$PWD" rev-parse --show-toplevel)/.gitignore"
+  if ! grep -qxF '.worktrees/' "$gi" 2>/dev/null; then
+    printf '\n.worktrees/\n' >> "$gi"
+  fi
+fi
+
 env_args=(
   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
   "IA_TW_FEATURE=$feature"
