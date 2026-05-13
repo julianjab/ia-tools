@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.5.1...team-workflow-v0.5.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* **slack-bridge:** accept SLACK_BRIDGE_DEV_CHANNELS env to bypass parent-argv check ([#55](https://github.com/julianjab/ia-tools/issues/55)) ([8d3aa1e](https://github.com/julianjab/ia-tools/commit/8d3aa1e332c77aea75d331772676a4f32d494db8))
+
 ## [0.5.1](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.5.0...team-workflow-v0.5.1) (2026-05-13)
 
 
