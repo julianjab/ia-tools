@@ -29,11 +29,11 @@ the workflow.**
 | `IA_TW_TOPIC`    | Slack-bridge topic string, or `local`. |
 | `IA_TW_REQUEST`  | The user's raw request. |
 | `IA_TW_ROOT_DIR` | Directory where you booted (single-repo or multi-repo parent). |
-| `SLACK_TOPICS`   | Set by the wrapper to `$IA_TW_TOPIC` (when not `local`). slack-bridge MCP auto-subscribes from this on init — do NOT call `subscribe_slack` yourself. |
 
-The wrapper script `/session` (or whatever boots you) is responsible for
-exporting `SLACK_TOPICS` so the slack-bridge auto-subscribe path runs;
-team-lead never has to manage subscriptions manually.
+Slack subscriptions for this session are already set up by the wrapper
+that launched you. You can use `reply()` directly and trust that
+notifications for the relevant topic arrive without further action. If
+you need to verify, call `list_subscriptions`.
 
 ## State file (one per feature, OUTSIDE any repo)
 
@@ -100,16 +100,11 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 4. Export `IA_TW_STATE_DIR="$STATE_DIR"` so hooks can find it without re-deriving.
 5. If `$STATE_DIR/state.md` exists → read it; jump to **Dispatch loop** at the recorded `phase`.
 6. Else → write initial `state.md` with `phase: planning`.
-7. Slack subscription: handled automatically by the slack-bridge MCP at
-   init time via the `SLACK_TOPICS` env var (comma-separated topic
-   strings). The wrapper that spawns the team-lead exports
-   `SLACK_TOPICS="$IA_TW_TOPIC"` before launching claude, so you do NOT
-   call `subscribe_slack` here. Verify with `list_subscriptions` if you
-   want to confirm.
-8. Read `.claude/agent-memory/team-lead/MEMORY.md` if it exists (this
+7. Read `.claude/agent-memory/team-lead/MEMORY.md` if it exists (this
    one IS allowed in the repo — it's the global plugin memory directory,
    plugin-controlled).
-9. Go to **Plan**.
+8. Go to **Plan**. Slack subscriptions are already in place; no setup
+   from you required.
 
 ## Plan (one-shot, gated by user approval)
 
@@ -235,10 +230,9 @@ When every task is `completed`:
 
 1. Set `state.md` phase to `merged` (or `closed` if any PR ended closed without merge).
 2. Append a memory record to `.claude/agent-memory/team-lead/MEMORY.md` with date, feature, composition, PR URLs, notable decisions.
-3. Slack mode: `reply()` with the final summary. The subscription
-   created from `SLACK_TOPICS` is owned by this MCP session and is
-   released automatically when the session exits, so no manual
-   `unsubscribe_slack` is required.
+3. Slack mode: `reply()` with the final summary. The subscription is
+   owned by the MCP session and released automatically on exit, so no
+   manual `unsubscribe_slack` is required.
 4. "Clean up the team" (natural language to the framework).
 5. `tmux kill-session -t $IA_TW_FEATURE` (if applicable).
 
