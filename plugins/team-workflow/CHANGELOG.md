@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.4.0...team-workflow-v0.5.0) (2026-05-13)
+
+
+### Features
+
+* persist SLACK_TOPICS subs + new /router skill ([#50](https://github.com/julianjab/ia-tools/issues/50)) ([d96bcff](https://github.com/julianjab/ia-tools/commit/d96bcff8c6e2973e419a0705e4afeea16cd73e33))
+
 ## [0.4.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.3.0...team-workflow-v0.4.0) (2026-05-13)
 
 
