@@ -19,8 +19,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run release-please
+        id: release
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
+
+      # release-please's model is PR-based: it opens a "Release PR" with
+      # version bumps + CHANGELOG entries. We squash-merge it immediately
+      # so the bump lands on main without manual review. The squash-merge
+      # triggers another release.yml run on main, which release-please
+      # reconciles to a no-op against the updated manifest and tags.
+      #
+      # If branch protection on main requires status checks, this errors
+      # and the PR stays open — operator either relaxes the rule or
+      # merges manually.
+      - name: Auto-merge the Release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pr_number=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.number')
+          if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
+            echo "release-please reported no PR; nothing to merge."
+            exit 0
+          fi
+          echo "Merging release PR #$pr_number..."
+          gh pr merge "$pr_number" \
+            --squash \
+            --repo "${{ github.repository }}"
