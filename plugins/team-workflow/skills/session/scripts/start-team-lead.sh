@@ -37,5 +37,21 @@ tmux new-session -d -s "$feature" -c "$PWD" -- \
          --dangerously-skip-permissions \
          "$request"
 
+# Boot-prompt poller: dismisses the two one-time prompts (dev-channels
+# warning + trust-folder) by sending Enter when their patterns appear.
+# Runs at most 30s in background, then exits — does NOT touch later
+# prompts like ExitPlanMode.
+(
+  for _ in $(seq 1 15); do
+    sleep 2
+    out=$(tmux capture-pane -p -t "$feature" 2>/dev/null | tail -15) || break
+    case "$out" in
+      *"local development"*|*"Trust the files"*|*"trust the files"*|*"Do you trust"*)
+        tmux send-keys -t "$feature" Enter
+        ;;
+    esac
+  done
+) >/dev/null 2>&1 &
+
 echo "✓ team-lead spawned (tmux: $feature, state: $state_dir)"
 echo "  attach: tmux attach -t $feature"
