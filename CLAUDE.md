@@ -96,8 +96,8 @@ not teammate).
   Everything else — qa, security, architect, per-stack implementers — is
   discovered at runtime from each touched repo's `<repo>/.claude/agents/`.
 - `plugins/team-workflow/skills/` — Reusable Claude Code skills:
-  `session`, `worktree`, `commit`, `review`, `pr`, `ship`, `sync-docs`,
-  `pr-review`, `security-audit`, `test-generation`.
+  `session`, `worktree`, `commit`, `review`, `pr`, `team-review`,
+  `sync-docs`, `pr-review`, `security-audit`.
 - `plugins/team-workflow/hooks/` — `enforce-worktree.sh` (PreToolUse,
   gitignore-aware), `task-created.sh` / `task-completed.sh` /
   `teammate-idle.sh` (agent-teams quality gates).
@@ -178,7 +178,7 @@ happens at MCP init via the `SLACK_TOPICS` env var (set by
 - `/commit` — Conventional commits: format, stage, commit.
 - `/review` — Quality gate: formatting, tests, coverage, standards.
 - `/pr` — Push + PR: invokes `/review`, resolves conflicts, creates PR.
-- `/ship` — PR review request: waits for CI, notifies Slack.
+- `/team-review` — Request team review for an open PR: preflight, wait CI, notify configured Slack channel + reviewers, subscribe to the thread. Config via `settings.local.json` env (`TEAM_REVIEW_CHANNEL`, `TEAM_REVIEW_MENTIONS`).
 - `/sync-docs` — CLAUDE.md synchronization across docs.
 - `/pr-review`, `/security-audit`, `/test-generation` — Specialized
   helpers used by team-lead or stack implementers.

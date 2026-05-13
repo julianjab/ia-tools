@@ -245,6 +245,17 @@ graph in one pass. For each worktree (let `P` be its `wt_prefix`):
 | `P:impl:green`            | `agents.impl` | `green for P`                    | `P:qa:red`          |
 | `P:security`              | `agents.sec` | `security: APPROVED for P`        | `P:impl:green`      |
 | `P:pr`                    | `agents.impl`| `pr_url for P`                    | `P:security`        |
+| `P:team-review`           | `team-lead`| `team-review requested for P`       | `P:pr`              |
+
+The `:team-review` task is **optional**. Omit it entirely when:
+- `TEAM_REVIEW_CHANNEL` is not configured (no env, no CLAUDE.md), OR
+- The feature is a trivial doc / config change that doesn't need formal
+  team review.
+Otherwise the team-lead invokes `/team-review --skip-review` for this
+task (the `/pr` skill already validated the diff). The skill posts to
+the configured Slack channel mentioning the configured reviewers and
+subscribes to that thread — follow-up comments arrive automatically
+during the remaining session lifetime.
 
 If API contract is `new` or `changed`, add one cross-cutting task BEFORE
 any `:impl:green`:
