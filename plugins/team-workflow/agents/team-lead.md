@@ -187,22 +187,50 @@ Worktrees + candidate agents (filled in after Provision):
 
 ## Provision worktrees + discover agents (1..N)
 
-For every touched repo (in plan order):
+For every touched repo (in plan order), execute these steps **strictly
+in order**. No step may be skipped or reordered. The `/add-dir` step
+is what makes the worktree's repo-local agents callable — without it,
+`Agent(subagent_type=<repo-local-name>)` will fail with "agent type
+not found" and waste a turn.
 
-1. `/worktree init $IA_TW_FEATURE --repo <repo-abs>` (single-repo: omit `--repo`).
-2. `/add-dir <worktree-abs>`.
-3. `Glob <worktree-abs>/.claude/agents/*.md`. For each match, read frontmatter `name` + `description`. Classify by name regex:
+1. **Create the worktree**:
+   `/worktree init $IA_TW_FEATURE --repo <repo-abs>` (single-repo:
+   omit `--repo`). Confirm the worktree path it printed.
+2. **Register the worktree's `.claude/` with the session**:
+   `/add-dir <worktree-abs>`. This is **mandatory before any
+   `Agent(...)` call referencing a repo-local subagent type**. The
+   command takes effect immediately for subsequent `Agent` calls.
+3. **Discover repo-local agents**:
+   `Glob <worktree-abs>/.claude/agents/*.md`. For each match, read
+   frontmatter `name` + `description`. Classify by name regex:
    - `^(qa|tester)(-.*)?$` → `qa` bucket
    - `^(security|sec-review|sec)(-.*)?$` → `sec` bucket
    - `^(architect|api)(-.*)?$` → `arch` bucket
    - description aligns with the worktree's `stack` → `impl` bucket
    - else → ignore
-4. Pick per bucket:
+4. **Pick per bucket** (use ONLY names from the Glob output above —
+   never invent or hallucinate an agent name):
    - `impl`: first repo-local match; else `general-purpose`
    - `qa`:   first repo-local match; else `team-lead`
    - `sec`:  first repo-local match; else `team-lead`
    - `arch`: first repo-local match; else `general-purpose`
 5. Append the worktree entry to `state.md` with `agents:` populated.
+
+### Spawn rule for repo-local agents
+
+When invoking `Agent(subagent_type=<name>, ...)` for any name that came
+from a worktree's `.claude/agents/`, you MUST have executed the
+`/add-dir <worktree-abs>` of that worktree earlier in the session. If
+the spawn returns "Agent type '<name>' not found", do NOT retry with a
+different invented name — instead:
+
+1. Verify you actually ran `/add-dir` for the worktree this agent
+   belongs to. If not, run it now and retry.
+2. If `/add-dir` was already run and the name still fails, the
+   classification was wrong (e.g. the file's `name:` field differs
+   from its filename). Re-read the agent file's frontmatter and use
+   the literal `name:` value.
+3. Only as a last resort, fall back to the plugin's `qa` / `general-purpose`.
 
 ## Build task list (one declarative pass)
 
