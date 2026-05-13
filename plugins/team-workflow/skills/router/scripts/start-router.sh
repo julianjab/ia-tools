@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spawn the session-manager router in a detached tmux session.
+# Spawn the router agent in a detached tmux session.
 #
 # Hides the --dangerously-load-development-channels flag inside this
 # wrapper so operators don't tipe it on every boot. slack-bridge is a
@@ -49,11 +49,11 @@ env_args=(
 
 tmux new-session -d -s "$session_name" -c "$PWD" -- \
   env "${env_args[@]}" \
-  claude --agent team-workflow:session-manager \
+  claude --agent team-workflow:router \
          --dangerously-load-development-channels plugin:slack-bridge@ia-tools \
          --dangerously-skip-permissions
 
-# Boot-prompt poller (same pattern as start-team-lead.sh): dismiss the
+# Boot-prompt poller (same pattern as start-lead.sh): dismiss the
 # dev-channels and trust-folder prompts so the operator doesn't have to
 # attach just to press Enter twice. Runs at most 30s in background.
 (
@@ -68,5 +68,5 @@ tmux new-session -d -s "$session_name" -c "$PWD" -- \
   done
 ) >/dev/null 2>&1 &
 
-echo "✓ session-manager booted (tmux: $session_name, topic: $topic)"
+echo "✓ router booted (tmux: $session_name, topic: $topic)"
 echo "  attach: tmux attach -t $session_name"

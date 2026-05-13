@@ -1,24 +1,23 @@
 ---
 name: router
 description: >
-  Spawn the main `session-manager` router in a detached tmux session,
-  subscribed to a Slack topic. Hides the
-  `--dangerously-load-development-channels` flag in the wrapper script
-  so the operator doesn't type it on every boot. Use this once per
-  machine to get the always-on router listening; `/session` then
-  handles per-feature sub-sessions. Trigger words: "start router",
-  "boot router", "start session-manager", "levanta el router".
+  Spawn the main `router` agent in a detached tmux session, subscribed
+  to a Slack topic. Hides the `--dangerously-load-development-channels`
+  flag in the wrapper script so the operator doesn't type it on every
+  boot. Use this once per machine to get the always-on router
+  listening; `/session` then handles per-feature sub-sessions. Trigger
+  words: "start router", "boot router", "levanta el router".
 argument-hint: "<slack-topic> [tmux-session-name]"
 disable-model-invocation: false
 ---
 
-## /router — Boot the session-manager router
+## /router — Boot the router agent
 
-`/router` spawns the always-on Slack router in a detached tmux session.
-The router (`session-manager` agent) classifies every inbound message
-and dispatches `team-lead` sub-sessions on `dispatch` intent. It's the
-counterpart to `/session` (which boots one team-lead per feature) —
-you need exactly one router running per machine.
+`/router` spawns the always-on Slack router in a detached tmux
+session. The `router` agent classifies every inbound message and
+dispatches `lead` sub-sessions on `dispatch` intent. It's the
+counterpart to `/session` (which boots one `lead` per feature) — you
+need exactly one router running per machine.
 
 ### Argument parsing
 
@@ -55,7 +54,7 @@ The wrapper:
    auto-subscribes at init and persists the subscription to
    `/tmp/slack-bridge/<session-id>/slack-bridge.json` (per the
    persistence fix shipped in this PR).
-3. Spawns `claude --agent team-workflow:session-manager
+3. Spawns `claude --agent team-workflow:router
    --dangerously-load-development-channels plugin:slack-bridge@ia-tools
    --dangerously-skip-permissions` inside the tmux session.
 4. Starts a 30s background poller that dismisses the dev-channels
@@ -73,7 +72,7 @@ The wrapper:
 
 ### What it does NOT do
 
-- Does NOT spawn any team-lead. That's `/session`'s job, invoked
+- Does NOT spawn any lead. That's `/session`'s job, invoked
   later by the running router on `dispatch` intent.
 - Does NOT create a worktree. The router is read-only on the codebase.
 - Does NOT support multiple topics in one call. If you need multiple
@@ -109,7 +108,7 @@ The wrapper:
 ### Relationship to other skills
 
 - **`/router`** — spawns ONE router per machine. Read-only.
-- **`/session`** — spawns ONE team-lead per feature. Boots inside a
+- **`/session`** — spawns ONE lead per feature. Boots inside a
   worktree. Invoked by the router on `dispatch` intent.
-- **`/worktree init`** — invoked by team-lead per touched repo;
+- **`/worktree init`** — invoked by lead per touched repo;
   auto-runs `/add-dir`.
