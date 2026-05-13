@@ -1,27 +1,24 @@
 ---
 name: worktree
 description: >
-  Git worktree management for parallel development workflows.
-  Create isolated worktrees for features, reviews, and hotfixes without switching branches.
-  Supports: `init` (create worktree), `list` (show active worktrees), `switch`
-  (change context), `cleanup` (remove merged/stale worktrees), `status`
-  (overview of all worktrees).
-  `init` accepts `--repo <path>` so teammates can create worktrees in sibling repos
-  (multi-repo mode). All other flags are unchanged.
-  **Note**: For spawning a Claude sub-session linked to a Slack thread, use
-  `/task` instead — that is the only way `session-manager` hands off work.
+  Git worktree management for parallel development. Create isolated
+  worktrees for features, reviews, and hotfixes without switching
+  branches. Supports: `init` (create), `list` (show active),
+  `switch` (change context), `cleanup` (remove merged/stale), `status`
+  (overview). `init` accepts `--repo <path>` to create worktrees in
+  sibling repos (multi-repo mode).
   Examples: `/worktree init feat/notification-service`,
-  `/worktree init feat/payment-tracking --repo /Users/julian/lahaus/backend/python/subscriptions`,
+  `/worktree init feat/payment-tracking --repo /path/to/repo`,
   `/worktree list`, `/worktree cleanup --merged`, `/worktree status`.
 argument-hint: "[init|list|switch|cleanup|status] [branch-name] [--base main] [--review <pr>] [--repo <path>]"
 disable-model-invocation: false
 ---
 
-## Worktree Manager — Parallel Development Workflow
+## Worktree Manager
 
-**This skill manages git worktrees only.** It does NOT open Claude sessions, does
-NOT touch Slack, and does NOT inject any system prompt. For task sub-sessions
-linked to a Slack thread, use `/session` — see `skills/session/SKILL.md`.
+This skill manages git worktrees only. It does not open any other
+process; callers handle whatever they need on top of the created
+worktree.
 
 Parse `$ARGUMENTS` to determine which sub-command to execute:
 
@@ -43,15 +40,15 @@ Parse `$ARGUMENTS` to determine which sub-command to execute:
 All worktrees are created as siblings of the main repo under a `.worktrees/` directory:
 
 ```
-ia-tools/                  ← main repo (stays on main/master)
-ia-tools/.worktrees/
+<repo>/                    ← main repo (stays on main/master)
+<repo>/.worktrees/
   feat-notification/       ← worktree for feat/notification-service
   fix-duplicate-msgs/      ← worktree for fix/duplicate-whatsapp-messages
   review-pr-42/            ← worktree for reviewing PR #42
 ```
 
 **Why `.worktrees/` inside the repo?**
-- Underscore prefix keeps it sorted at the top and signals "infrastructure"
+- Sorted at the top, signals "infrastructure"
 - `.gitignore` excludes it — never committed
 - Easy to find relative to the project root
 
@@ -151,8 +148,8 @@ When `--repo <path>` is provided:
    ```bash
    cp -r "${TARGET_REPO}/.claude/" "${WORKTREE_PATH}/.claude/"
    ```
-   This carries over all Claude config (hooks, skills, channels, settings) so the worktree
-   session behaves identically to the main repo. The copy is local — `.claude/` is already
+   This carries over local Claude config (hooks, skills, channels, settings) so the
+   worktree behaves identically to the main repo. The copy is local — `.claude/` is
    gitignored so it never reaches the remote.
 
 9. **Verify the worktree**:
@@ -188,7 +185,6 @@ When `--repo <path>` is provided:
 
 2. **For each worktree, gather details**:
    ```bash
-   # For each worktree path:
    git -C <path> branch --show-current
    git -C <path> status --porcelain | wc -l
    git -C <path> log origin/main..HEAD --oneline 2>/dev/null | wc -l
@@ -343,9 +339,8 @@ When `--repo <path>` is provided:
 
 1. Run all checks from `list` plus:
    ```bash
-   # Per worktree:
-   git -C <path> stash list | wc -l          # stashed changes
-   git -C <path> log --oneline -1 --format="%cr"  # last commit age
+   git -C <path> stash list | wc -l                # stashed changes
+   git -C <path> log --oneline -1 --format="%cr"   # last commit age
    ```
 
 2. **Check CI status for worktrees with PRs**:
@@ -380,28 +375,10 @@ When `--repo <path>` is provided:
    ```
 
 4. **Suggest next actions** based on state:
-   - Worktrees with uncommitted changes → suggest `/deliver commit`
-   - Worktrees ready for PR → suggest `/deliver pr`
+   - Worktrees with uncommitted changes → suggest `/commit`
+   - Worktrees ready for PR → suggest `/pr`
    - Review worktrees with no activity → suggest `/worktree cleanup`
    - Merged branches → suggest `/worktree cleanup --merged`
-
----
-
-## Integration with other skills
-
-| Workflow Step | Skill | What happens |
-|---------------|-------|--------------|
-| Start a task locally in the terminal | `/worktree init feat/x` | Creates worktree + branch (no Claude session, no Slack) |
-| Start a task from Slack (triage routes) | `/task feat/x --thread <ts> --channel <id> --description "..."` | Handles worktree creation + sub-session + Slack subscribe end-to-end |
-| Write code | _(sub-session's stack agents do this)_ | Files at `.worktrees/feat-x/` |
-| Commit checkpoint | `/commit` | Formats, stages, commits from within the worktree |
-| Validate quality | `/review` | Runs fmt + tests + coverage + rules |
-| Create PR | `/pr` | Invokes `/review --fix`, pushes, creates PR with diagrams |
-| Start review | `/worktree init --review 42` _or_ `/task review/pr-42 --review 42 --thread <ts> --channel <id>` | Local-only vs Slack-linked variants |
-| Finish task | `/worktree cleanup feat/x` | Removes worktree after merge |
-| Parallel work | `/worktree switch fix/y` | Redirects agent to another worktree |
-
-**Key rule**: All skills (`/commit`, `/review`, `/pr`) work the same inside a worktree as in the main repo. The branch is already set by the worktree — no checkout needed.
 
 ---
 
