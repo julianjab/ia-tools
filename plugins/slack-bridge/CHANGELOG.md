@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.5.1...slack-bridge-v0.5.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* **slack-bridge:** forward SLACK_BRIDGE_DEV_CHANNELS via .mcp.json env ([#57](https://github.com/julianjab/ia-tools/issues/57)) ([0d4ddf1](https://github.com/julianjab/ia-tools/commit/0d4ddf15107c188a0e95931e21058f0331c26e76))
+
 ## [0.5.1](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.5.0...slack-bridge-v0.5.1) (2026-05-13)
 
 
