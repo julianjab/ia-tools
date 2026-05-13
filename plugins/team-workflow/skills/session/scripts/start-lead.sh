@@ -30,6 +30,7 @@ env_args=(
   "IA_TW_REQUEST=$request"
   "IA_TW_ROOT_DIR=$PWD"
   "IA_TW_STATE_DIR=$state_dir"
+  "SLACK_BRIDGE_DEV_CHANNELS=1"
 )
 [ -n "$topic" ] && env_args+=("SLACK_TOPICS=$topic")
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_args+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
