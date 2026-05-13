@@ -10,6 +10,8 @@ const outdir = process.env.SLACK_BRIDGE_OUTDIR
   ? resolve(process.env.SLACK_BRIDGE_OUTDIR)
   : resolve(pluginRoot, 'dist');
 const watch = process.argv.includes('--watch');
+const dev = process.argv.includes('--dev') || watch;
+const sourcemap = dev || !!process.env.SLACK_BRIDGE_SOURCEMAPS;
 
 await rm(outdir, { recursive: true, force: true });
 
@@ -29,8 +31,8 @@ const options = {
   format: 'esm',
   target: 'node22',
   // Sourcemaps are opt-in: bloat the committed dist by ~5MB so we keep them off
-  // by default and let local debugging enable via SLACK_BRIDGE_SOURCEMAPS=1.
-  sourcemap: process.env.SLACK_BRIDGE_SOURCEMAPS ? 'linked' : false,
+  // by default. Enabled by --dev, --watch, or SLACK_BRIDGE_SOURCEMAPS=1.
+  sourcemap: sourcemap ? 'linked' : false,
   legalComments: 'none',
   banner: {
     js: "import{createRequire}from'module';const require=createRequire(import.meta.url);",
