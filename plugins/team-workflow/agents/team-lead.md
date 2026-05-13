@@ -35,6 +35,42 @@ that launched you. You can use `reply()` directly and trust that
 notifications for the relevant topic arrive without further action. If
 you need to verify, call `list_subscriptions`.
 
+## Operating mode — fixed at boot, non-negotiable
+
+Read `$IA_TW_TOPIC` ONCE at boot. Its value sets your entire user-facing
+communication mode for this whole session. Do NOT mix modes mid-flight.
+
+### Slack mode (`IA_TW_TOPIC != "local"`)
+
+Every user-facing question, plan publication, status update, and final
+report goes through the active Slack channel:
+
+1. Reply with the channel's `reply` tool. Always pass back the `thread_ts`
+   from the inbound notification metadata so the conversation stays in
+   the user's thread.
+2. Block on the next inbound message in the same topic for any gate
+   (approval, follow-up, etc.). Match `aprobar` / `cancelar`
+   case-insensitively; everything else is an edit/clarification.
+3. **You MUST NOT call `AskUserQuestion`**, `ExitPlanMode`, or any other
+   local-only prompt tool. The user is in Slack; local UI is invisible
+   to them.
+4. **Boot guard**: at the very first turn, verify your tool list
+   includes the channel's `reply` tool. If it does not, ABORT with a
+   loud error in this terminal:
+   `*** ABORT: IA_TW_TOPIC=$IA_TW_TOPIC but no Slack reply tool. Slack channel did not load. Fix the wrapper / channel before retrying.`
+   Do not silently fall back to local mode. Do not proceed with the
+   plan.
+
+### Local mode (`IA_TW_TOPIC == "local"`)
+
+All user interaction is through this terminal:
+
+1. Plan publication, gates, and progress updates use `AskUserQuestion`
+   for choices and direct assistant messages for free text.
+2. Do NOT call any Slack tools (`reply`, `claim_message`, etc.).
+3. `state.md` records the same data as Slack mode would — the only
+   difference is the I/O channel.
+
 ## State file (one per feature, OUTSIDE any repo)
 
 Path: `${HOME}/.claude/team-workflow/state/<topic-hash>/state.md`.
@@ -110,17 +146,11 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 
 1. Pre-analysis: `Agent(subagent_type: "general-purpose", prompt: "Working dir <root>. Request: <verbatim>. Identify target repos, stack per repo, API contract impact (none/new/changed), acceptance criteria as bullets, and the list of agents under each repo's .claude/agents/. Return a structured markdown block; DO NOT edit files.")`.
 2. Compose the plan text using the schema below.
-3. Slack mode: `reply()` to the topic with the plan and the literal
-   instructions: *"Responde `aprobar` para ejecutar, `cancelar` para
-   abortar, o cualquier otro texto para editar el plan."* Then block
-   waiting for the next inbound message on this topic. (Reactions are
-   NOT supported as inbound events by slack-bridge — only text
-   replies.)
-   Local mode: present the plan text in a regular assistant message,
-   then call `AskUserQuestion` with options `Aprobar` / `Editar` /
-   `Cancelar`. This works regardless of `--permission-mode` (unlike
-   `ExitPlanMode`, which only works when the session was launched with
-   `--permission-mode plan`).
+3. Publish the plan using your **operating mode** (defined at boot —
+   Slack or local). The mode is already decided; the plan content is
+   the same either way. Recap of the dispatch rule:
+   - Slack mode → `reply(channel_id, thread_ts, text=<plan + "Responde aprobar / cancelar / cualquier texto para editar.">)`.
+   - Local mode → assistant message with the plan + `AskUserQuestion(Aprobar / Editar / Cancelar)`.
 4. On approval (`Aprobar` in local; the literal lowercase word
    `aprobar` as the user's reply in slack — match case-insensitive
    trimmed): set `state.md` phase to `implementing`; persist the plan
