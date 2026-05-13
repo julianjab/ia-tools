@@ -113,13 +113,22 @@ Hard signals that trigger `dispatch` directly (no `ask` gate needed):
    - PR review (`revisa PR #N`) → `review/pr-<N>`
    - Otherwise → `chore/<slug>`
 
-2. **Extract the topic** from the inbound notification metadata (if
-   present): `<channel_id>:*:<thread_ts>` for thread messages,
-   `DM:<user_id>` for direct messages, or empty if there is no
-   transport metadata. The runtime channel attaches this metadata to
-   inbound messages automatically; just read it. (When the topic is
-   present, post a brief acknowledgment first so team-lead has a
-   thread to subscribe to.)
+2. **Extract the topic** from the inbound notification metadata.
+   Priority order (use the first that applies):
+
+   1. `<channel_id>:*:<thread_ts>` — whenever the inbound carries a
+      `thread_ts`. This is the narrowest match and the right choice
+      for nearly every Slack message, including DMs to
+      assistant-configured bots (which always arrive with a
+      `thread_ts` because Slack wraps them in an assistant thread).
+   2. `DM:<user_id>` — only when the inbound is in a DM channel
+      (channel_id starts with `D`) AND there is NO `thread_ts`.
+   3. Empty — no inbound transport metadata at all (terminal-driven
+      request).
+
+   When the topic is non-empty, post a brief acknowledgment first
+   (preserving `thread_ts` per the Reply continuity rule) so the
+   team-lead's subscription has an anchored thread to listen to.
 
 3. **Invoke the wrapper**:
    ```bash
