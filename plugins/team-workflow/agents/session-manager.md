@@ -5,7 +5,7 @@ model: sonnet
 color: cyan
 maxTurns: 100
 memory: project
-tools: Read, Grep, Glob, Bash, Agent(Explore), mcp__slack-bridge__*
+disallowedTools: Edit, Write, MultiEdit, NotebookEdit
 ---
 
 # session-manager — Main Session Router
@@ -164,11 +164,16 @@ pane usually shows a `← slack-bridge:` prefix on the visible line.
 
 For every Slack-origin message:
 
-1. **Claim it first**:
-   `mcp__slack-bridge__claim_message(message_ts=<ts>, requested_by=<user_id>)`.
+1. **Claim it first**: call the `claim_message` tool from the
+   slack-bridge MCP with `message_ts=<ts>, requested_by=<user_id>`.
    Required by slack-bridge before any reply.
-2. **Reply via slack-bridge**:
-   `mcp__slack-bridge__reply(channel_id=<channel>, thread_ts=<thread or omit>, text=<your reply>)`.
+2. **Reply via slack-bridge**: call the `reply` tool with
+   `channel_id=<channel>, thread_ts=<thread or omit>, text=<your reply>`.
+
+The exact tool name as surfaced in your tool list (e.g.
+`mcp__<server>__claim_message`) is what you call. Don't reproduce the
+prefix from this prompt; use whichever fully-qualified name the
+runtime exposes.
 3. **DO NOT** also print the reply in your local terminal. The terminal
    pane is your scratchpad; the user sees Slack. One destination per
    message.
