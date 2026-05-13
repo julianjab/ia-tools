@@ -25,6 +25,7 @@ mkdir -p "$state_dir"
 
 env_args=(
   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
+  "CLAUDE_CODE_DISABLE_AGENT_VIEW=1"
   "IA_TW_FEATURE=$feature"
   "IA_TW_TOPIC=${topic:-local}"
   "IA_TW_REQUEST=$request"

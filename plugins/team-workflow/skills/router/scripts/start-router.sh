@@ -9,27 +9,30 @@
 # this script's claude invocation can be simplified to --channels.
 #
 # Usage:
-#   bash start-router.sh <slack-user-or-channel-topic> [tmux-session-name]
+#   bash start-router.sh [slack-topic] [tmux-session-name]
 #
 # Positional args:
-#   $1  topic        Single slack-bridge topic to subscribe at boot.
+#   $1  topic        Optional. Slack-bridge topic(s) to subscribe at boot.
+#                    Omit to start the router without any subscription;
+#                    use subscribe_slack inside the session later.
 #                    Shapes:
 #                      DM:<user_id>                       — DMs with the user
 #                      <channel_id>                       — entire channel
 #                      <channel_id>:*:<thread_ts>         — single thread
-#                    The MCP auto-subscribes from this via SLACK_TOPICS
-#                    and (with the persistence fix in this PR) writes
-#                    it to the per-session slack-bridge.json so the
-#                    state survives across reloads.
+#                    Comma-separated for multiple topics at once.
 #   $2  session      Optional. tmux session name. Default: "sm".
+#                    Must not be passed if $1 is omitted (use -- or just
+#                    pass "" as $1 to supply a session name without a topic).
 set -euo pipefail
 
-topic="${1:?usage: start-router.sh <slack-topic> [tmux-session-name]}"
+topic="${1:-}"
 session_name="${2:-sm}"
 
-case "$topic" in
-  *$'\n'*|*$'\r'*) echo "invalid character in topic" >&2; exit 1 ;;
-esac
+if [ -n "$topic" ]; then
+  case "$topic" in
+    *$'\n'*|*$'\r'*) echo "invalid character in topic" >&2; exit 1 ;;
+  esac
+fi
 case "$session_name" in
   *.*|*:*) echo "tmux session name must not contain . or :" >&2; exit 1 ;;
 esac
@@ -43,9 +46,10 @@ fi
 
 env_args=(
   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
-  "SLACK_TOPICS=$topic"
+  "CLAUDE_CODE_DISABLE_AGENT_VIEW=1"
   "SLACK_BRIDGE_DEV_CHANNELS=1"
 )
+[ -n "$topic" ] && env_args+=("SLACK_TOPICS=$topic")
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_args+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
 
 tmux new-session -d -s "$session_name" -c "$PWD" -- \
@@ -69,5 +73,9 @@ tmux new-session -d -s "$session_name" -c "$PWD" -- \
   done
 ) >/dev/null 2>&1 &
 
-echo "✓ router booted (tmux: $session_name, topic: $topic)"
+if [ -n "$topic" ]; then
+  echo "✓ router booted (tmux: $session_name, topic: $topic)"
+else
+  echo "✓ router booted (tmux: $session_name, no topic — subscribe later with subscribe_slack)"
+fi
 echo "  attach: tmux attach -t $session_name"

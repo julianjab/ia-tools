@@ -1,13 +1,14 @@
 ---
 name: router
 description: >
-  Spawn the main `router` agent in a detached tmux session, subscribed
-  to a Slack topic. Hides the `--dangerously-load-development-channels`
+  Spawn the main `router` agent in a detached tmux session. Topic is
+  optional — omit it to start without a subscription and subscribe later
+  with subscribe_slack. Hides the `--dangerously-load-development-channels`
   flag in the wrapper script so the operator doesn't type it on every
   boot. Use this once per machine to get the always-on router
   listening; `/session` then handles per-feature sub-sessions. Trigger
   words: "start router", "boot router", "levanta el router".
-argument-hint: "<slack-topic> [tmux-session-name]"
+argument-hint: "[slack-topic] [tmux-session-name]"
 disable-model-invocation: false
 ---
 
@@ -27,9 +28,11 @@ Tokenize `$ARGUMENTS`:
 |---|---|
 | First positional matching `DM:U.*` / `C.*` / `C.*:\*:<ts>` | `TOPIC` |
 | Second positional (no `.` or `:`) | `SESSION_NAME` (default: `sm`) |
+| No arguments at all | `TOPIC=""`, `SESSION_NAME="sm"` — allowed |
 | Anything else | reject with usage hint |
 
-If `TOPIC` is empty → STOP with `Usage: /router <slack-topic> [tmux-session-name]`.
+`TOPIC` is optional. When empty the router boots without any subscription;
+the operator uses `subscribe_slack` inside the session later.
 
 ### Step 1 — Verify dependencies
 
@@ -50,10 +53,9 @@ The wrapper:
 
 1. Refuses if a tmux session with that name is already running (the
    router is meant to be a singleton).
-2. Exports `SLACK_TOPICS=<TOPIC>` so the slack-bridge MCP
-   auto-subscribes at init and persists the subscription to
-   `/tmp/slack-bridge/<session-id>/slack-bridge.json` (per the
-   persistence fix shipped in this PR).
+2. If `TOPIC` is non-empty, exports `SLACK_TOPICS=<TOPIC>` so the
+   slack-bridge MCP auto-subscribes at init. Omitting the topic starts
+   the router without any subscription.
 3. Spawns `claude --agent team-workflow:router
    --dangerously-load-development-channels plugin:slack-bridge@ia-tools
    --dangerously-skip-permissions` inside the tmux session.
@@ -83,7 +85,7 @@ The wrapper:
 
 | Situation | Action |
 |---|---|
-| `TOPIC` empty | Reject with usage hint. |
+| `TOPIC` empty | Allowed — router boots without subscription. |
 | `SESSION_NAME` contains `.` or `:` | Reject (tmux target syntax). |
 | tmux session with same name already exists | Warn and reuse; do not relaunch claude. |
 | `tmux` or `claude` not on PATH | Abort with install hint. |
@@ -92,6 +94,12 @@ The wrapper:
 ### Examples
 
 ```bash
+# Start without a topic — subscribe later inside the session
+/router
+
+# Custom session name, no topic
+/router "" sm-lahaus
+
 # Most common: subscribe to your DM channel with the bot
 /router DM:U02M1QFA0AF
 
