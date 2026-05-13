@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.5.0...team-workflow-v0.5.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* **team-workflow:** tool-guard minimize built-in PATTERNS and ignore quoted strings ([#53](https://github.com/julianjab/ia-tools/issues/53)) ([667296e](https://github.com/julianjab/ia-tools/commit/667296e73f6f9a6c0eab295ab6bcb9818f26af8a))
+
 ## [0.5.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.4.0...team-workflow-v0.5.0) (2026-05-13)
 
 
