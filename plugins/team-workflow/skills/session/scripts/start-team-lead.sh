@@ -33,6 +33,7 @@ env_args=(
 tmux new-session -d -s "$feature" -c "$PWD" -- \
   env "${env_args[@]}" \
   claude --agent team-workflow:team-lead \
+         --dangerously-load-development-channels plugin:slack-bridge@ia-tools \
          --dangerously-skip-permissions \
          --teammate-mode tmux \
          "$request"
