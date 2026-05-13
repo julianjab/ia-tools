@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.5.2...slack-bridge-v0.5.3) (2026-05-13)
+
+
+### Refactors
+
+* **slack-bridge:** remove SLACK_BRIDGE_DEV_CHANNELS bypass ([#61](https://github.com/julianjab/ia-tools/issues/61)) ([8b3fe83](https://github.com/julianjab/ia-tools/commit/8b3fe83dba2356bbcf99bda78829fc28580f921b))
+
 ## [0.5.2](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.5.1...slack-bridge-v0.5.2) (2026-05-13)
 
 

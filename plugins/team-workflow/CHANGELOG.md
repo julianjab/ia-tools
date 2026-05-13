@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.6.0...team-workflow-v0.6.1) (2026-05-13)
+
+
+### Refactors
+
+* **slack-bridge:** remove SLACK_BRIDGE_DEV_CHANNELS bypass ([#61](https://github.com/julianjab/ia-tools/issues/61)) ([8b3fe83](https://github.com/julianjab/ia-tools/commit/8b3fe83dba2356bbcf99bda78829fc28580f921b))
+
 ## [0.6.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.5.2...team-workflow-v0.6.0) (2026-05-13)
 
 
