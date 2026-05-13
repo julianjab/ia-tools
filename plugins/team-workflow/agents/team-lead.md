@@ -193,14 +193,13 @@ is what makes the worktree's repo-local agents callable — without it,
 `Agent(subagent_type=<repo-local-name>)` will fail with "agent type
 not found" and waste a turn.
 
-1. **Create the worktree**:
+1. **Create the worktree + register it with the session**:
    `/worktree init $IA_TW_FEATURE --repo <repo-abs>` (single-repo:
-   omit `--repo`). Confirm the worktree path it printed.
-2. **Register the worktree's `.claude/` with the session**:
-   `/add-dir <worktree-abs>`. This is **mandatory before any
-   `Agent(...)` call referencing a repo-local subagent type**. The
-   command takes effect immediately for subsequent `Agent` calls.
-3. **Discover repo-local agents**:
+   omit `--repo`). The `/worktree` skill runs `init.sh` and then
+   `/add-dir <worktree-abs>` automatically — you do not need to call
+   `/add-dir` separately. Confirm the printed worktree path so you can
+   reference it in later steps.
+2. **Discover repo-local agents**:
    `Glob <worktree-abs>/.claude/agents/*.md`. For each match, read
    frontmatter `name` + `description`. Classify by name regex:
    - `^(qa|tester)(-.*)?$` → `qa` bucket
