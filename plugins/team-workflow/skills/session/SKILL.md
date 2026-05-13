@@ -39,6 +39,21 @@ Mode rules:
 - `--topic` set → Slack mode. team-lead replies through the channel's `reply` tool.
 - `--topic` omitted → local mode. team-lead uses `AskUserQuestion` for the approval gate.
 
+### Argument parsing
+
+Tokenize `$ARGUMENTS` once at the start of the skill:
+
+| Token shape | Extract into |
+|---|---|
+| First positional (no `--` prefix), no `.`/`:` | `FEATURE` |
+| `--topic <value>` (two tokens) OR `--topic=<value>` | `TOPIC` |
+| `--description "<value>"` (capture quoted string OR everything after `--description` up to next `--`) | `DESCRIPTION` |
+| Anything else | reject with a usage hint |
+
+If `FEATURE` is empty → STOP with the usage line above.
+If `DESCRIPTION` is empty → STOP with the usage line above.
+`TOPIC` empty is valid (local mode).
+
 ## What it does
 
 1. Parses args, validates `<feature-name>`.
