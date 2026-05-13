@@ -207,13 +207,13 @@ not found" and waste a turn.
    - `^(architect|api)(-.*)?$` → `arch` bucket
    - description aligns with the worktree's `stack` → `impl` bucket
    - else → ignore
-4. **Pick per bucket** (use ONLY names from the Glob output above —
+3. **Pick per bucket** (use ONLY names from the Glob output above —
    never invent or hallucinate an agent name):
    - `impl`: first repo-local match; else `general-purpose`
    - `qa`:   first repo-local match; else `team-lead`
    - `sec`:  first repo-local match; else `team-lead`
    - `arch`: first repo-local match; else `general-purpose`
-5. Append the worktree entry to `state.md` with `agents:` populated.
+4. Append the worktree entry to `state.md` with `agents:` populated.
 
 ### Spawn rule for repo-local agents
 
