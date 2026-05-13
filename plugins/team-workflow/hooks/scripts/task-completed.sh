@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# TaskCompleted hook — enforces plugin invariants 3 and 4.
+# TaskCompleted hook — enforces plugin invariants 2 and 3.
+#
+# State location resolution order (first match wins):
+#   1. $IA_TW_STATE_DIR             — team-lead (v2) at $HOME/.claude/team-workflow/state/<topic-hash>/
+#   2. $cwd/.sessions/<first-label> — v1 orchestrator layout (transition support)
 #
 # Blocks completion (exit 2) when:
-#   A) A task whose subject ends in `:pr` (or `:pr:open`) is marked
-#      completed but the orchestrator has NOT recorded a matching
-#      `security: APPROVED` line in .sessions/<label>/prs.md for the same
-#      worktree prefix. This catches accidental "/pr" runs that bypass the
-#      security gate.
-#   B) A task whose subject contains `:green` / `:impl:` is marked
-#      completed but no `:qa:red` task with the same worktree prefix has
-#      been completed yet. Catches teammates marking themselves green
-#      before qa publishes RED-confirmed.
+#   A) A `:pr` task is marked completed but `state.md` (v2) or `prs.md` (v1)
+#      lacks a `security: APPROVED for <worktree_prefix>` marker.
+#   B) A `:green` / `:impl:` task is marked completed but no
+#      `qa:red completed <worktree_prefix>` marker exists in state.md /
+#      audit log.
 #
-# Detection uses the audit log written by task-created.sh + a forward scan
-# of `prs.md` when present. The hook is conservative: when state is
-# ambiguous (no .sessions/ dir, no audit log), it allows the completion.
+# Without a state dir to consult, we allow (no false negatives).
 #
 # Input  (stdin JSON): { "task": { "id", "subject", "status" }, "cwd" }
 # Output: exit 0 (allow) or exit 2 (block, with stderr feedback).
@@ -29,36 +27,41 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 [ -z "$subject" ] && { printf '{}'; exit 0; }
 [ "$status" = "completed" ] || { printf '{}'; exit 0; }
 
-# Find the active .sessions/<label>/ dir, if any. Without one we can't
-# reason about cross-task state, so we allow.
-session_dir=""
-if [ -n "$cwd" ] && [ -d "$cwd/.sessions" ]; then
-  session_dir=$(find "$cwd/.sessions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
+# Resolve state dir.
+state_dir=""
+state_file=""
+if [ -n "${IA_TW_STATE_DIR:-}" ] && [ -d "$IA_TW_STATE_DIR" ]; then
+  state_dir="$IA_TW_STATE_DIR"
+  state_file="$state_dir/state.md"
+elif [ -n "$cwd" ] && [ -d "$cwd/.sessions" ]; then
+  state_dir=$(find "$cwd/.sessions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
+  state_file="$state_dir/prs.md"   # v1 used prs.md for the security marker
 fi
 
 worktree_prefix="${subject%%:*}"
-
-audit_log="$session_dir/hook-audit.log"
-prs_md="$session_dir/prs.md"
+audit_log="${state_dir:-}/hook-audit.log"
 
 case "$subject" in
   *":pr"|*":pr:open"|*":pr:"*)
-    if [ -n "$session_dir" ] && [ -f "$prs_md" ]; then
-      if ! grep -E "^- *${worktree_prefix}[[:space:]]+security[: ]+APPROVED" "$prs_md" >/dev/null 2>&1 \
-         && ! grep -iE "${worktree_prefix}.*security.*approved" "$prs_md" >/dev/null 2>&1; then
-        printf 'ia-tools invariant 3 violated: cannot complete %s before a matching `security: APPROVED` entry exists in %s for worktree %s. Run the security audit and record the verdict before completing the pr task.\n' \
-          "$subject" "$prs_md" "$worktree_prefix" >&2
+    if [ -n "$state_dir" ] && [ -f "$state_file" ]; then
+      if ! grep -E "security:[[:space:]]*APPROVED[[:space:]]+for[[:space:]]+${worktree_prefix}\b" "$state_file" >/dev/null 2>&1 \
+         && ! grep -iE "${worktree_prefix}.*security.*approved" "$state_file" >/dev/null 2>&1; then
+        printf 'ia-tools invariant 3 violated: cannot complete %s before a matching `security: APPROVED for %s` marker exists in %s. Run the security audit and append the marker before completing the pr task.\n' \
+          "$subject" "$worktree_prefix" "$state_file" >&2
         exit 2
       fi
     fi
     ;;
   *":green"|*":green:"*|*":impl:"*)
-    if [ -n "$session_dir" ] && [ -f "$audit_log" ]; then
-      # Look for a completed qa:red marker. We log creation only, so we
-      # also look for a manual marker line `qa:red completed <prefix>` that
-      # the qa agent appends via its skill.
-      if ! grep -E "qa:red completed ${worktree_prefix}\b" "$audit_log" >/dev/null 2>&1; then
-        printf 'ia-tools invariant 2 violated: cannot complete %s before qa publishes "RED confirmed" for worktree %s. Wait for qa:red on the same prefix to complete first.\n' \
+    if [ -n "$state_dir" ]; then
+      # Look for the qa:red completion marker. Two equivalent forms accepted:
+      #   v1 audit log:    "qa:red completed <prefix>"
+      #   v2 state.md:     "✅ RED confirmed for <prefix>"
+      found=0
+      [ -f "$audit_log" ] && grep -E "qa:red completed ${worktree_prefix}\b" "$audit_log" >/dev/null 2>&1 && found=1
+      [ -f "${state_dir}/state.md" ] && grep -E "(RED confirmed|qa:red completed)[[:space:]]+(for[[:space:]]+)?${worktree_prefix}\b" "${state_dir}/state.md" >/dev/null 2>&1 && found=1
+      if [ "$found" -eq 0 ]; then
+        printf 'ia-tools invariant 2 violated: cannot complete %s before qa publishes the RED-confirmed marker for worktree %s. Wait for the qa:red task on the same prefix to complete first.\n' \
           "$subject" "$worktree_prefix" >&2
         exit 2
       fi
@@ -67,10 +70,10 @@ case "$subject" in
 esac
 
 # Audit the completion regardless.
-if [ -n "$session_dir" ]; then
+if [ -n "$state_dir" ]; then
   printf '%s TaskCompleted subject=%q status=%s\n' \
     "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$subject" "$status" \
-    >> "$session_dir/hook-audit.log" 2>/dev/null || true
+    >> "${state_dir}/hook-audit.log" 2>/dev/null || true
 fi
 
 printf '{}'

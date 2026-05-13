@@ -29,12 +29,35 @@ the workflow.**
 | `IA_TW_TOPIC`    | Slack-bridge topic string, or `local`. |
 | `IA_TW_REQUEST`  | The user's raw request. |
 | `IA_TW_ROOT_DIR` | Directory where you booted (single-repo or multi-repo parent). |
+| `SLACK_TOPICS`   | Set by the wrapper to `$IA_TW_TOPIC` (when not `local`). slack-bridge MCP auto-subscribes from this on init — do NOT call `subscribe_slack` yourself. |
 
-Compute the topic hash once at boot: `sha1($IA_TW_TOPIC)[:8]`.
+The wrapper script `/session` (or whatever boots you) is responsible for
+exporting `SLACK_TOPICS` so the slack-bridge auto-subscribe path runs;
+team-lead never has to manage subscriptions manually.
 
-## State file (one per feature)
+## State file (one per feature, OUTSIDE any repo)
 
-Path: `$IA_TW_ROOT_DIR/.team-workflow/<topic-hash>/state.md`.
+Path: `${HOME}/.claude/team-workflow/state/<topic-hash>/state.md`.
+
+This location is intentional and non-configurable:
+
+- Never inside a consumer repo → cannot be accidentally committed, no
+  `.gitignore` discipline required.
+- Per-user, machine-local. Multi-machine work on the same Slack thread
+  creates separate states (acceptable — the source of truth is Slack
+  + the PRs, state.md is local audit + resume aid).
+- Global namespace by topic-hash. `topic-hash = sha1(IA_TW_TOPIC)[:12]`.
+  For `local` mode where there is no Slack topic, use the literal
+  string `local:<IA_TW_FEATURE>` as the topic before hashing, so each
+  local feature gets its own state dir.
+
+Companion files in the same directory:
+
+- `state.md`         — the feature state (this schema).
+- `hook-audit.log`   — append-only log of `TaskCreated` / `TaskCompleted`
+                        events (written by the plugin hooks).
+- `team-meta.json`   — runtime metadata the team-lead may persist
+                        between turns (cached env, last `last_event_at`).
 
 Schema (YAML frontmatter + markdown body):
 
@@ -69,12 +92,24 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 
 ## Boot procedure
 
-1. Read env vars. Compute `topic_hash`.
-2. If `state.md` exists → read it; jump to **Dispatch loop** at the recorded `phase`.
-3. Else → create directory, write initial state with `phase: planning`.
-4. If `IA_TW_TOPIC != local` → `mcp__slack-bridge__subscribe_slack(topic=$IA_TW_TOPIC)`.
-5. Read `.claude/agent-memory/team-lead/MEMORY.md` if it exists.
-6. Go to **Plan**.
+1. Read env vars.
+2. Compute `topic_hash`:
+   - if `IA_TW_TOPIC == "local"` → `topic_hash = sha1("local:" + IA_TW_FEATURE)[:12]`
+   - else → `topic_hash = sha1(IA_TW_TOPIC)[:12]`
+3. `STATE_DIR="${HOME}/.claude/team-workflow/state/${topic_hash}"`. `mkdir -p "$STATE_DIR"`.
+4. Export `IA_TW_STATE_DIR="$STATE_DIR"` so hooks can find it without re-deriving.
+5. If `$STATE_DIR/state.md` exists → read it; jump to **Dispatch loop** at the recorded `phase`.
+6. Else → write initial `state.md` with `phase: planning`.
+7. Slack subscription: handled automatically by the slack-bridge MCP at
+   init time via the `SLACK_TOPICS` env var (comma-separated topic
+   strings). The wrapper that spawns the team-lead exports
+   `SLACK_TOPICS="$IA_TW_TOPIC"` before launching claude, so you do NOT
+   call `subscribe_slack` here. Verify with `list_subscriptions` if you
+   want to confirm.
+8. Read `.claude/agent-memory/team-lead/MEMORY.md` if it exists (this
+   one IS allowed in the repo — it's the global plugin memory directory,
+   plugin-controlled).
+9. Go to **Plan**.
 
 ## Plan (one-shot, gated by user approval)
 
@@ -200,7 +235,10 @@ When every task is `completed`:
 
 1. Set `state.md` phase to `merged` (or `closed` if any PR ended closed without merge).
 2. Append a memory record to `.claude/agent-memory/team-lead/MEMORY.md` with date, feature, composition, PR URLs, notable decisions.
-3. Slack mode: `reply()` with the final summary; `unsubscribe_slack($IA_TW_TOPIC)`.
+3. Slack mode: `reply()` with the final summary. The subscription
+   created from `SLACK_TOPICS` is owned by this MCP session and is
+   released automatically when the session exits, so no manual
+   `unsubscribe_slack` is required.
 4. "Clean up the team" (natural language to the framework).
 5. `tmux kill-session -t $IA_TW_FEATURE` (if applicable).
 
