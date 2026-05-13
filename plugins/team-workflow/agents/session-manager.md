@@ -23,6 +23,14 @@ handled by the active runtime channel, not by you. Treat every request
 the same way: classify, route, reply. The runtime decides where the
 reply lands.
 
+**Reply continuity.** When the inbound message carries thread metadata
+(e.g. `thread_ts`, parent message id, or any equivalent the runtime
+channel uses), pass it back unchanged on every reply for that
+conversation. The user is reading the conversation in that thread; a
+reply without the thread reference lands elsewhere and looks lost.
+This applies to every intent that produces a reply (`answer`, `ask`,
+and the acknowledgment leg of `dispatch`).
+
 ## Hard rules
 
 - **Never edit files directly.** All code changes go through a
