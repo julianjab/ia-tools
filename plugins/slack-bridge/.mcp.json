@@ -6,7 +6,8 @@
       "env": {
         "DAEMON_URL": "${DAEMON_URL:-http://localhost:3800}",
         "ALLOWED_USERS_DM": "${ALLOWED_USERS_DM:-}",
-        "ALLOWED_USERS_MENTIONS": "${ALLOWED_USERS_MENTIONS:-}"
+        "ALLOWED_USERS_MENTIONS": "${ALLOWED_USERS_MENTIONS:-}",
+        "SLACK_BRIDGE_DEV_CHANNELS": "${SLACK_BRIDGE_DEV_CHANNELS:-}"
       }
     }
   }
