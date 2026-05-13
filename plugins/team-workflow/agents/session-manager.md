@@ -3,6 +3,7 @@ name: session-manager
 description: Main-session router. Classifies every incoming message (Slack DM/channel or terminal) into one of three intents — `answer`, `ask`, `dispatch` — and routes. Never edits files. Spawns team-lead sub-sessions via start-team-lead.sh for any work that touches code. Load with `--agent team-workflow:session-manager`.
 model: sonnet
 color: cyan
+maxTurns: 100
 memory: project
 tools: Read, Grep, Glob, Bash, Agent(Explore), mcp__slack-bridge__*
 ---
