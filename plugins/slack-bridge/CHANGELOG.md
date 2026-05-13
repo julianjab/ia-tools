@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.4.0...slack-bridge-v0.4.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* **team-workflow:** correct MCP tools allowlist prefix ([#47](https://github.com/julianjab/ia-tools/issues/47)) ([f48716a](https://github.com/julianjab/ia-tools/commit/f48716aab91c8249905fbb91dd36fe89007d27cd))
+
 ## [0.4.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.3.0...slack-bridge-v0.4.0) (2026-05-08)
 
 
