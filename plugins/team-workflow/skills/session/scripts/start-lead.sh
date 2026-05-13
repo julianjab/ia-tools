@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Spawn a team-lead sub-session in a tmux session.
+# Spawn a lead sub-session in a tmux session.
 #
 # Usage:
-#   start-team-lead.sh <feature> <topic|""> <request>
+#   start-lead.sh <feature> <topic|""> <request>
 #
-# Exports the IA_TW_* env vars the team-lead expects, plus SLACK_TOPICS for
+# Exports the IA_TW_* env vars the lead expects, plus SLACK_TOPICS for
 # the slack-bridge MCP auto-subscribe (when topic is non-empty).
 set -euo pipefail
 
@@ -36,7 +36,7 @@ env_args=(
 
 tmux new-session -d -s "$feature" -c "$PWD" -- \
   env "${env_args[@]}" \
-  claude --agent team-workflow:team-lead \
+  claude --agent team-workflow:lead \
          --dangerously-load-development-channels plugin:slack-bridge@ia-tools \
          --dangerously-skip-permissions \
          "$request"
@@ -57,5 +57,5 @@ tmux new-session -d -s "$feature" -c "$PWD" -- \
   done
 ) >/dev/null 2>&1 &
 
-echo "✓ team-lead spawned (tmux: $feature, state: $state_dir)"
+echo "✓ lead spawned (tmux: $feature, state: $state_dir)"
 echo "  attach: tmux attach -t $feature"

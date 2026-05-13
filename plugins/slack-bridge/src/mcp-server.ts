@@ -468,6 +468,15 @@ export class McpBridgeServer {
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} — topics=${topics.map(formatSpec).join(', ')}`,
         );
+        // Persist env-based subscriptions to the per-session state file
+        // so a later reload (or a subscribe_slack tool call that reads
+        // the existing config) sees the same set the env declared.
+        // Previously env subs were in-memory only; this aligns the
+        // env-init path with the explicit subscribe_slack handler,
+        // which always writes through to disk.
+        if (envTopics) {
+          this.writeState({ topics });
+        }
       } catch {
         this.logger.warn(
           'daemon not reachable — subscription skipped. Use subscribe_slack once the daemon is running.',

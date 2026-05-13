@@ -3,11 +3,11 @@
 > ## 🚨 INVARIANTS ARE MANDATORY
 >
 > **Every change flows through four hard invariants.** Outside these rules,
-> the per-feature `team-lead` agent decides everything at runtime.
+> the per-feature `lead` agent decides everything at runtime.
 >
-> 1. **Approval gate.** `session-manager` classifies inbound requests into
+> 1. **Approval gate.** `router` classifies inbound requests into
 >    `answer` / `ask` / `dispatch`. On `dispatch`, `/session` spawns a
->    `team-lead` sub-session. team-lead publishes a plan and BLOCKS on
+>    `lead` sub-session. lead publishes a plan and BLOCKS on
 >    `aprobar` (Slack text reply) or `AskUserQuestion` (local) before any
 >    code change.
 > 2. **QA writes tests first.** No `impl:green` task may complete until the
@@ -23,7 +23,7 @@
 >    no local merges. Multi-repo sessions produce N PRs (one per touched
 >    repo); each has its own security gate.
 >
-> See `plugins/team-workflow/agents/team-lead.md` for the orchestration body.
+> See `plugins/team-workflow/agents/lead.md` for the orchestration body.
 >
 > **Role selection and hooks.**
 > - **slack-bridge is pure I/O transport.** Exposes Slack tools (`reply`,
@@ -31,15 +31,15 @@
 >   prompt and does NOT sniff argv. The persona of the Claude session is
 >   whatever the operator selected with `claude --agent <plugin>:<name>`.
 >   Conventional boots:
->   - Main session: `claude --agent team-workflow:session-manager`
->   - Sub-session: `claude --agent team-workflow:team-lead`
->     (booted by `/session` via `start-team-lead.sh`)
+>   - Main session: `claude --agent team-workflow:router`
+>   - Sub-session: `claude --agent team-workflow:lead`
+>     (booted by `/session` via `start-lead.sh`)
 >   - No `--agent`: only slack-bridge tools visible.
 >   No `SessionStart` hook, no `IA_TOOLS_ROLE` env var.
 > - **`PreToolUse` hook** (`plugins/team-workflow/hooks/scripts/enforce-worktree.sh`)
 >   is gitignore-aware: blocks `Edit`/`Write`/`MultiEdit` on tracked files
 >   when on `main`/`master`, or on any tracked file outside `.worktrees/*`
->   inside a `team-lead` session. Edits to gitignored / non-repo files pass.
+>   inside a `lead` session. Edits to gitignored / non-repo files pass.
 > - **Quality-gate hooks** for agent teams
 >   (`plugins/team-workflow/hooks/scripts/{task-created,task-completed,teammate-idle}.sh`)
 >   enforce invariants 2 and 3 at task completion / teammate-idle time.
@@ -55,8 +55,8 @@
 > `.sessions/` entry is needed.
 >
 > **Prerequisite: Claude Code ≥ v2.1.32 with agent teams enabled.** The
-> `start-team-lead.sh` wrapper exports `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-> on boot so team-lead can spawn agent-team teammates.
+> `start-lead.sh` wrapper exports `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+> on boot so lead can spawn agent-team teammates.
 
 @AGENTS.md
 
@@ -64,8 +64,8 @@
 
 Centralized AI ecosystem. Ships shared Claude Code agents, skills, hooks,
 and the Slack bridge MCP server as a single plugin. Installed in consumer
-repos where it runs a main `session-manager` session and spawns
-`team-lead` sub-sessions on demand.
+repos where it runs a main `router` session and spawns
+`lead` sub-sessions on demand.
 
 ## Plugin frontmatter limitations
 
@@ -89,15 +89,15 @@ not teammate).
 ## Structure
 
 - `plugins/team-workflow/agents/` — 3 agent definitions:
-  - `session-manager.md` — main-session router (3-intent classifier)
-  - `team-lead.md` — per-feature orchestrator (plan, provision, dispatch)
+  - `router.md` — main-session router (3-intent classifier)
+  - `lead.md` — per-feature orchestrator (plan, provision, dispatch)
   - `implementer.md` — stack-aware fallback subagent (used when a touched
     repo has no repo-local implementer agent)
   Everything else — qa, security, architect, per-stack implementers — is
   discovered at runtime from each touched repo's `<repo>/.claude/agents/`.
 - `plugins/team-workflow/skills/` — Reusable Claude Code skills:
-  `session`, `worktree`, `commit`, `review`, `pr`, `team-review`,
-  `sync-docs`, `pr-review`, `security-audit`.
+  `router`, `session`, `worktree`, `commit`, `review`, `pr`,
+  `team-review`, `sync-docs`, `pr-review`, `security-audit`.
 - `plugins/team-workflow/hooks/` — `enforce-worktree.sh` (PreToolUse,
   gitignore-aware), `task-created.sh` / `task-completed.sh` /
   `teammate-idle.sh` (agent-teams quality gates).
@@ -112,13 +112,13 @@ slack-bridge does NOT inject a role.
 
 | Boot command | Role | Prompt source |
 |--------------|------|---------------|
-| `claude --agent team-workflow:session-manager` | main router | `plugins/team-workflow/agents/session-manager.md` |
-| `claude --agent team-workflow:team-lead` | sub-session orchestrator (booted by `/session`) | `plugins/team-workflow/agents/team-lead.md` |
+| `claude --agent team-workflow:router` | main router | `plugins/team-workflow/agents/router.md` |
+| `claude --agent team-workflow:lead` | sub-session orchestrator (booted by `/session`) | `plugins/team-workflow/agents/lead.md` |
 | `claude` (no `--agent`) | unspecialised | none — slack-bridge surfaces only its tools |
 
 The main router is started by the operator (once per machine, persistent
 tmux window). `/session` launches sub-sessions with `--agent
-team-workflow:team-lead`.
+team-workflow:lead`.
 
 ## Development
 
@@ -165,13 +165,16 @@ so marketplace consumers don't need a build step;
 Running the bridge requires the daemon (`pnpm --filter @ia-tools/slack-bridge
 daemon`) and `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` env vars. Auto-subscribe
 happens at MCP init via the `SLACK_TOPICS` env var (set by
-`start-team-lead.sh`).
+`start-lead.sh`).
 
 ## Skills
 
-- `/session` — Spawn a team-lead sub-session in tmux. Invokes
-  `start-team-lead.sh` with feature label, topic, and request. Used by
-  `session-manager` on `dispatch` intent.
+- `/router` — Boot the always-on `router` router in tmux.
+  One per machine. Hides `--dangerously-load-development-channels`
+  behind a wrapper. Pass the Slack topic (e.g. `DM:U02M1QFA0AF`).
+- `/session` — Spawn a lead sub-session in tmux. Invokes
+  `start-lead.sh` with feature label, topic, and request. Used by
+  `router` on `dispatch` intent.
 - `/worktree` — Git worktree management (`init`, `list`, `switch`,
   `cleanup`, `status`). `init` now auto-runs `/add-dir` via the
   `SlashCommand` tool so repo-local agents are immediately spawnable.
@@ -181,11 +184,11 @@ happens at MCP init via the `SLACK_TOPICS` env var (set by
 - `/team-review` — Request team review for an open PR: preflight, wait CI, notify configured Slack channel + reviewers, subscribe to the thread. Config via `settings.local.json` env (`TEAM_REVIEW_CHANNEL`, `TEAM_REVIEW_MENTIONS`).
 - `/sync-docs` — CLAUDE.md synchronization across docs.
 - `/pr-review`, `/security-audit`, `/test-generation` — Specialized
-  helpers used by team-lead or stack implementers.
+  helpers used by lead or stack implementers.
 
 ## Parallel Development
 
-`git worktree` keeps multiple active features simultaneously. team-lead
+`git worktree` keeps multiple active features simultaneously. lead
 provisions worktrees per touched consumer repo via `/worktree init
 <feature> --repo <repo>`. Each worktree lives at
 `<repo>/.worktrees/<feature-as-dirname>/` and `.worktrees/` is auto-added

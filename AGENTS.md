@@ -12,24 +12,24 @@ NOT inspect argv.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ MAIN SESSION  (claude --agent team-workflow:session-manager)│
+│ MAIN SESSION  (claude --agent team-workflow:router)│
 │ - Always alive, listens to Slack DMs + subscribed channels  │
-│ - Prompt: plugins/team-workflow/agents/session-manager.md   │
+│ - Prompt: plugins/team-workflow/agents/router.md   │
 │ - Tool inheritance: disallowedTools = Edit/Write/Multi/Note │
 │   (everything else inherits, including MCP)                 │
 │ - Classifies every message into one of THREE intents:       │
 │     answer    → reply inline (with Agent(Explore) if deep)  │
 │     ask       → reply with proposed action; wait for OK     │
-│     dispatch  → /session → spawn team-lead sub-session      │
+│     dispatch  → /session → spawn lead sub-session      │
 │ - NEVER edits files; only routes                            │
 └────────────────────────────────────────────────────────────┘
                               │ /session
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ SUB-SESSION  (claude --agent team-workflow:team-lead,       │
-│   booted by /session via start-team-lead.sh)                │
+│ SUB-SESSION  (claude --agent team-workflow:lead,       │
+│   booted by /session via start-lead.sh)                │
 │ - One per Slack topic / feature                             │
-│ - Prompt: plugins/team-workflow/agents/team-lead.md         │
+│ - Prompt: plugins/team-workflow/agents/lead.md         │
 │ - Dedicated tmux session, subscribed to the topic           │
 │ - Per-repo worktrees provisioned on the fly                 │
 │ - State persisted at $HOME/.claude/team-workflow/state/...  │
@@ -41,7 +41,7 @@ come from `--agent` only.
 
 ## Invariants — not negotiable
 
-team-lead decides at runtime which teammates to spawn, in what order, and
+lead decides at runtime which teammates to spawn, in what order, and
 with what parallelism. The four invariants below are the only hardcoded
 workflow rules:
 
@@ -65,25 +65,25 @@ workflow rules:
 
 Outside these four rules — which teammates to spawn, whether to parallelize,
 whether `architect` is needed, whether `security` runs as a teammate or a
-one-shot — team-lead decides at runtime based on the approved plan.
+one-shot — lead decides at runtime based on the approved plan.
 
 ## Workflow shape
 
 ```
 Slack message arrives
     ↓
-SESSION-MANAGER classifies (main session)
+ROUTER classifies (main session)
     ├─ answer   → reply inline (Agent(Explore) when deep). DONE.
     ├─ ask      → reply proposing action; wait for 'aprobar' / 'cancelar' / edit text.
     │             on 'aprobar' → re-classify as dispatch.
-    └─ dispatch → /session → spawns team-lead in tmux
+    └─ dispatch → /session → spawns lead in tmux
                  ↓
-             team-lead boot:
+             lead boot:
                - reads $IA_TW_TOPIC / $IA_TW_FEATURE / $IA_TW_REQUEST / $IA_TW_STATE_DIR
                - if state.md exists → resumes from recorded phase
                - else → boot guard (list_subscriptions probe), then Plan phase
                  ↓
-             PLAN (team-lead)
+             PLAN (lead)
                - Agent(general-purpose) for pre-analysis (multi-repo detection,
                  acceptance criteria, repo-local agent discovery)
                - Publish plan to topic (Slack reply or AskUserQuestion locally)
@@ -97,7 +97,7 @@ SESSION-MANAGER classifies (main session)
                   → init.sh + auto /add-dir (via SlashCommand) ← single contract
                  Glob <worktree>/.claude/agents/*.md → classify into
                  impl/qa/sec/arch buckets, fall back to plugin
-                 'implementer' / 'team-lead' when bucket is empty.
+                 'implementer' / 'lead' when bucket is empty.
                  Append entry to state.md.
                  ↓
              BUILD TASK LIST (declarative, single pass)
@@ -111,7 +111,7 @@ SESSION-MANAGER classifies (main session)
              DISPATCH LOOP (until all tasks completed)
                - Pick lowest-id pending task with deps satisfied.
                - Spawn via Agent() / SendMessage based on owner type.
-               - team-lead does it inline when owner = 'team-lead'.
+               - lead does it inline when owner = 'lead'.
                  ↓
              N PRs opened (one per touched repo).
                  ↓
@@ -126,12 +126,12 @@ User DM (Slack): "agrega un endpoint mock GET /demo en client-api;
                   consúmelo desde mobile/ai-mobile-app en pantalla principal
                   y desde frontend/lh-seller-v2-frontend en un widget del dashboard"
     ↓
-session-manager: classify → dispatch (hard signal "agrega")
+router: classify → dispatch (hard signal "agrega")
     - Derives feature name: `feat/demo-api-client-api`
     - Posts ack reply in the thread; captures `<channel>:*:<thread_ts>`.
-    - bash start-team-lead.sh "feat/demo-api-client-api" "<topic>" "<request>"
+    - bash start-lead.sh "feat/demo-api-client-api" "<topic>" "<request>"
     ↓
-team-lead booted in tmux 'feat/demo-api-client-api'
+lead booted in tmux 'feat/demo-api-client-api'
     - $IA_TW_TOPIC = D0AMP0P0UKY:*:1778681006...
     - $IA_TW_STATE_DIR = ~/.claude/team-workflow/state/<hash>
     - Boot guard: list_subscriptions → OK
@@ -158,8 +158,8 @@ parallel where deps allow.
 
 | Agent             | File                                              | Role                                                     | Model  | Color  |
 |-------------------|---------------------------------------------------|----------------------------------------------------------|--------|--------|
-| `session-manager` | `plugins/team-workflow/agents/session-manager.md` | Main session router. Classifies + routes; never edits.    | sonnet | cyan   |
-| `team-lead`       | `plugins/team-workflow/agents/team-lead.md`       | Per-feature orchestrator. Plan, provision, dispatch.      | opus   | purple |
+| `router` | `plugins/team-workflow/agents/router.md` | Main session router. Classifies + routes; never edits.    | sonnet | cyan   |
+| `lead`       | `plugins/team-workflow/agents/lead.md`       | Per-feature orchestrator. Plan, provision, dispatch.      | opus   | purple |
 | `implementer`     | `plugins/team-workflow/agents/implementer.md`     | Stack-aware fallback subagent when a repo has no impl.    | sonnet | green  |
 
 Everything else — qa, security, architect, per-stack implementers — is
@@ -168,14 +168,14 @@ The plugin no longer ships fallback agents per stack; the single
 `implementer` covers all stacks via boot-time CLAUDE.md / manifest detection.
 
 `qa` and `security` have no plugin fallback: when a repo lacks them,
-team-lead writes the tests / runs the audit itself (using its `Edit`/
+lead writes the tests / runs the audit itself (using its `Edit`/
 `Write` tools and the `/security-audit` skill respectively). This
 preserves the invariants (QA-first + Security-APPROVED before `/pr`)
 regardless of repo coverage.
 
 ### Repo-local agent discovery
 
-For every worktree provisioned, team-lead:
+For every worktree provisioned, lead:
 
 1. `/worktree init <branch> --repo <repo>` — provisions the worktree AND
    runs `/add-dir <worktree-abs>` (registered with the active session).
@@ -189,14 +189,14 @@ For every worktree provisioned, team-lead:
    - else → ignored
 4. Picks per bucket:
    - `impl`: first match; else `implementer` (plugin fallback)
-   - `qa`:   first match; else `team-lead` (inline)
-   - `sec`:  first match; else `team-lead` (runs `/security-audit`)
+   - `qa`:   first match; else `lead` (inline)
+   - `sec`:  first match; else `lead` (runs `/security-audit`)
    - `arch`: first match; else `implementer`
 5. Persists the choice in `state.md` under the worktree entry.
 
-## Operating mode — coercive in team-lead
+## Operating mode — coercive in lead
 
-team-lead reads `$IA_TW_TOPIC` at boot. The result is permanent for the
+lead reads `$IA_TW_TOPIC` at boot. The result is permanent for the
 session and gates all user-facing interaction:
 
 - `IA_TW_TOPIC != "local"` → **Slack mode**. Replies via the channel's
@@ -206,7 +206,7 @@ session and gates all user-facing interaction:
 - `IA_TW_TOPIC == "local"` → **Local mode**. `AskUserQuestion` for gates,
   assistant messages for status. Slack tools are not used.
 
-The mode is fixed at boot. team-lead must not silently downgrade.
+The mode is fixed at boot. lead must not silently downgrade.
 
 ## State and persistence
 
@@ -220,7 +220,7 @@ $HOME/.claude/team-workflow/state/<topic_hash>/
 ```
 
 - `<topic_hash>` = `sha1(IA_TW_TOPIC)[:12]` or `sha1("local:<feature>")[:12]`.
-- Resume: a team-lead boot that sees an existing `state.md` reads it,
+- Resume: a lead boot that sees an existing `state.md` reads it,
   reconstructs the worktree map, and continues from the recorded phase —
   it does NOT re-run pre-analysis.
 
@@ -260,7 +260,7 @@ Fields that DO work: `name`, `description`, `tools`, `disallowedTools`,
 
 ## Parallel development with git worktrees
 
-Each team-lead provisions one worktree per touched consumer repo via
+Each lead provisions one worktree per touched consumer repo via
 `/worktree init <feature> --repo <repo>`. The worktree:
 
 - lives at `<repo>/.worktrees/<feature-as-dirname>/`
@@ -287,7 +287,7 @@ entry needed in v2 — state lives outside the repo.
 
 ## Rules — all agents
 
-1. **session-manager is the only main session.** No other agent listens to
+1. **router is the only main session.** No other agent listens to
    DMs or classifies incoming messages. No other agent edits code from
    the main session.
 2. **Every change runs through approval.** Even a one-line doc fix goes
@@ -307,7 +307,7 @@ entry needed in v2 — state lives outside the repo.
 
 ## Autonomy boundaries
 
-team-lead is autonomous **within** the invariants. It is NOT autonomous
+lead is autonomous **within** the invariants. It is NOT autonomous
 across:
 
 - The approval gate. Always blocks on aprobar.
@@ -315,5 +315,5 @@ across:
 - Ambiguous merge conflicts. Always asks before force-push / discard.
 - Spec drift. If state.md and actual work diverge, stop and report.
 
-session-manager is autonomous on classification, never on execution — it
+router is autonomous on classification, never on execution — it
 only replies, asks for confirmation, or calls `/session`.
