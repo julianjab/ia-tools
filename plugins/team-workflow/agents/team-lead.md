@@ -209,10 +209,13 @@ not found" and waste a turn.
    - else → ignore
 3. **Pick per bucket** (use ONLY names from the Glob output above —
    never invent or hallucinate an agent name):
-   - `impl`: first repo-local match; else `general-purpose`
+   - `impl`: first repo-local match; else `implementer` (the plugin's
+     stack-aware fallback, loads CLAUDE.md + test runner from the
+     worktree)
    - `qa`:   first repo-local match; else `team-lead`
    - `sec`:  first repo-local match; else `team-lead`
-   - `arch`: first repo-local match; else `general-purpose`
+   - `arch`: first repo-local match; else `implementer` (it handles
+     architecture sketches when no architect exists)
 4. Append the worktree entry to `state.md` with `agents:` populated.
 
 ### Spawn rule for repo-local agents
