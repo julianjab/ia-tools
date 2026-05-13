@@ -65,110 +65,32 @@ Rule: replace `/` with `-`.
 
 ## Sub-command: `init`
 
-**Purpose**: Create an isolated worktree for a new task, keeping `main` clean in the primary repo.
+**Purpose**: Create an isolated worktree for a new task on a fresh branch.
 
-**Arguments**: `/worktree init <branch-name> [--base main] [--review <pr-number>] [--repo <path>]`
+**Invocation**: pass arguments verbatim to the init script:
 
-| Flag | Required? | Effect |
-|------|-----------|--------|
-| `--repo <path>` | ❌ | Run as if CWD were `<path>` (the target repo root). Repo root resolution, `.worktrees/` creation, and `.gitignore` handling all happen relative to `<path>`. The created worktree lives at `<path>/.worktrees/<dir-name>`. Composes with `--base` and `--review` unchanged. |
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/worktree/scripts/init.sh" \
+  <branch-name> [--base <ref>] [--review <pr>] [--repo <path>]
+```
 
-When `--repo <path>` is provided:
-- `<path>` MUST be an existing git repo root — assert via `git -C <path> rev-parse --git-dir`.
-- All subsequent git operations use `git -C <path>` instead of the current working directory.
-- The worktree lives at `<path>/.worktrees/<dir-name>` (inside the **target** repo, not the invoking CWD).
-- Single-repo usage (no `--repo`) continues to work identically — the flag is purely additive.
+The script handles target-repo resolution, fetch, `.worktrees/` +
+`.gitignore` setup, base-branch fallback (`main` → `master`), branch
+name → directory name conversion, idempotent creation, `.claude/`
+config copy, and the result report. Don't reproduce its steps in chat —
+just invoke it.
 
-### Steps
+**Flags**:
 
-1. **Determine target repo root**:
-   - If `--repo <path>` is provided: assert `git -C <path> rev-parse --git-dir` succeeds.
-     Use `<path>` as the target repo root for all subsequent steps.
-   - Otherwise: use the current CWD's repo root:
-     ```bash
-     git rev-parse --show-toplevel
-     git rev-parse --is-inside-work-tree
-     ```
-   - If inside an existing worktree (and no `--repo`), navigate to the main repo root first:
-     ```bash
-     git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel
-     ```
+| Flag | Effect |
+|---|---|
+| `<branch-name>` (required) | Branch to create. `/` is converted to `-` in the directory name. |
+| `--base <ref>` | Base branch (default `main`, falls back to `master`). |
+| `--review <pr#>` | Create the worktree from a PR head ref instead of a new branch. |
+| `--repo <path>` | Run against a different repo root. The worktree lands at `<path>/.worktrees/<dir-name>`. |
 
-   All subsequent steps use `TARGET_REPO` (either `--repo <path>` or the detected repo root).
-
-2. **Fetch latest from origin** (using target repo root):
-   ```bash
-   git -C "${TARGET_REPO}" fetch origin
-   ```
-
-3. **Ensure `.worktrees/` directory exists and is gitignored** (relative to target repo root):
-   ```bash
-   mkdir -p "${TARGET_REPO}/.worktrees"
-   ```
-   - Check if `.worktrees/` is in the target repo's `.gitignore`. If not, append it:
-     ```bash
-     grep -qxF '.worktrees/' "${TARGET_REPO}/.gitignore" \
-       || echo '.worktrees/' >> "${TARGET_REPO}/.gitignore"
-     ```
-
-4. **Determine base branch**: Use `--base` if provided, default to `main`. Fall back to `master` if `main` doesn't exist. Resolve against `TARGET_REPO`.
-
-5. **Convert branch name to directory name**:
-   ```bash
-   DIR_NAME=$(echo "<branch-name>" | tr '/' '-')
-   WORKTREE_PATH="${TARGET_REPO}/.worktrees/${DIR_NAME}"
-   ```
-
-6. **Check if worktree already exists**:
-   ```bash
-   git -C "${TARGET_REPO}" worktree list --porcelain | grep -q "${WORKTREE_PATH}"
-   ```
-   - If yes: Report that it already exists and print the path. Ask user if they want to switch to it.
-   - If no: Continue to create.
-
-7. **Create the worktree** (all git ops use `git -C "${TARGET_REPO}"`):
-
-   **For a new feature branch:**
-   ```bash
-   git -C "${TARGET_REPO}" worktree add -b <branch-name> "${WORKTREE_PATH}" origin/<base>
-   ```
-
-   **For reviewing an existing PR (--review flag):**
-   ```bash
-   git -C "${TARGET_REPO}" fetch origin "pull/<pr-number>/head:<branch>"
-   git -C "${TARGET_REPO}" worktree add "${WORKTREE_PATH}" "<branch>"
-   ```
-
-   **For an existing remote branch:**
-   ```bash
-   git -C "${TARGET_REPO}" worktree add --track -b <branch-name> "${WORKTREE_PATH}" origin/<branch-name>
-   ```
-
-8. **Copy root `.claude/` into the worktree** (from TARGET_REPO, not from the invoking CWD):
-   ```bash
-   cp -r "${TARGET_REPO}/.claude/" "${WORKTREE_PATH}/.claude/"
-   ```
-   This carries over local Claude config (hooks, skills, channels, settings) so the
-   worktree behaves identically to the main repo. The copy is local — `.claude/` is
-   gitignored so it never reaches the remote.
-
-9. **Verify the worktree**:
-   ```bash
-   git -C "${WORKTREE_PATH}" branch --show-current && git -C "${WORKTREE_PATH}" log --oneline -3
-   ```
-
-10. **Report**:
-    ```
-    Worktree created:
-      Path:    .worktrees/<dir-name>
-      Branch:  <branch-name>
-      Base:    origin/<base>
-      .claude: copied from root
-      Status:  clean
-
-    To work in this worktree, operate on files at: <absolute-path>
-    The main repo remains on: main (undisturbed)
-    ```
+`--repo` composes with all other flags. Without it, the script uses the
+current CWD's repo root.
 
 ---
 
