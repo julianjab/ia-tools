@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Spawn a team-lead sub-session in a tmux session.
+#
+# Usage:
+#   start-team-lead.sh <feature> <topic|""> <request>
+#
+# Exports the IA_TW_* env vars the team-lead expects, plus SLACK_TOPICS for
+# the slack-bridge MCP auto-subscribe (when topic is non-empty).
+set -euo pipefail
+
+feature="${1:?feature required}"
+topic="${2:-}"
+request="${3:?request required}"
+
+# Topic hash: $topic if set, else "local:$feature".
+hash_key="${topic:-local:$feature}"
+topic_hash=$(printf '%s' "$hash_key" | shasum | head -c 12)
+
+state_dir="$HOME/.claude/team-workflow/state/$topic_hash"
+mkdir -p "$state_dir"
+
+env_args=(
+  "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
+  "IA_TW_FEATURE=$feature"
+  "IA_TW_TOPIC=${topic:-local}"
+  "IA_TW_REQUEST=$request"
+  "IA_TW_ROOT_DIR=$PWD"
+  "IA_TW_STATE_DIR=$state_dir"
+)
+[ -n "$topic" ] && env_args+=("SLACK_TOPICS=$topic")
+[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_args+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
+
+tmux new-session -d -s "$feature" -c "$PWD" -- \
+  env "${env_args[@]}" \
+  claude --agent team-workflow:team-lead \
+         --dangerously-skip-permissions \
+         --teammate-mode tmux \
+         "$request"
+
+echo "✓ team-lead spawned (tmux: $feature, state: $state_dir)"
+echo "  attach: tmux attach -t $feature"
