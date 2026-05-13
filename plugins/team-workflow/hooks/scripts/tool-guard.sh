@@ -1,31 +1,39 @@
 #!/usr/bin/env bash
 # Generic tool guard — ia-tools plugin.
 #
+# Philosophy: block ONLY commands that cause irreversible damage or push
+# state to a place that requires non-trivial undo (e.g. merging a PR).
+# Anything else (creating PRs, publishing packages, pushing containers,
+# overwriting local files, fetching http URLs) is the caller's
+# responsibility — the hook does not second-guess intent.
+#
 # Reads a PreToolUse JSON payload from stdin. Dispatches on tool_name to
 # extract the relevant field:
 #
-#   Bash              → .tool_input.command
+#   Bash                 → .tool_input.command
 #   Edit/Write/MultiEdit → .tool_input.file_path
-#   WebFetch          → .tool_input.url
+#   WebFetch             → .tool_input.url
 #
-# Patterns come from two sources:
+# Patterns come from two sources, applied additively:
 #
-#   1. Built-in table (PATTERNS array below). Format per entry:
-#      "TOOL_NAME|ERE_PATTERN|Human-readable reason"
-#      TOOL_NAME is matched case-insensitively against the incoming tool_name.
-#      Use "*" as TOOL_NAME to match every tool.
+#   1. Built-in safety net (PATTERNS array below). A minimal, curated
+#      list of clearly destructive operations. Format per entry:
+#      "TOOL_NAME|ERE_PATTERN|Human-readable reason". TOOL_NAME is
+#      matched case-insensitively. Use "*" to match every tool.
 #
-#   2. settings.json / settings.local.json — any entry in permissions.deny
-#      shaped like "ToolName(glob)" is extracted, the glob is converted to a
-#      loose ERE, and appended at runtime. Supported tool names follow the
-#      same rules as built-in entries (any tool_name or *).
+#   2. User + project settings — Claude Code's normal hierarchy:
+#        - $HOME/.claude/settings.json           (user-global)
+#        - $HOME/.claude/settings.local.json     (user-global, local)
+#        - Walking up from CWD, every            (project / session)
+#          <ancestor>/.claude/settings.json
+#          <ancestor>/.claude/settings.local.json
+#      Entries in `permissions.deny` shaped like `"ToolName(glob)"` are
+#      extracted, the glob is converted to a loose ERE, and appended at
+#      runtime. This is the recommended place for project- or
+#      user-specific rules — keep the built-in list lean.
 #
 # On any match the hook returns permissionDecision "ask", forcing a
 # confirmation prompt even when --dangerously-skip-permissions is active.
-#
-# Adding a built-in rule: append one line to PATTERNS below.
-# Adding a project-specific rule: add "ToolName(glob)" to permissions.deny
-# in .claude/settings.json or .claude/settings.local.json.
 
 set -u
 
@@ -56,7 +64,13 @@ if [ -z "$subject" ]; then
   exit 0
 fi
 
-# ── Built-in pattern table ────────────────────────────────────────────────────
+# ── Built-in safety net ───────────────────────────────────────────────────────
+# Conservative list. Anything that publishes, deletes, or terminates is
+# in here as the default safety net. The only thing intentionally NOT
+# hardcoded is `gh pr create` / `gh release create` — creating a PR or
+# draft release is reversible (close/delete) and shouldn't require a
+# prompt. Merging a PR (`gh pr merge`) IS in the list because that lands
+# code on main.
 PATTERNS=(
   # ── Bash: Git — irreversible remote/local operations ──────────────────────
   "Bash|git[[:space:]].*push[[:space:]].*--force|git push --force reescribe historia compartida en el remoto."
@@ -65,9 +79,8 @@ PATTERNS=(
   "Bash|git[[:space:]].*clean[[:space:]]+-[a-zA-Z]*f|git clean -f borra archivos no trackeados permanentemente."
   "Bash|git[[:space:]].*branch[[:space:]]+-D[[:space:]]|git branch -D elimina forzosamente una rama local."
 
-  # ── Bash: GitHub CLI ───────────────────────────────────────────────────────
+  # ── Bash: GitHub CLI — merges + destructive (creates are NOT here) ───────
   "Bash|gh[[:space:]]+pr[[:space:]]+merge|gh pr merge fusiona un PR. Verifica que CI esté verde y que fue revisado."
-  "Bash|gh[[:space:]]+release[[:space:]]+create|gh release create publica un release público en GitHub."
   "Bash|gh[[:space:]]+release[[:space:]]+delete|gh release delete elimina un release público en GitHub."
 
   # ── Bash: Destructive file deletion ───────────────────────────────────────
@@ -99,14 +112,22 @@ PATTERNS=(
   "Write|^/usr/|Escribir en /usr/ modifica archivos del sistema."
   "MultiEdit|^/usr/|Editar /usr/ modifica archivos del sistema."
 
-  # ── WebFetch: Internal/sensitive URLs ─────────────────────────────────────
+  # ── WebFetch: Insecure URLs ───────────────────────────────────────────────
   "WebFetch|^http://|WebFetch con http:// (no HTTPS) envía datos en texto plano."
 )
 
 # ── Load extra patterns from settings files ───────────────────────────────────
-# Walks up from CWD looking for .claude/settings.json and
-# .claude/settings.local.json. Extracts permissions.deny entries shaped like
-# "ToolName(some glob)" and appends them as loose ERE patterns.
+# Resolves settings via Claude Code's normal hierarchy:
+#
+#   1. $HOME/.claude/settings.json           (user-global)
+#   2. $HOME/.claude/settings.local.json     (user-global, local)
+#   3. Walking up from CWD:                  (project / session)
+#      <dir>/.claude/settings.json
+#      <dir>/.claude/settings.local.json
+#
+# All entries are additive; duplicates (same absolute path) are skipped.
+# Extracts permissions.deny entries shaped like "ToolName(some glob)" and
+# appends them as loose ERE patterns.
 #
 # Glob → ERE conversion:
 #   *   → .*    (match anything)
@@ -126,12 +147,22 @@ _emit_patterns_from_file() {
 }
 
 load_settings_patterns() {
-  local dir="$PWD"
   local seen_files=()
+  local fpath
 
+  # 1-2. User-global settings.
+  for fname in settings.json settings.local.json; do
+    fpath="$HOME/.claude/$fname"
+    [[ -f "$fpath" ]] || continue
+    seen_files+=("$fpath")
+    _emit_patterns_from_file "$fpath"
+  done
+
+  # 3. Project / session settings — walk up from CWD.
+  local dir="$PWD"
   while [[ "$dir" != "/" ]]; do
     for fname in settings.json settings.local.json; do
-      local fpath="$dir/.claude/$fname"
+      fpath="$dir/.claude/$fname"
       [[ -f "$fpath" ]] || continue
 
       local already=0
@@ -145,24 +176,50 @@ load_settings_patterns() {
     done
     dir="$(dirname "$dir")"
   done
-
-  # Global user settings (~/.claude/)
-  for fname in settings.json settings.local.json; do
-    local fpath="$HOME/.claude/$fname"
-    [[ -f "$fpath" ]] || continue
-    local already=0
-    for seen in "${seen_files[@]+"${seen_files[@]}"}"; do
-      [[ "$seen" == "$fpath" ]] && already=1 && break
-    done
-    [[ "$already" -eq 1 ]] && continue
-    seen_files+=("$fpath")
-    _emit_patterns_from_file "$fpath"
-  done
 }
 
 while IFS= read -r extra; do
   [[ -n "$extra" ]] && PATTERNS+=("$extra")
 done < <(load_settings_patterns)
+
+# ── Strip quoted strings + heredoc bodies for Bash subjects ──────────────────
+# The patterns are designed to match COMMANDS that would actually execute.
+# When dangerous tokens appear only inside quoted strings or heredoc bodies
+# (e.g. `echo "rm -rf /tmp"`, a for-loop with literal commands as data),
+# they are not invocations and shouldn't trigger a prompt. We sanitize the
+# subject by removing those regions before matching.
+#
+# Removes (in order):
+#   1. Heredoc bodies:  <<EOF ... EOF   /  <<'EOF' ... EOF   /  <<-EOF ... EOF
+#   2. Single-quoted strings:  '...'
+#   3. Double-quoted strings:  "..."
+# Then collapses runs of whitespace so patterns with [[:space:]]+ still match.
+match_subject="$subject"
+if [ "$tool_name" = "Bash" ]; then
+  match_subject=$(printf '%s' "$subject" | awk '
+    BEGIN { in_heredoc=0; tag="" }
+    {
+      line=$0
+      if (in_heredoc) {
+        if (line ~ "^[[:space:]]*" tag "[[:space:]]*$") { in_heredoc=0 }
+        next
+      }
+      # Detect heredoc start: <<-?["'\'']?TAG["'\'']?
+      if (match(line, /<<-?[[:space:]]*[\x27"]?[A-Za-z_][A-Za-z0-9_]*[\x27"]?/)) {
+        h=substr(line, RSTART, RLENGTH)
+        gsub(/^<<-?[[:space:]]*[\x27"]?/, "", h)
+        gsub(/[\x27"]$/, "", h)
+        tag=h
+        in_heredoc=1
+        line=substr(line, 1, RSTART-1)
+      }
+      # Strip single- and double-quoted regions
+      gsub(/\x27[^\x27]*\x27/, " ", line)
+      gsub(/"[^"]*"/, " ", line)
+      print line
+    }
+  ')
+fi
 
 # ── Match loop ────────────────────────────────────────────────────────────────
 tool_name_lower=$(printf '%s' "$tool_name" | tr '[:upper:]' '[:lower:]')
@@ -180,7 +237,7 @@ for entry in "${PATTERNS[@]}"; do
     continue
   fi
 
-  if echo "$subject" | grep -qE "$pattern" 2>/dev/null; then
+  if printf '%s' "$match_subject" | grep -qE "$pattern" 2>/dev/null; then
     escaped=$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
       "$escaped"
