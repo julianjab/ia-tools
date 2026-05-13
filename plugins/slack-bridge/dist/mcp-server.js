@@ -41812,6 +41812,9 @@ var McpBridgeServer = class {
         this.logger.log(
           `auto-subscribed on :${this.daemonClient.port} \u2014 topics=${topics.map(formatSpec).join(", ")}`
         );
+        if (envTopics) {
+          this.writeState({ topics });
+        }
       } catch {
         this.logger.warn(
           "daemon not reachable \u2014 subscription skipped. Use subscribe_slack once the daemon is running."

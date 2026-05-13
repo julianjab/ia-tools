@@ -96,8 +96,8 @@ not teammate).
   Everything else — qa, security, architect, per-stack implementers — is
   discovered at runtime from each touched repo's `<repo>/.claude/agents/`.
 - `plugins/team-workflow/skills/` — Reusable Claude Code skills:
-  `session`, `worktree`, `commit`, `review`, `pr`, `team-review`,
-  `sync-docs`, `pr-review`, `security-audit`.
+  `router`, `session`, `worktree`, `commit`, `review`, `pr`,
+  `team-review`, `sync-docs`, `pr-review`, `security-audit`.
 - `plugins/team-workflow/hooks/` — `enforce-worktree.sh` (PreToolUse,
   gitignore-aware), `task-created.sh` / `task-completed.sh` /
   `teammate-idle.sh` (agent-teams quality gates).
@@ -169,6 +169,9 @@ happens at MCP init via the `SLACK_TOPICS` env var (set by
 
 ## Skills
 
+- `/router` — Boot the always-on `session-manager` router in tmux.
+  One per machine. Hides `--dangerously-load-development-channels`
+  behind a wrapper. Pass the Slack topic (e.g. `DM:U02M1QFA0AF`).
 - `/session` — Spawn a team-lead sub-session in tmux. Invokes
   `start-team-lead.sh` with feature label, topic, and request. Used by
   `session-manager` on `dispatch` intent.
