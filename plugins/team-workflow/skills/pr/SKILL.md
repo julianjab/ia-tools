@@ -35,10 +35,33 @@ disable-model-invocation: false
    4. Continue this skill inside the new worktree. From this point on, all git/pnpm/skill commands MUST target the worktree via `git -C <worktree-path>` / `pnpm --dir <worktree-path>` — never `cd`.
    5. Report the recovery in one line before proceeding: `auto-recovered: <branch> at <worktree-path> (moved <N> files)`.
 
-2. **Check for uncommitted changes** — apply the same caller gate:
+2. **Check for uncommitted changes** — apply the staging contract:
 
-   - **Pipeline caller** (`/pr`, `/commit`, `/deliver`, `/ship`): **auto-recover** by invoking `/commit` to stage and commit the pending changes with a conventional message inferred from the diff. Continue only after `/commit` returns successfully. If `/commit` itself fails (hook rejection, test failure, etc.), STOP and surface the underlying error.
-   - **Other caller**: STOP and ask the user whether to commit first — do not stage or move files automatically.
+   - **If `git diff --cached --quiet` is non-zero (something IS staged)**:
+     invoke `/commit` to commit the **already-staged set only**. Pass
+     a `--no-add` semantics — `/commit` MUST NOT run `git add .`
+     itself; it commits whatever the caller staged. The committed
+     bytes therefore equal exactly what the upstream `:security`
+     task audited via `git diff --cached`.
+   - **If nothing is staged but there ARE unstaged changes**: STOP.
+     Do NOT `git add .`. The pipeline contract says the upstream
+     producer (`:impl:green`) must stage the explicit file list before
+     `:security` runs, and `:security` refuses on empty staged set,
+     so an unstaged-only state at this point means the contract was
+     bypassed. Report:
+     ```
+     /pr aborted: working tree has unstaged changes but nothing
+     staged. The :impl:green task must stage its exact file list
+     before :security runs, and :security must approve the staged
+     diff before /pr. Re-run :impl:green → :security and then /pr.
+     ```
+   - **If the working tree is clean** (nothing staged, nothing
+     unstaged): continue — the prior `:impl:green` + `/commit`
+     already committed everything. /pr is just pushing now.
+
+   The auto-recover branch from the previous version (`git add .` via
+   `/commit`) is intentionally removed. `:security` audits exactly
+   what gets committed; nothing else is allowed in.
 
 3. **Fetch and check base**:
    ```bash

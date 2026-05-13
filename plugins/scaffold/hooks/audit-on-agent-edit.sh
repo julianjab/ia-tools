@@ -20,5 +20,5 @@ case "$file_path" in
 esac
 
 printf 'Agent file updated: %s\nRun /audit-agent %s to validate it against the anti-pattern rules (A1–A14).\n' \
-  "$file_path" "$file_path"
+  "$file_path" "$file_path" >&2
 exit 2

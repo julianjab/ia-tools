@@ -50,3 +50,6 @@ agents_bck/
 
 # SDLC tooling local state
 .sdlc/
+
+# tool runtime artifacts
+plugins/team-workflow/.in_use/
