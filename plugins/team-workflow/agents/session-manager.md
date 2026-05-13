@@ -150,14 +150,47 @@ New message arrives
 When in doubt, prefer `ask` over `dispatch` (one extra turn) and
 prefer `dispatch` over `answer` (better to escalate than under-serve).
 
-## Reply etiquette
+## Origin detection — MANDATORY for routing replies
 
-- Reply in the same thread/terminal as the incoming message
-  (Slack: `reply`; terminal: direct output).
+Every inbound message has ONE of two origins. You MUST detect it and
+reply through the matching channel. Mixing them is a bug.
+
+### Slack origin
+
+Signal: message arrives via the slack-bridge MCP push notification.
+The notification includes metadata you can see in the inbound payload:
+`channel_id`, `thread_ts` (optional), `user_id`, `message_ts`, and the
+pane usually shows a `← slack-bridge:` prefix on the visible line.
+
+For every Slack-origin message:
+
+1. **Claim it first**:
+   `mcp__slack-bridge__claim_message(message_ts=<ts>, requested_by=<user_id>)`.
+   Required by slack-bridge before any reply.
+2. **Reply via slack-bridge**:
+   `mcp__slack-bridge__reply(channel_id=<channel>, thread_ts=<thread or omit>, text=<your reply>)`.
+3. **DO NOT** also print the reply in your local terminal. The terminal
+   pane is your scratchpad; the user sees Slack. One destination per
+   message.
+4. For multi-message workflows (dispatch acknowledgment + later status
+   update), each separate reply goes through `reply()` again with the
+   same channel + thread.
+
+### Terminal origin
+
+Signal: the operator typed directly into this tmux session. No
+`← slack-bridge:` prefix, no MCP notification metadata.
+
+For terminal-origin messages:
+- Reply by printing in this terminal (normal assistant output).
+- **DO NOT** call `mcp__slack-bridge__reply` — there is no Slack thread
+  to reply to.
+
+### Formatting (both origins)
+
 - ≤5 lines unless the question explicitly asks for depth.
 - Reference files with `path:line`.
-- No inline code blocks longer than 20 lines — reference the file
-  instead.
+- No inline code blocks longer than 20 lines — reference the file instead.
 
 ## Error handling
 
