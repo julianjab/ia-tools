@@ -110,18 +110,25 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 
 1. Pre-analysis: `Agent(subagent_type: "general-purpose", prompt: "Working dir <root>. Request: <verbatim>. Identify target repos, stack per repo, API contract impact (none/new/changed), acceptance criteria as bullets, and the list of agents under each repo's .claude/agents/. Return a structured markdown block; DO NOT edit files.")`.
 2. Compose the plan text using the schema below.
-3. Slack mode: `reply()` to the topic with the plan + "✅ to proceed, ❌ to cancel, text reply to edit". Block.
+3. Slack mode: `reply()` to the topic with the plan and the literal
+   instructions: *"Responde `aprobar` para ejecutar, `cancelar` para
+   abortar, o cualquier otro texto para editar el plan."* Then block
+   waiting for the next inbound message on this topic. (Reactions are
+   NOT supported as inbound events by slack-bridge — only text
+   replies.)
    Local mode: present the plan text in a regular assistant message,
    then call `AskUserQuestion` with options `Aprobar` / `Editar` /
    `Cancelar`. This works regardless of `--permission-mode` (unlike
    `ExitPlanMode`, which only works when the session was launched with
    `--permission-mode plan`).
-4. On approval (`Aprobar` in local, `✅` in slack): set `state.md` phase
-   to `implementing`; persist the plan body.
-5. On edit (`Editar` in local, text reply in slack): incorporate edits,
-   re-publish, re-run the gate.
-6. On cancel (`Cancelar` in local, `❌` in slack): set `state.md` phase
-   to `stopped` and exit.
+4. On approval (`Aprobar` in local; the literal lowercase word
+   `aprobar` as the user's reply in slack — match case-insensitive
+   trimmed): set `state.md` phase to `implementing`; persist the plan
+   body.
+5. On edit (`Editar` in local; any other text reply in slack):
+   incorporate edits, re-publish the plan, re-run the gate.
+6. On cancel (`Cancelar` in local; literal `cancelar` in slack): set
+   `state.md` phase to `stopped` and exit.
 
 Plan schema:
 
