@@ -111,9 +111,17 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 1. Pre-analysis: `Agent(subagent_type: "general-purpose", prompt: "Working dir <root>. Request: <verbatim>. Identify target repos, stack per repo, API contract impact (none/new/changed), acceptance criteria as bullets, and the list of agents under each repo's .claude/agents/. Return a structured markdown block; DO NOT edit files.")`.
 2. Compose the plan text using the schema below.
 3. Slack mode: `reply()` to the topic with the plan + "✅ to proceed, ❌ to cancel, text reply to edit". Block.
-   Local mode: `ExitPlanMode` with the plan text.
-4. On approval: set `state.md` phase to `implementing`; persist the plan body.
-5. On edit: incorporate, re-publish, reset the gate.
+   Local mode: present the plan text in a regular assistant message,
+   then call `AskUserQuestion` with options `Aprobar` / `Editar` /
+   `Cancelar`. This works regardless of `--permission-mode` (unlike
+   `ExitPlanMode`, which only works when the session was launched with
+   `--permission-mode plan`).
+4. On approval (`Aprobar` in local, `✅` in slack): set `state.md` phase
+   to `implementing`; persist the plan body.
+5. On edit (`Editar` in local, text reply in slack): incorporate edits,
+   re-publish, re-run the gate.
+6. On cancel (`Cancelar` in local, `❌` in slack): set `state.md` phase
+   to `stopped` and exit.
 
 Plan schema:
 
