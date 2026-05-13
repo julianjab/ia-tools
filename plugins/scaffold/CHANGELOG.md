@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/julianjab/ia-tools/compare/scaffold-v0.2.0...scaffold-v0.3.0) (2026-05-13)
+
+
+### Features
+
+* **team-workflow:** align with agent-teams + agent-view docs ([#48](https://github.com/julianjab/ia-tools/issues/48)) ([5644cb4](https://github.com/julianjab/ia-tools/commit/5644cb4ba9cfb0b4aca56d4b4d2ad799bd380ce4))
+
 ## [0.2.0](https://github.com/julianjab/ia-tools/compare/scaffold-v0.1.0...scaffold-v0.2.0) (2026-05-08)
 
 
