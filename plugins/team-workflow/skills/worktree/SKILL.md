@@ -80,19 +80,25 @@ name → directory name conversion, idempotent creation, `.claude/`
 config copy, and the result report. Don't reproduce its steps in chat —
 just invoke it.
 
-**After the script returns successfully, you MUST also run**:
+**After the script returns successfully, you MUST also invoke the
+`/add-dir` slash command** for the new worktree:
 
 ```
-/add-dir <worktree-absolute-path>
+SlashCommand(command="/add-dir <worktree-absolute-path>")
 ```
+
+`/add-dir` is a slash command of the **current** Claude Code session.
+Invoke it via the `SlashCommand` tool — NOT via Bash (`claude
+--add-dir` is a different CLI flag that affects a separate process and
+does NOT modify the running session). NOT via typing it as plain text.
+The slash command registers the worktree's `.claude/` (agents, skills,
+hooks, settings) with the active session so any repo-local subagent
+under the new worktree can be spawned via `Agent(...)`.
 
 Extract `<worktree-absolute-path>` from the script's report line
-(`Path: …`). `/add-dir` registers the worktree's `.claude/` (agents,
-skills, hooks, settings) with the active session so any repo-local
-subagent under the new worktree can be spawned via `Agent(...)`.
-Skipping this step makes repo-local agents invisible to the spawner
-and produces "Agent type '…' not found" errors at spawn time. This is
-part of the `init` contract, not an optional follow-up.
+(`Path: …`). Skipping this step makes repo-local agents invisible to
+the spawner and produces "Agent type '…' not found" errors at spawn
+time. This is part of the `init` contract, not an optional follow-up.
 
 **Flags**:
 
