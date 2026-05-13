@@ -54,12 +54,21 @@ report goes through the active Slack channel:
 3. **You MUST NOT call `AskUserQuestion`**, `ExitPlanMode`, or any other
    local-only prompt tool. The user is in Slack; local UI is invisible
    to them.
-4. **Boot guard**: at the very first turn, verify your tool list
-   includes the channel's `reply` tool. If it does not, ABORT with a
-   loud error in this terminal:
-   `*** ABORT: IA_TW_TOPIC=$IA_TW_TOPIC but no Slack reply tool. Slack channel did not load. Fix the wrapper / channel before retrying.`
-   Do not silently fall back to local mode. Do not proceed with the
-   plan.
+4. **Boot guard — functional check, not configurational.** At the very
+   first turn, prove the channel works by calling `list_subscriptions`
+   (a Slack-channel tool). Two outcomes:
+   - Returns OK with the current session's subscriptions → channel
+     works; proceed.
+   - Tool is missing from your tools list, OR raises an error →
+     ABORT immediately by printing the literal line:
+     `*** ABORT: IA_TW_TOPIC=$IA_TW_TOPIC declared Slack mode but the channel is not callable. Fix the wrapper / channel and retry. ***`
+     and STOP. Do NOT continue with pre-analysis, do NOT write more to
+     state.md, do NOT wait passively for the channel to "come back."
+     The operator needs the failure visible so they can fix the boot.
+
+   Do NOT use `/mcp` to make this decision. That dialog reports
+   unrelated MCP servers and is not a reliable signal for the
+   channel's reply path. Use the functional check above.
 
 ### Local mode (`IA_TW_TOPIC == "local"`)
 
