@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.5.2...team-workflow-v0.6.0) (2026-05-13)
+
+
+### Features
+
+* **router:** make topic optional at boot ([#59](https://github.com/julianjab/ia-tools/issues/59)) ([e620a3a](https://github.com/julianjab/ia-tools/commit/e620a3a6517ac473e0a809f3d163619e2017cf38))
+
 ## [0.5.2](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.5.1...team-workflow-v0.5.2) (2026-05-13)
 
 
