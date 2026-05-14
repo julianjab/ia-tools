@@ -29,13 +29,43 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
 
+      # Resolve the open release PR: prefer release-please output (new/updated PR),
+      # fall back to gh pr list (existing unchanged PR). This handles the case where
+      # release-please finds no changes to make to an existing PR and emits no output.
+      - name: Resolve release PR
+        id: resolve_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr_json='${{ steps.release.outputs.pr }}'
+          if [ -n "$pr_json" ] && [ "$pr_json" != "null" ] && [ "$pr_json" != "false" ]; then
+            pr_number=$(echo "$pr_json" | jq -r '.number')
+            pr_branch=$(echo "$pr_json" | jq -r '.headBranchName')
+          else
+            # release-please found an existing PR with no changes — look it up
+            pr_number=$(gh pr list \
+              --head "release-please--branches--main" \
+              --state open \
+              --json number \
+              --jq '.[0].number' \
+              --repo "${{ github.repository }}" 2>/dev/null || echo "")
+            pr_branch="release-please--branches--main"
+          fi
+          if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
+            echo "no_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no_pr=false" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+            echo "pr_branch=$pr_branch" >> "$GITHUB_OUTPUT"
+          fi
+
       # Add marketplace.json to the release PR branch before merging so that
       # plugin version bumps and marketplace version land in one squash commit.
       # The release branch already has the updated manifest — we read from it.
       - name: Sync marketplace into release PR
-        if: ${{ steps.release.outputs.pr }}
+        if: steps.resolve_pr.outputs.no_pr == 'false'
         run: |
-          pr_branch=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.headBranchName')
+          pr_branch="${{ steps.resolve_pr.outputs.pr_branch }}"
           git fetch origin "$pr_branch"
           git checkout "$pr_branch"
           latest=$(node -e "
@@ -57,15 +87,11 @@ jobs:
       # Squash-merge the release PR. Because the marketplace sync commit is
       # already on the PR branch, everything lands in one commit on main.
       - name: Auto-merge the Release PR
-        if: ${{ steps.release.outputs.pr }}
+        if: steps.resolve_pr.outputs.no_pr == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          pr_number=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.number')
-          if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
-            echo "release-please reported no PR; nothing to merge."
-            exit 0
-          fi
+          pr_number="${{ steps.resolve_pr.outputs.pr_number }}"
           echo "Merging release PR #$pr_number..."
           gh pr merge "$pr_number" --squash --repo "${{ github.repository }}"
