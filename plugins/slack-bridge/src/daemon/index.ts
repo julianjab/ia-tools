@@ -143,90 +143,96 @@ if (IDLE_SHUTDOWN_MS > 0) {
 }
 
 // ─── Slack listener ─────────────────────────────────────────────────
-const app = await startListener({ botToken, appToken }, async (event: SlackEvent) => {
-  socketStatus = 'connected';
+const app = await startListener(
+  { botToken, appToken },
+  async (event: SlackEvent) => {
+    socketStatus = 'connected';
 
-  // Resolve names
-  const [userName, channelName] = await Promise.all([
-    resolveUser(app, event.user_id),
-    resolveChannel(app, event.channel_id),
-  ]);
+    // Resolve names
+    const [userName, channelName] = await Promise.all([
+      resolveUser(app, event.user_id),
+      resolveChannel(app, event.channel_id),
+    ]);
 
-  const msg = buildSlackMessage({
-    channel_id: event.channel_id,
-    channel_name: channelName,
-    user_id: event.user_id,
-    user_name: userName,
-    text: event.text,
-    message_ts: event.message_ts,
-    thread_ts: event.thread_ts,
-    thread_context: event.thread_context,
-  });
+    const msg = buildSlackMessage({
+      channel_id: event.channel_id,
+      channel_name: channelName,
+      user_id: event.user_id,
+      user_name: userName,
+      text: event.text,
+      message_ts: event.message_ts,
+      thread_ts: event.thread_ts,
+      thread_context: event.thread_context,
+    });
 
-  // Route to matching subscribers
-  const targets = registry.match(msg);
-  if (targets.length === 0) {
-    log(`[route] no subscribers for #${channelName} from ${userName} — dropping`);
-    return;
-  }
-
-  log(
-    `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" → ${targets.length} subscriber(s)`,
-  );
-
-  // Specificity pre-emption (registry.match): less-specific subscribers get
-  // dropped when a more specific subscription also matched. Log only when
-  // any were actually pre-empted, to avoid noise on the common single-match
-  // case. maxScore is recomputed from the surviving winners — they all
-  // share the same score by construction.
-  const matchingCount = registry.countMatchingSubscribers(msg);
-  const dropped = matchingCount - targets.length;
-  if (dropped > 0) {
-    let maxScore = 0;
-    for (const { matched } of targets) {
-      for (const t of matched) {
-        const p = parseTopic(t.topic);
-        let s = 0;
-        if (p.channel) s++;
-        if (p.user) s++;
-        if (p.thread) s++;
-        if (s > maxScore) maxScore = s;
-      }
+    // Route to matching subscribers
+    const targets = registry.match(msg);
+    if (targets.length === 0) {
+      log(`[route] no subscribers for #${channelName} from ${userName} — dropping`);
+      return;
     }
-    log(`[route] specificity max=${maxScore} — ${targets.length} winner(s), ${dropped} pre-empted`);
-  }
 
-  await Promise.allSettled(
-    targets.map(async ({ subscriber: sub, matched }) => {
-      const payload: MessagePayload = {
-        message: msg,
-        matched_topics: matched,
-        daemon_ts: new Date().toISOString(),
-      };
-      const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : '';
-      const matchedTopics = matched.map((t) => t.topic).join(',');
-      log(
-        `[route] → :${sub.port}${sessionSeg} #${channelName} ${userName} matched=[${matchedTopics}]`,
-      );
-      try {
-        const res = await fetch(`http://localhost:${sub.port}/message`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          warn(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} — removing`);
-          registry.remove(sub.port);
-          return;
+    log(
+      `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" → ${targets.length} subscriber(s)`,
+    );
+
+    // Specificity pre-emption (registry.match): less-specific subscribers get
+    // dropped when a more specific subscription also matched. Log only when
+    // any were actually pre-empted, to avoid noise on the common single-match
+    // case. maxScore is recomputed from the surviving winners — they all
+    // share the same score by construction.
+    const matchingCount = registry.countMatchingSubscribers(msg);
+    const dropped = matchingCount - targets.length;
+    if (dropped > 0) {
+      let maxScore = 0;
+      for (const { matched } of targets) {
+        for (const t of matched) {
+          const p = parseTopic(t.topic);
+          let s = 0;
+          if (p.channel) s++;
+          if (p.user) s++;
+          if (p.thread) s++;
+          if (s > maxScore) maxScore = s;
         }
-        registry.markSeen(sub.port);
-      } catch (_err) {
-        warn(`[route] subscriber :${sub.port}${sessionSeg} unreachable — removing`);
-        registry.remove(sub.port);
       }
-    }),
-  );
-});
+      log(
+        `[route] specificity max=${maxScore} — ${targets.length} winner(s), ${dropped} pre-empted`,
+      );
+    }
+
+    await Promise.allSettled(
+      targets.map(async ({ subscriber: sub, matched }) => {
+        const payload: MessagePayload = {
+          message: msg,
+          matched_topics: matched,
+          daemon_ts: new Date().toISOString(),
+        };
+        const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : '';
+        const matchedTopics = matched.map((t) => t.topic).join(',');
+        log(
+          `[route] → :${sub.port}${sessionSeg} #${channelName} ${userName} matched=[${matchedTopics}]`,
+        );
+        try {
+          const res = await fetch(`http://localhost:${sub.port}/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            warn(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} — removing`);
+            registry.remove(sub.port);
+            return;
+          }
+          registry.markSeen(sub.port);
+        } catch (_err) {
+          warn(`[route] subscriber :${sub.port}${sessionSeg} unreachable — removing`);
+          registry.remove(sub.port);
+        }
+      }),
+    );
+  },
+  (channelId, threadTs) => registry.hasThreadSubscription(channelId, threadTs),
+);
 
 socketStatus = 'connected';
 

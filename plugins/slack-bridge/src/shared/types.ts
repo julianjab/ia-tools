@@ -19,6 +19,11 @@ export interface SlackMessage {
    * so the agent knows the originating context.
    */
   thread_context?: Record<string, unknown>;
+  /**
+   * Emoji name (without colons) when this event represents a reaction_added event,
+   * e.g. "white_check_mark" or "x". Absent for regular messages.
+   */
+  reaction?: string;
 }
 
 /**

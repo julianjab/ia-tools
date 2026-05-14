@@ -69,7 +69,7 @@ import { resolveSessionId } from './session-id-resolver.js';
 import { McpLogger } from './shared/mcp-logger.js';
 import { PathResolver } from './shared/path-resolver.js';
 import type { MessagePayload, TopicSpec } from './shared/types.js';
-import { normalizeTopic } from './shared/types.js';
+import { normalizeTopic, parseTopic } from './shared/types.js';
 import { formatSpec, mergeTopicSpecs } from './topic-helpers.js';
 import { WebhookServer } from './webhook-server.js';
 
@@ -544,16 +544,33 @@ export class McpBridgeServer {
   async handleIncomingMessage(payload: MessagePayload): Promise<void> {
     const { message, matched_topics } = payload;
 
-    // Access control gate — deny-by-default (empty set blocks everyone)
+    // Access control gate — deny-by-default (empty set blocks everyone).
+    // Branch order matters: each case is mutually exclusive.
+    const isThreadScoped = matched_topics.some((t) => parseTopic(t.topic).thread !== undefined);
     if (message.is_dm) {
+      // 1. DM to the bot — checked against ALLOWED_USERS_DM
       if (!this.allowedUsersDm.has(message.user_id)) {
         this.logger.log(`[gate] DM from ${message.user_id} blocked — not in ALLOWED_USERS_DM`);
         return;
       }
-    } else {
+    } else if (message.reaction) {
+      // 2. Emoji reaction in a channel — checked against ALLOWED_USERS_MENTIONS
       if (!this.allowedUsersMentions.has(message.user_id)) {
         this.logger.log(
-          `[gate] mention from ${message.user_id} in #${message.channel_name} blocked — not in ALLOWED_USERS_MENTIONS`,
+          `[gate] reaction :${message.reaction}: from ${message.user_id} blocked — not in ALLOWED_USERS_MENTIONS`,
+        );
+        return;
+      }
+    } else if (message.thread_ts && isThreadScoped) {
+      // 3. Reply inside an explicitly subscribed thread — no user gate.
+      //    Already gated in the daemon: bots via hasThreadSubscription,
+      //    humans via registry.match (subscription created by the bot itself).
+    } else {
+      // 4. Top-level @mention OR thread reply via a broad channel subscription
+      //    — checked against ALLOWED_USERS_MENTIONS
+      if (!this.allowedUsersMentions.has(message.user_id)) {
+        this.logger.log(
+          `[gate] message from ${message.user_id} in #${message.channel_name} blocked — not in ALLOWED_USERS_MENTIONS`,
         );
         return;
       }
@@ -573,6 +590,7 @@ export class McpBridgeServer {
           thread_ts: message.thread_ts ?? '',
           is_dm: message.is_dm ? 'true' : 'false',
           thread_context: message.thread_context ? JSON.stringify(message.thread_context) : '',
+          reaction: message.reaction ?? '',
           // Per-topic labels surface the subscriber's intent for this match
           // (e.g. "ship-pr-42") so the agent can decide what to do with the
           // message based on WHY it was subscribed, not just the topic string.

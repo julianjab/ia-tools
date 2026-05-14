@@ -190,6 +190,16 @@ export class Registry {
     return count;
   }
 
+  /** Returns true if any subscriber has an explicit thread-scoped topic for this channel+thread. */
+  hasThreadSubscription(channelId: string, threadTs: string): boolean {
+    return this.all().some((sub) =>
+      sub.topics.some((t) => {
+        const p = parseTopic(t.topic);
+        return p.type === 'channel' && p.channel === channelId && p.thread === threadTs;
+      }),
+    );
+  }
+
   /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
   removeTopics(port: number, topicStrings: string[]): TopicSpec[] | undefined {
     const sub = this.subscribers.get(port);

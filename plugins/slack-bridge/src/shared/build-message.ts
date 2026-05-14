@@ -16,6 +16,7 @@ export interface SlackMessageFields {
   message_ts: string;
   thread_ts?: string;
   thread_context?: Record<string, unknown>;
+  reaction?: string;
 }
 
 /**
@@ -34,5 +35,6 @@ export function buildSlackMessage(fields: SlackMessageFields): SlackMessage {
     thread_ts: fields.thread_ts,
     is_dm: fields.channel_id.startsWith('D'),
     thread_context: fields.thread_context,
+    ...(fields.reaction !== undefined ? { reaction: fields.reaction } : {}),
   };
 }
