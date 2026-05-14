@@ -141,8 +141,14 @@ export async function startListener(
     if (!e.user && !e.bot_id) return;    // must have an actor (human or bot)
     if (e.channel?.startsWith('D')) return; // DMs handled by assistant.userMessage
     // Bot replies are only relevant in threads we created and subscribed to.
-    if (e.subtype === 'bot_message' && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) return;
-    if (markSeen(e.ts)) return;          // already delivered via app_mention
+    if (e.subtype === 'bot_message' && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) {
+      log(`[channel_message] bot ${e.bot_id} dropped — no subscription for thread ${e.channel}:${e.thread_ts}`);
+      return;
+    }
+    if (markSeen(e.ts)) {
+      log(`[channel_message] ts=${e.ts} deduped — already delivered via app_mention`);
+      return;
+    }
     try {
       await onMessage({
         channel_id: e.channel,

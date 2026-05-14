@@ -55726,8 +55726,14 @@ async function startListener(config, onMessage, hasThreadSubscription) {
     if (!e.thread_ts) return;
     if (!e.user && !e.bot_id) return;
     if (e.channel?.startsWith("D")) return;
-    if (e.subtype === "bot_message" && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) return;
-    if (markSeen(e.ts)) return;
+    if (e.subtype === "bot_message" && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) {
+      log(`[channel_message] bot ${e.bot_id} dropped \u2014 no subscription for thread ${e.channel}:${e.thread_ts}`);
+      return;
+    }
+    if (markSeen(e.ts)) {
+      log(`[channel_message] ts=${e.ts} deduped \u2014 already delivered via app_mention`);
+      return;
+    }
     try {
       await onMessage({
         channel_id: e.channel,
