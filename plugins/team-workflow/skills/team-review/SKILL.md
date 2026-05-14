@@ -36,7 +36,7 @@ Resolution priority — first non-empty wins:
    | Env var | Value |
    |---|---|
    | `TEAM_REVIEW_CHANNEL` | `#channel-name` or `Cxxxxxxxxxx` channel ID |
-   | `TEAM_REVIEW_MENTIONS` | space-separated list: `@alice U02... S078... <!subteam^S078...>` |
+   | `TEAM_REVIEW_MENTIONS` | comma-separated list: `U02... S078... U0AGVLRV6A2` |
    | `TEAM_REVIEW_CI_TIMEOUT_MIN` | optional, default `15` |
 
    Example consumer `.claude/settings.local.json`:
@@ -44,7 +44,7 @@ Resolution priority — first non-empty wins:
    {
      "env": {
        "TEAM_REVIEW_CHANNEL": "C06Q8SNF93P",
-       "TEAM_REVIEW_MENTIONS": "S078TCCKQ05 U0AGVLRV6A2"
+       "TEAM_REVIEW_MENTIONS": "S078TCCKQ05,U0AGVLRV6A2"
      }
    }
    ```
@@ -57,6 +57,28 @@ Resolution priority — first non-empty wins:
    ```
 4. **Ask the user** — if no value is found anywhere, prompt once
    before proceeding. Do not invent defaults.
+
+### Repo-type reviewer injection (LaHaus)
+
+After resolving `TEAM_REVIEW_MENTIONS`, detect the repo type from the
+git remote URL and **append** the matching reviewer to the mentions
+list. This runs automatically — no extra config needed.
+
+Detection: `git remote get-url origin` → match against these patterns:
+
+| Pattern in remote URL | Repo type | Reviewer appended | Slack ID |
+|---|---|---|---|
+| `mobile` / `ai-mobile-app` | mobile | fluttie | `U0ASH40F561` |
+| `seller` / `frontend` / `lh-seller` | frontend | pixelin | `U0AGRBEG6UT` |
+| `infra` / `eks` / `platform-infrastructure` | infra | kubito | `U0AGVM0SRT8` |
+| anything else (backend, subscriptions, ims, comms, claw-agents, etc.) | backend | gordo | `U0AHRSSLF4G` |
+
+Rules:
+- If the repo-type reviewer is already in `TEAM_REVIEW_MENTIONS`, skip
+  (no duplicate).
+- If `git remote get-url origin` fails (no remote), skip silently.
+- CLI argument mentions override everything — repo-type injection still
+  appends unless the reviewer ID is already present.
 
 ### Arguments
 
