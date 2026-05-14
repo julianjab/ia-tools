@@ -351,10 +351,23 @@ gh pr create --title "<type>(<scope>): <description>" --body-file /tmp/pr_body.m
 
 #### 7 — CI/CD Monitoring
 
-1. Run `gh pr checks <pr-url> --watch --interval 30` to monitor CI (skip if `--skip-ci`).
-2. Report results:
+CI watching is **context-aware** — do not block when the
+`ci-poller.sh` hook will cover it.
+
+1. **Detect the context:**
+   - **Agent-teams flow** — `$IA_TW_STATE_DIR` is set (this `/pr` run
+     is a worktree's `:pr` task). **Do NOT watch CI here.** Skip
+     straight to step 8 and finish. When the `:pr` task completes, the
+     `TaskCompleted` hook fires `ci-poller.sh`, which polls CI async and
+     wakes the `lead` with the verdict — a blocking `--watch` here would
+     just duplicate that and stall the dispatch loop.
+   - **Standalone** — `$IA_TW_STATE_DIR` is unset (operator ran `/pr`
+     directly). No hook will fire, so watch inline: run
+     `gh pr checks <pr-url> --watch --interval 30` (skip if `--skip-ci`).
+2. Report results (standalone only):
    - **All pass**: Report success with PR URL
-   - **Any failure**: Show failed check name, fetch logs with `gh run view <run-id> --log-failed`, and suggest fixes
+   - **Any failure**: Show failed check name, fetch logs with
+     `gh run view <run-id> --log-failed`, and suggest fixes
 
 #### 8 — Report
 
@@ -363,10 +376,13 @@ PR delivered: <pr-url>
 Branch: <branch-name>
 Commits: <count>
 Quality gate: fmt ✓ | test ✓ (<N> passed) | coverage ✓ (new: <N>%) | rules ✓
-CI Status: <passing/failing/skipped>
+CI Status: <passing/failing/skipped/deferred-to-ci-poller>
 Diagrams: component before/after (always present)
 Files changed: <count>
 ```
+
+Use `CI Status: deferred-to-ci-poller` in the agent-teams flow — it
+signals that `ci-poller.sh` owns the watch from here.
 
 ---
 
@@ -382,7 +398,8 @@ Files changed: <count>
 | Merge conflicts too complex | Abort rebase, ask user for guidance |
 | Push rejected after rebase | Use `git push --force-with-lease` (NOT `--force`) |
 | PR already exists | Auto-update: push commits, regenerate title/body/diagrams |
-| CI fails | Show failure details, do NOT notify Slack, ask user how to proceed |
+| CI fails (standalone, `$IA_TW_STATE_DIR` unset) | Show failure details, do NOT notify Slack, ask user how to proceed |
+| CI fails (agent-teams flow) | Not handled here — `/pr` already finished; `ci-poller.sh` detects the failure and wakes the `lead` with the failed checks |
 | `gh` CLI not available | STOP — `gh` is required for PR creation |
 
 ## Important Rules
