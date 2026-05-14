@@ -43,8 +43,8 @@ Resolution priority — first non-empty wins:
    ```json
    {
      "env": {
-       "TEAM_REVIEW_CHANNEL": "C06Q8SNF93P",
-       "TEAM_REVIEW_MENTIONS": "S078TCCKQ05,U0AGVLRV6A2"
+       "TEAM_REVIEW_CHANNEL": "Cxxxxxxxxxx",
+       "TEAM_REVIEW_MENTIONS": "Sxxxxxxxxxx,Uxxxxxxxxxx"
      }
    }
    ```
@@ -53,8 +53,8 @@ Resolution priority — first non-empty wins:
    ```markdown
    ## Team-Review Config
    - channel: #your-channel-name
-   - mentions: @user1 U0AGVLRV6A2 S078TCCKQ05
-   - repo-reviewer: U0AHRSSLF4G
+   - mentions: Uxxxxxxxxxx Sxxxxxxxxxx
+   - repo-reviewer: Uxxxxxxxxxx
    ```
    `repo-reviewer` is a single user/group ID appended to the resolved
    mentions list. Use it to designate the stack-specific reviewer for
