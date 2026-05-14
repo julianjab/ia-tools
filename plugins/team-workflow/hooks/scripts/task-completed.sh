@@ -65,6 +65,17 @@ case "$subject" in
           "$subject" "$worktree_prefix" >&2
         exit 2
       fi
+
+      # Staging contract: staged_files must be declared in state.md for this worktree.
+      # Looks in the 30 lines following the wt_prefix entry (covers the whole worktree block).
+      if [ -f "${state_dir}/state.md" ]; then
+        if ! grep -A 30 "wt_prefix:[[:space:]]*${worktree_prefix}" "${state_dir}/state.md" 2>/dev/null \
+             | grep -q "staged_files:" 2>/dev/null; then
+          printf 'ia-tools staging contract violated: cannot complete %s without staged_files: in state.md for worktree %s. Stage the exact commit set with git add <file-list>, verify with git -C <wt> diff --cached --name-only, then add staged_files: to the worktree entry before marking green.\n' \
+            "$subject" "$worktree_prefix" >&2
+          exit 2
+        fi
+      fi
     fi
     ;;
 esac

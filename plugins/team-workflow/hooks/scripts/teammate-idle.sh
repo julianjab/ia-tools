@@ -29,10 +29,15 @@ transcript_path=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/
 # Normalize: agent_type is usually the plugin agent name (qa, security, …),
 # but some teammates carry the repo-local alias (e.g. "subscriptions-backend").
 # Use both fields to classify.
+#
+# impl fallback teammates are named `impl-<wt_prefix>` (agent_type=implementer).
+# Repo-local impl agents have arbitrary names; they are not classified here
+# because their agent_type is also their repo-local name (no stable pattern).
 role=""
 case "${agent_type}:${name}" in
   qa:*|*:qa|*:qa-*|*:tester|*:tester-*) role="qa" ;;
   security:*|*:security|*:security-*)    role="security" ;;
+  implementer:*|*:impl-*)                role="impl" ;;
 esac
 
 # If we can't classify or there is no transcript yet, allow idle.
@@ -52,6 +57,19 @@ case "$role" in
     if ! grep -E '\b(APPROVED|REJECTED)\b' "$transcript_path" >/dev/null 2>&1; then
       printf 'ia-tools invariant 3: security cannot idle before publishing a verdict. Emit a verdict line containing the literal word APPROVED or REJECTED for the audited worktree (e.g. "Verdict: APPROVED — 0 HIGH, 0 MEDIUM").\n' >&2
       exit 2
+    fi
+    ;;
+  impl)
+    # Extract wt_prefix from teammate name (impl-<wt_prefix> naming convention).
+    wt_prefix="${name#impl-}"
+    state_file="${IA_TW_STATE_DIR:-}/state.md"
+    if [ -n "${IA_TW_STATE_DIR:-}" ] && [ -f "$state_file" ]; then
+      if ! grep -A 30 "wt_prefix:[[:space:]]*${wt_prefix}" "$state_file" 2>/dev/null \
+           | grep -qE "green[[:space:]]+for[[:space:]]+${wt_prefix}" 2>/dev/null; then
+        printf 'ia-tools staging contract: impl cannot idle before writing the green + staged marker for worktree %s. Run tests (GREEN), stage the exact file list with git add <files>, verify with git -C <wt> diff --cached --name-only, then write "green for %s (staged)" and staged_files: to state.md.\n' \
+          "$wt_prefix" "$wt_prefix" >&2
+        exit 2
+      fi
     fi
     ;;
 esac

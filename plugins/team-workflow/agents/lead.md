@@ -120,7 +120,7 @@ worktrees:
     stack: backend | frontend | mobile | infra
     wt_prefix: wt-<stack>-<sha1(worktree-path)[:6]>
     agents:
-      impl: <repo-local name | "general-purpose" | "lead">
+      impl: <repo-local name | "impl-<wt_prefix>">  # always a persistent teammate
       qa:   <repo-local name | "lead">
       sec:  <repo-local name | "lead">
       arch: <repo-local name | "general-purpose">
@@ -209,14 +209,18 @@ not found" and waste a turn.
    - else → ignore
 3. **Pick per bucket** (use ONLY names from the Glob output above —
    never invent or hallucinate an agent name):
-   - `impl`: first repo-local match; else `implementer` (the plugin's
-     stack-aware fallback, loads CLAUDE.md + test runner from the
-     worktree)
-   - `qa`:   first repo-local match; else `lead`
+   - `impl`: first repo-local match (persistent teammate, name verbatim);
+     else use the `implementer` plugin agent as a persistent teammate
+     named `impl-<wt_prefix>` (unique per worktree — prevents
+     cross-worktree task bleed when multiple repos share the same fallback).
+   - `qa`:   first repo-local match (persistent teammate); else `lead`
+     (inline — you write the tests yourself).
    - `sec`:  first repo-local match; else `lead`
    - `arch`: first repo-local match; else `implementer` (it handles
      architecture sketches when no architect exists)
 4. Append the worktree entry to `state.md` with `agents:` populated.
+   For `impl` fallback, record `impl: "impl-<wt_prefix>"` so the
+   dispatch loop and TeammateIdle hook can resolve the correct name.
 
 ### Spawn rule for repo-local agents
 
@@ -274,11 +278,12 @@ The `:team-review` task is **optional**. Omit it entirely when:
 - `TEAM_REVIEW_CHANNEL` is not configured (no env, no CLAUDE.md), OR
 - The feature is a trivial doc / config change that doesn't need formal
   team review.
-Otherwise the lead invokes `/team-review --skip-review` for this
-task (the `/pr` skill already validated the diff). The skill posts to
-the configured Slack channel mentioning the configured reviewers and
-subscribes to that thread — follow-up comments arrive automatically
-during the remaining session lifetime.
+Otherwise the lead invokes `/team-review --skip-review $IA_TW_TOPIC`
+for this task (the `/pr` skill already validated the diff). Always
+pass `$IA_TW_TOPIC` so the review request is posted in the existing
+feature thread instead of opening a new one. In local mode
+(`IA_TW_TOPIC == "local"`), omit the topic — the skill posts a new
+message in the configured channel.
 
 If API contract is `new` or `changed`, add one cross-cutting task BEFORE
 any `:impl:green`:
@@ -306,16 +311,25 @@ Valid owners (anything else is rejected by `task-created.sh`):
 
 Classify discovered owners by lifecycle:
 
-| Bucket                | Lifecycle    | Mechanism                          |
-|-----------------------|--------------|------------------------------------|
-| repo-local `qa`, `impl` | persistent | spawn as teammate at this step     |
-| repo-local `sec`, `arch`| one-shot   | `Agent(subagent_type=<name>, ...)` per task |
-| `lead`             | inline     | execute inline                     |
-| `general-purpose`       | one-shot   | `Agent(subagent_type=general-purpose, ...)` per task |
+| Bucket | Lifecycle | Mechanism |
+|---|---|---|
+| `impl` — repo-local match | persistent | teammate, name = repo-local name verbatim |
+| `impl` — fallback | persistent | teammate, name = `impl-<wt_prefix>`, agent_type = `implementer` |
+| `qa` — repo-local match | persistent | teammate, name = repo-local name verbatim |
+| `qa` — fallback (`lead`) | inline | execute yourself |
+| `sec`, `arch` (any) | one-shot | `Agent(subagent_type=<name>, ...)` per task |
+| `general-purpose` | one-shot | `Agent(subagent_type=general-purpose, ...)` per task |
 
-Spawn the agent team with the persistent owners as teammates. Teammate
-name = repo-local agent name verbatim. Skip the team if no persistent
-owners exist.
+All `impl` agents — repo-local or fallback — are always persistent
+teammates. This gives `TeammateIdle` coverage to every impl agent and
+allows the lead to dispatch impl tasks async (SendMessage) while
+continuing with other unblocked work.
+
+Spawn the agent team with all persistent owners as teammates. For
+fallback impl teammates, use `agent_type: "implementer"` — the plugin
+agent that loads CLAUDE.md and the stack's test runner from the
+worktree. Skip TeamCreate entirely if no persistent owners exist (all
+owners are inline or one-shot).
 
 ## Dispatch loop
 
