@@ -69,7 +69,11 @@ Resolution priority — first non-empty wins:
 
 - URL token (contains `github.com/...`) → PR URL (skip auto-detect).
 - Token starting with `#` → channel name (overrides config).
-- Token starting with `C` → channel ID (overrides config).
+- Token starting with `C` and containing `:` → slack-bridge topic string
+  (e.g. `Cxxxxxxxxxx:*:1234567890.123456`). Parsed into `channel_id`
+  (first segment) and `thread_ts` (third segment). Skips thread search
+  in Step 4 — replies directly to this thread.
+- Token starting with `C` (no `:`) → channel ID (overrides config).
 - Token starting with `@` → mention; format as `<@ID>` (strip `@`).
 - Token starting with `U` → user ID; format as `<@ID>`.
 - Token starting with `S` → user group ID; format as `<!subteam^ID>`.
@@ -119,15 +123,19 @@ Outcomes:
 
 ### Step 4 — Resolve channel + find existing thread
 
-1. Resolve channel:
-   - Name (`#x`) → `slack_search_channels` to get the channel ID.
-   - ID (`Cxxx`) → use directly.
-2. Detect existing thread for this PR:
-   - If `SLACK_THREAD_TS` env is set → use it (caller has anchored
-     a thread).
-   - Otherwise: `slack_search_public_and_private` for the PR URL in
-     the resolved channel. If found → take its `ts` as `thread_ts`;
-     otherwise `thread_ts` stays empty (new message will be created).
+1. Resolve channel + thread_ts (priority order):
+   a. Topic argument (`Cxxx:*:<ts>`) → `channel_id` + `thread_ts` already
+      parsed from arguments. Skip steps b–d.
+   b. `SLACK_THREAD_TS` env → use as `thread_ts`; resolve channel from
+      config.
+   c. Channel name (`#x`) → `slack_search_channels` to get the channel ID.
+      Then search for existing thread (step 2 below).
+   d. Channel ID from config → use directly. Then search for existing
+      thread (step 2 below).
+2. Search for existing thread (only when `thread_ts` is still unset):
+   `slack_search_public_and_private` for the PR URL in the resolved
+   channel. If found → take its `ts` as `thread_ts`; otherwise
+   `thread_ts` stays empty (new root message will be created).
 
 ### Step 5 — Post the review request
 
@@ -198,20 +206,27 @@ extra setup.
 /team-review https://github.com/my-org/my-repo/pull/42
 
 # Override channel and mentions for this run
-/team-review #other-channel @alice S078TCCKQ05
+/team-review #other-channel @alice Sxxxxxxxxxx
 
 # Docs-only PR, skip CI wait
 /team-review --no-ci-wait
 
-# Called by team-lead right after /pr — preflight already done
-/team-review --skip-review
+# Called by team-lead right after /pr — reply in the existing feature thread
+/team-review --skip-review Cxxxxxxxxxx:*:1234567890.123456
 ```
 
 ### Use from team-lead
 
-`team-lead` invokes `/team-review --skip-review` as the final task of
-a feature after each touched repo's `:pr` task completes.
-`--skip-review` because the `/pr` skill already ran `/review --fix`
-and the `:security` task already approved the diff. team-lead then
-relays follow-up comments from the subscribed thread back to the
-user.
+`lead` invokes `/team-review --skip-review <topic>` as the final task
+of a feature after each touched repo's `:pr` task completes.
+
+- `--skip-review` — preflight already done by `/pr` + `:security`.
+- `<topic>` — the inbound Slack topic from `$IA_TW_TOPIC`
+  (e.g. `Cxxxxxxxxxx:*:1234567890.123456`). Passing it makes
+  `/team-review` reply in the **existing feature thread** instead of
+  opening a new one. The review request lands in the same conversation
+  the user has been following.
+
+lead must pass `$IA_TW_TOPIC` verbatim as the topic argument whenever
+`$IA_TW_TOPIC` is not `"local"`. In local mode, omit it — a new
+message is created in the configured channel.
