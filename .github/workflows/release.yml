@@ -18,6 +18,9 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@v4
@@ -26,22 +29,34 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
 
-      # release-please's model is PR-based: it opens a "Release PR" with
-      # version bumps + CHANGELOG entries. We squash-merge it immediately
-      # so the bump lands on main without manual review. The squash-merge
-      # triggers another release.yml run on main, which release-please
-      # reconciles to a no-op against the updated manifest and tags.
-      #
-      # If branch protection on main requires status checks, this errors
-      # and the PR stays open — operator either relaxes the rule or
-      # merges manually.
-      # NOTE: gh pr merge uses GITHUB_TOKEN, so the resulting push to main
-      # does NOT trigger a new workflow run (GitHub blocks recursive triggers
-      # from GITHUB_TOKEN). The marketplace sync therefore runs in this same
-      # run, right after the merge, reading versions from the manifest that
-      # was just landed — not from a follow-up run that never fires.
+      # Add marketplace.json to the release PR branch before merging so that
+      # plugin version bumps and marketplace version land in one squash commit.
+      # The release branch already has the updated manifest — we read from it.
+      - name: Sync marketplace into release PR
+        if: ${{ steps.release.outputs.pr }}
+        run: |
+          pr_branch=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.branch')
+          git fetch origin "$pr_branch"
+          git checkout "$pr_branch"
+          latest=$(node -e "
+            const m = JSON.parse(require('fs').readFileSync('.github/.release-please-manifest.json', 'utf8'));
+            const vs = Object.values(m).filter(Boolean);
+            vs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+            console.log(vs[vs.length - 1]);
+          ")
+          current=$(jq -r '.metadata.version' .claude-plugin/marketplace.json)
+          if [ "$latest" = "$current" ]; then echo "already at $current, skipping."; exit 0; fi
+          jq --arg v "$latest" '.metadata.version = $v' .claude-plugin/marketplace.json > /tmp/mp.json
+          mv /tmp/mp.json .claude-plugin/marketplace.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/marketplace.json
+          git commit -m "chore: sync marketplace version to $latest"
+          git push origin "$pr_branch"
+
+      # Squash-merge the release PR. Because the marketplace sync commit is
+      # already on the PR branch, everything lands in one commit on main.
       - name: Auto-merge the Release PR
-        id: automerge
         if: ${{ steps.release.outputs.pr }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,31 +69,3 @@ jobs:
           fi
           echo "Merging release PR #$pr_number..."
           gh pr merge "$pr_number" --squash --repo "${{ github.repository }}"
-          echo "merged=true" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout
-        if: steps.automerge.outputs.merged == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      # Read the highest version from the manifest (just bumped by the release
-      # PR) and write it to marketplace.json in the same run.
-      - name: Sync marketplace version
-        if: steps.automerge.outputs.merged == 'true'
-        run: |
-          latest=$(node -e "
-            const m = JSON.parse(require('fs').readFileSync('.github/.release-please-manifest.json', 'utf8'));
-            const vs = Object.values(m).filter(Boolean);
-            vs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-            console.log(vs[vs.length - 1]);
-          ")
-          current=$(jq -r '.metadata.version' .claude-plugin/marketplace.json)
-          if [ "$latest" = "$current" ]; then echo "version unchanged ($current), skipping."; exit 0; fi
-          jq --arg v "$latest" '.metadata.version = $v' .claude-plugin/marketplace.json > /tmp/mp.json
-          mv /tmp/mp.json .claude-plugin/marketplace.json
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .claude-plugin/marketplace.json
-          git commit -m "chore: sync marketplace version to $latest [skip ci]"
-          git push
