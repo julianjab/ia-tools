@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.7.0...team-workflow-v0.8.0) (2026-05-14)
+
+
+### Features
+
+* **team-workflow:** make P:qa:red optional for infra/config changes ([#68](https://github.com/julianjab/ia-tools/issues/68)) ([aa8b54d](https://github.com/julianjab/ia-tools/commit/aa8b54d02298c1bce3acd112316706ad39b2d244))
+
 ## [0.7.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.6.1...team-workflow-v0.7.0) (2026-05-14)
 
 
