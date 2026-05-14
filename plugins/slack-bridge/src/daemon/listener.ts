@@ -137,12 +137,18 @@ export async function startListener(
     // Allow bot_message (e.g. vitruvio replying in a thread); skip everything
     // else: channel_join, file_share, message_changed, etc.
     if (e.subtype !== undefined && e.subtype !== 'bot_message') return;
-    if (!e.thread_ts) return;            // only replies inside a thread
-    if (!e.user && !e.bot_id) return;    // must have an actor (human or bot)
+    if (!e.thread_ts) return; // only replies inside a thread
+    if (!e.user && !e.bot_id) return; // must have an actor (human or bot)
     if (e.channel?.startsWith('D')) return; // DMs handled by assistant.userMessage
     // Bot replies are only relevant in threads we created and subscribed to.
-    if (e.subtype === 'bot_message' && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) {
-      log(`[channel_message] bot ${e.bot_id} dropped — no subscription for thread ${e.channel}:${e.thread_ts}`);
+    if (
+      e.subtype === 'bot_message' &&
+      hasThreadSubscription &&
+      !hasThreadSubscription(e.channel, e.thread_ts)
+    ) {
+      log(
+        `[channel_message] bot ${e.bot_id} dropped — no subscription for thread ${e.channel}:${e.thread_ts}`,
+      );
       return;
     }
     if (markSeen(e.ts)) {
@@ -152,7 +158,7 @@ export async function startListener(
     try {
       await onMessage({
         channel_id: e.channel,
-        user_id: e.bot_id ?? e.user,     // bots carry bot_id, humans carry user
+        user_id: e.bot_id ?? e.user, // bots carry bot_id, humans carry user
         text: e.text ?? '',
         message_ts: e.ts,
         thread_ts: e.thread_ts,

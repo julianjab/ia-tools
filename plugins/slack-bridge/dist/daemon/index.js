@@ -55727,7 +55727,9 @@ async function startListener(config, onMessage, hasThreadSubscription) {
     if (!e.user && !e.bot_id) return;
     if (e.channel?.startsWith("D")) return;
     if (e.subtype === "bot_message" && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) {
-      log(`[channel_message] bot ${e.bot_id} dropped \u2014 no subscription for thread ${e.channel}:${e.thread_ts}`);
+      log(
+        `[channel_message] bot ${e.bot_id} dropped \u2014 no subscription for thread ${e.channel}:${e.thread_ts}`
+      );
       return;
     }
     if (markSeen(e.ts)) {
@@ -56243,7 +56245,9 @@ var app = await startListener(
           if (s > maxScore) maxScore = s;
         }
       }
-      log2(`[route] specificity max=${maxScore} \u2014 ${targets.length} winner(s), ${dropped} pre-empted`);
+      log2(
+        `[route] specificity max=${maxScore} \u2014 ${targets.length} winner(s), ${dropped} pre-empted`
+      );
     }
     await Promise.allSettled(
       targets.map(async ({ subscriber: sub, matched }) => {

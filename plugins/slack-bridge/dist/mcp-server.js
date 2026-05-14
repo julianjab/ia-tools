@@ -41888,9 +41888,7 @@ var McpBridgeServer = class {
   /** Called by the webhook server when a message arrives from the daemon. */
   async handleIncomingMessage(payload) {
     const { message, matched_topics } = payload;
-    const isThreadScoped = matched_topics.some(
-      (t) => parseTopic(t.topic).thread !== void 0
-    );
+    const isThreadScoped = matched_topics.some((t) => parseTopic(t.topic).thread !== void 0);
     if (message.is_dm) {
       if (!this.allowedUsersDm.has(message.user_id)) {
         this.logger.log(`[gate] DM from ${message.user_id} blocked \u2014 not in ALLOWED_USERS_DM`);

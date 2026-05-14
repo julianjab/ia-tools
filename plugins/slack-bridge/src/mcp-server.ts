@@ -546,9 +546,7 @@ export class McpBridgeServer {
 
     // Access control gate — deny-by-default (empty set blocks everyone).
     // Branch order matters: each case is mutually exclusive.
-    const isThreadScoped = matched_topics.some(
-      (t) => parseTopic(t.topic).thread !== undefined,
-    );
+    const isThreadScoped = matched_topics.some((t) => parseTopic(t.topic).thread !== undefined);
     if (message.is_dm) {
       // 1. DM to the bot — checked against ALLOWED_USERS_DM
       if (!this.allowedUsersDm.has(message.user_id)) {
