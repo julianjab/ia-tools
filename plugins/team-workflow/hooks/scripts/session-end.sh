@@ -6,10 +6,15 @@
 #   2. For each worktree in state.md, writes role-specific memories to each
 #      repo-local agent's memory file:
 #        <repo>/.claude/agent-memory/<agent-name>/MEMORY.md
-#      Roles covered: impl, qa, sec.
+#      If the named agent does not exist in <repo>/.claude/agents/, falls back to
+#      the plugin-level agent name that Claude auto-loads via memory: project:
+#        impl fallback → implementer (has memory: project in plugin)
+#        qa/sec fallback → skipped (lead ran inline; no persistent memory target)
+#   3. After writing all memories for a repo, opens a `chore/memory-<feature>`
+#      PR in that repo so the memory is versioned and reviewable.
 #
 # Memory types stored (episodic/semantic/procedural per ACE pattern):
-#   - Decisiones: design choices + WHY (not in code)
+#   - Aprendido: non-obvious validated insight
 #   - Fricción:   what slowed the process
 #   - Próxima vez: concrete behavioral change
 #
@@ -38,6 +43,8 @@ pr_urls=$(grep 'pr_url:' "$state_file" 2>/dev/null | sed 's/[[:space:]]*pr_url:[
 state_content=$(cat "$state_file" 2>/dev/null || true)
 has_claude=0
 command -v claude >/dev/null 2>&1 && has_claude=1
+has_gh=0
+command -v gh >/dev/null 2>&1 && has_gh=1
 
 # Build transcript excerpt once: first 6KB (planning) + last 10KB (recent work).
 transcript_excerpt=""
@@ -48,6 +55,38 @@ if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
 [... middle omitted ...]
 ${tail_part}"
 fi
+
+# ── Helper: resolve the memory target agent name ───────────────────────────────
+# If <repo>/.claude/agents/<agent>.md exists → use <agent> as-is.
+# If the recorded name is a fallback pattern (impl-*, lead, general-purpose):
+#   impl-* → "implementer"  (plugin agent with memory: project — auto-loaded)
+#   others → empty string   (no persistent memory target; skip)
+# Returns the resolved name on stdout, or empty if memory should be skipped.
+resolve_memory_agent() {
+  local agent="$1" repo="$2" role="$3"
+
+  # Fallback patterns: impl-<wt_prefix> teammate name.
+  case "$agent" in
+    impl-*)
+      # Fallback impl → write to implementer's memory (memory: project in plugin).
+      printf 'implementer'
+      return 0
+      ;;
+    lead|general-purpose)
+      # lead ran inline; no dedicated memory file. Skip.
+      printf ''
+      return 0
+      ;;
+  esac
+
+  # Repo-local agent: verify the agent file exists.
+  if [ -f "${repo}/.claude/agents/${agent}.md" ]; then
+    printf '%s' "$agent"
+  else
+    # Agent recorded in state.md but file is gone. Skip to avoid orphaned memory.
+    printf ''
+  fi
+}
 
 # ── Helper: write one memory entry ────────────────────────────────────────────
 # Args: $1=memory_file  $2=role_hint  $3=agent_name  $4=repo_path  $5=stack
@@ -121,6 +160,92 @@ Output ONLY this markdown block, no other text:
       printf '- PRs: %s\n' "${pr_urls:-none}"
     } >> "$mem_file" 2>/dev/null || true
   fi
+}
+
+# ── Helper: open a memory PR for a consumer repo ──────────────────────────────
+# Creates branch chore/memory-<feature>, commits .claude/agent-memory/ changes,
+# pushes, and opens a draft PR tagged [skip ci].
+# Args: $1=repo_path
+create_memory_pr() {
+  local repo="$1"
+  [ "$has_gh" -eq 1 ] || return 0
+
+  # Only proceed if there are uncommitted changes in agent-memory.
+  local mem_dir="${repo}/.claude/agent-memory"
+  [ -d "$mem_dir" ] || return 0
+
+  local changes
+  changes=$(git -C "$repo" status --porcelain -- ".claude/agent-memory/" 2>/dev/null | grep -c .) || true
+  [ "${changes:-0}" -gt 0 ] || return 0
+
+  local branch="chore/memory-${feature//\//-}"
+  local current_branch
+  current_branch=$(git -C "$repo" branch --show-current 2>/dev/null || true)
+
+  # Abort if already on a feature branch with pending work — don't clobber it.
+  case "${current_branch:-}" in
+    main|master) ;;
+    "") ;;
+    *)
+      # Only create the memory branch if we're on main/master or the feature branch is already merged.
+      local main_branch
+      main_branch=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||') || main_branch="main"
+      if ! git -C "$repo" merge-base --is-ancestor HEAD "origin/${main_branch}" 2>/dev/null; then
+        # Current branch is ahead of origin/main — not safe to create memory branch here.
+        return 0
+      fi
+      ;;
+  esac
+
+  # Create or reset the memory branch from origin/main.
+  local main_branch
+  main_branch=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||') || main_branch="main"
+
+  git -C "$repo" fetch origin "${main_branch}" --quiet 2>/dev/null || true
+  git -C "$repo" checkout -B "$branch" "origin/${main_branch}" --quiet 2>/dev/null || return 0
+
+  # Stage only agent-memory changes.
+  git -C "$repo" add -- ".claude/agent-memory/" 2>/dev/null || return 0
+
+  # Bail if nothing staged after add.
+  git -C "$repo" diff --cached --quiet -- ".claude/agent-memory/" 2>/dev/null && return 0
+
+  git -C "$repo" commit -m "chore(memory): ${feature} [skip ci]
+
+Auto-generated by session-end hook after feature merge.
+Adds role-specific learnings extracted from the lead session transcript.
+
+Co-Authored-By: ia-tools session-end hook <noreply@ia-tools>" \
+    --quiet 2>/dev/null || return 0
+
+  git -C "$repo" push origin "$branch" --quiet 2>/dev/null || return 0
+
+  gh pr create \
+    --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" \
+    --base "$main_branch" \
+    --head "$branch" \
+    --title "chore(memory): ${feature}" \
+    --body "$(cat <<EOF
+## Memory update — ${feature}
+
+Auto-generated by the ia-tools \`session-end\` hook after the feature PR was merged.
+
+### What's in here
+Role-specific learnings extracted from the lead session transcript:
+- \`.claude/agent-memory/<agent>/MEMORY.md\` — one entry per agent that participated in this feature.
+
+### Review guidance
+- Each memory entry has three sections: **Aprendido** (insight), **Fricción** (friction), **Próxima vez** (behavioral change).
+- Edit or remove entries that are inaccurate before merging.
+- Merging adds this to the agents' memory for future features on this repo.
+
+🤖 Generated with [ia-tools](https://github.com/anthropics/ia-tools) session-end hook
+EOF
+)" \
+    --draft 2>/dev/null || true
+
+  # Return to whatever branch was current before.
+  git -C "$repo" checkout "${current_branch:-${main_branch}}" --quiet 2>/dev/null || true
 }
 
 # ── 1. Lead memory ─────────────────────────────────────────────────────────────
@@ -198,23 +323,32 @@ parse_worktrees() {
 while IFS='|' read -r repo stack impl qa sec; do
   [ -n "$repo" ] || continue
 
-  # impl memory (skip fallback names that aren't repo-local agents).
-  if [ -n "$impl" ] && [ "$impl" != "lead" ] && [ "$impl" != "general-purpose" ]; then
-    # Remove impl-<wt_prefix> fallback pattern — not a real repo agent.
-    case "$impl" in impl-*) ;; *)
-      write_memory "${repo}/.claude/agent-memory/${impl}/MEMORY.md" "impl" "$impl" "$repo" "$stack"
-    ;; esac
+  # impl memory — resolve agent name (handles impl-* fallback → implementer).
+  if [ -n "$impl" ]; then
+    resolved_impl=$(resolve_memory_agent "$impl" "$repo" "impl")
+    if [ -n "$resolved_impl" ]; then
+      write_memory "${repo}/.claude/agent-memory/${resolved_impl}/MEMORY.md" "impl" "$resolved_impl" "$repo" "$stack"
+    fi
   fi
 
-  # qa memory.
-  if [ -n "$qa" ] && [ "$qa" != "lead" ] && [ "$qa" != "general-purpose" ]; then
-    write_memory "${repo}/.claude/agent-memory/${qa}/MEMORY.md" "qa" "$qa" "$repo" "$stack"
+  # qa memory — only for real repo-local agents (lead/general-purpose ran inline).
+  if [ -n "$qa" ]; then
+    resolved_qa=$(resolve_memory_agent "$qa" "$repo" "qa")
+    if [ -n "$resolved_qa" ]; then
+      write_memory "${repo}/.claude/agent-memory/${resolved_qa}/MEMORY.md" "qa" "$resolved_qa" "$repo" "$stack"
+    fi
   fi
 
-  # sec memory.
-  if [ -n "$sec" ] && [ "$sec" != "lead" ] && [ "$sec" != "general-purpose" ]; then
-    write_memory "${repo}/.claude/agent-memory/${sec}/MEMORY.md" "sec" "$sec" "$repo" "$stack"
+  # sec memory — same rule as qa.
+  if [ -n "$sec" ]; then
+    resolved_sec=$(resolve_memory_agent "$sec" "$repo" "sec")
+    if [ -n "$resolved_sec" ]; then
+      write_memory "${repo}/.claude/agent-memory/${resolved_sec}/MEMORY.md" "sec" "$resolved_sec" "$repo" "$stack"
+    fi
   fi
+
+  # Open a memory PR in this repo for review + versioning.
+  create_memory_pr "$repo"
 
 done < <(parse_worktrees)
 
