@@ -50,3 +50,35 @@ jobs:
           gh pr merge "$pr_number" \
             --squash \
             --repo "${{ github.repository }}"
+
+      # When release-please tags a real release (not just opening a release PR),
+      # update .claude-plugin/marketplace.json#metadata.version to the highest
+      # version among the three plugins. Uses node for cross-platform semver sort.
+      - name: Checkout
+        if: steps.release.outputs.releases_created == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Sync marketplace version
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          TW_VERSION: ${{ steps.release.outputs.team-workflow--version }}
+          SB_VERSION: ${{ steps.release.outputs.slack-bridge--version }}
+          SC_VERSION: ${{ steps.release.outputs.scaffold--version }}
+        run: |
+          latest=$(node -e "
+            const vs = [process.env.TW_VERSION, process.env.SB_VERSION, process.env.SC_VERSION].filter(Boolean);
+            if (!vs.length) process.exit(1);
+            vs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+            console.log(vs[vs.length - 1]);
+          ")
+          current=$(jq -r '.metadata.version' .claude-plugin/marketplace.json)
+          if [ "$latest" = "$current" ]; then echo "version unchanged ($current), skipping."; exit 0; fi
+          jq --arg v "$latest" '.metadata.version = $v' .claude-plugin/marketplace.json > /tmp/mp.json
+          mv /tmp/mp.json .claude-plugin/marketplace.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/marketplace.json
+          git commit -m "chore: sync marketplace version to $latest [skip ci]"
+          git push
