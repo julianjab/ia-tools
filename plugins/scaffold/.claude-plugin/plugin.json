@@ -1,6 +1,6 @@
 {
   "name": "scaffold",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Scaffolding, validation, and editing for Claude Code agents, skills, and MCP servers. Ships /new-agent, /new-skill, /new-mcp (generators); /audit-agent, /audit-skill, /audit-mcp (validators); /edit-agent, /edit-skill, /edit-mcp (focused edits with audit-bracketed regression checks). Backed by canonical best-practice references.",
   "author": {
     "name": "Julian Buitrago",
