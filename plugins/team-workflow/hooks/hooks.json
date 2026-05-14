@@ -28,6 +28,15 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/task-created.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "An ia-tools agent-team task is being created. Task subject: '${task.subject}'. Valid ia-tools subjects follow the pattern '<wt_prefix>:<role>' where wt_prefix looks like 'wt-backend-abc123' and role is one of: qa:red, impl:green, security, pr, team-review, arch:contract, or feature:arch:contract. If the subject matches this pattern or is a plausible ia-tools task name, output {\"decision\":\"allow\"}. If it is clearly malformed (random text, missing prefix entirely, obviously wrong structure), output {\"decision\":\"block\",\"reason\":\"subject must follow <wt_prefix>:<role> — e.g. wt-backend-abc123:qa:red\"}. When in doubt, allow.",
+            "model": "claude-haiku-4-5-20251001"
+          }
+        ]
       }
     ],
     "TaskCompleted": [
@@ -36,6 +45,17 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/task-completed.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ci-poller.sh\"",
+            "async": true,
+            "asyncRewake": true,
+            "statusMessage": "CI polling started in background..."
           }
         ]
       }
@@ -56,6 +76,36 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pre-compact.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-end.sh\""
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/instructions-loaded.sh\""
           }
         ]
       }
