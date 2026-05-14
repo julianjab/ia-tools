@@ -50,7 +50,11 @@ report goes through the active Slack channel:
    the user's thread.
 2. Block on the next inbound message in the same topic for any gate
    (approval, follow-up, etc.). Match `aprobar` / `cancelar`
-   case-insensitively; everything else is an edit/clarification.
+   case-insensitively, OR the equivalent emoji reactions:
+   - `:white_check_mark:` reaction → treat as `aprobar`
+   - `:x:` reaction → treat as `cancelar`
+   Everything else is an edit/clarification. Reactions arrive with
+   `meta.reaction` set and `meta.text` as `:emoji:`.
 3. **You MUST NOT call `AskUserQuestion`**, `ExitPlanMode`, or any other
    local-only prompt tool. The user is in Slack; local UI is invisible
    to them.
