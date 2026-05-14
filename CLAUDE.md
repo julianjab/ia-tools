@@ -5,11 +5,12 @@
 > **Every change flows through four hard invariants.** Outside these rules,
 > the per-feature `lead` agent decides everything at runtime.
 >
-> 1. **Approval gate.** `router` classifies inbound requests into
->    `answer` / `ask` / `dispatch`. On `dispatch`, `/session` spawns a
->    `lead` sub-session. lead publishes a plan and BLOCKS on
->    `aprobar` (Slack text reply) or `AskUserQuestion` (local) before any
->    code change.
+> 1. **Approval gate.** `router` forwards each inbound message to its
+>    per-topic `topic-worker` (one per Slack thread/channel/DM). The
+>    `topic-worker` classifies into `answer` / `ask` / `dispatch`; on
+>    `dispatch` it runs `/session`, which spawns a `lead` sub-session.
+>    lead publishes a plan and BLOCKS on `aprobar` (Slack text reply) or
+>    `AskUserQuestion` (local) before any code change.
 > 2. **QA writes tests first.** No `impl:green` task may complete until the
 >    matching `qa:red` task is completed AND `state.md` records
 >    `✅ RED confirmed for <wt_prefix>`. Enforced via the `TaskCompleted`
@@ -31,7 +32,12 @@
 >   prompt and does NOT sniff argv. The persona of the Claude session is
 >   whatever the operator selected with `claude --agent <plugin>:<name>`.
 >   Conventional boots:
->   - Main session: `claude --agent team-workflow:router`
+>   - Main session: `claude --agent team-workflow:router` — a thin
+>     dispatcher. Per message: resolve topic → `SendMessage` to the
+>     topic's `topic-worker`, or `Agent()` a new one. Never classifies.
+>   - Per-topic worker: `team-workflow:topic-worker`, spawned by the
+>     router (not boot-launched). One per Slack thread/channel/DM;
+>     owns that conversation and classifies its messages.
 >   - Sub-session: `claude --agent team-workflow:lead`
 >     (booted by `/session` via `start-lead.sh`)
 >   - No `--agent`: only slack-bridge tools visible.
@@ -88,8 +94,13 @@ not teammate).
 
 ## Structure
 
-- `plugins/team-workflow/agents/` — 3 agent definitions:
-  - `router.md` — main-session router (3-intent classifier)
+- `plugins/team-workflow/agents/` — plugin agent definitions:
+  - `router.md` — main-session dispatcher. Resolves each message's
+    topic and forwards it (`SendMessage` to an existing worker, or
+    `Agent()` a new one). Runs no classification.
+  - `topic-worker.md` — per-topic conversational agent. One per Slack
+    thread/channel/DM; classifies its messages into
+    `answer` / `ask` / `dispatch` and acts. Spawned by `router`.
   - `lead.md` — per-feature orchestrator (plan, provision, dispatch)
   - `implementer.md` — stack-aware fallback subagent (used when a touched
     repo has no repo-local implementer agent)
@@ -112,9 +123,14 @@ slack-bridge does NOT inject a role.
 
 | Boot command | Role | Prompt source |
 |--------------|------|---------------|
-| `claude --agent team-workflow:router` | main router | `plugins/team-workflow/agents/router.md` |
+| `claude --agent team-workflow:router` | main dispatcher | `plugins/team-workflow/agents/router.md` |
+| _(spawned by `router` via `Agent()`)_ | per-topic worker | `plugins/team-workflow/agents/topic-worker.md` |
 | `claude --agent team-workflow:lead` | sub-session orchestrator (booted by `/session`) | `plugins/team-workflow/agents/lead.md` |
 | `claude` (no `--agent`) | unspecialised | none — slack-bridge surfaces only its tools |
+
+The 3-role flow: `router` (dispatch) → `topic-worker` (classify + act
+per topic) → `lead` (orchestrate a feature). See
+`specs/deterministic-router-dispatch.md` for the rationale.
 
 The main router is started by the operator (once per machine, persistent
 tmux window). `/session` launches sub-sessions with `--agent
