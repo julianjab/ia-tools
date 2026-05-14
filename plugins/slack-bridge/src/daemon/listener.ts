@@ -22,9 +22,20 @@ export interface SlackEvent {
   thread_ts?: string;
   /** Thread context from the Slack Agent (originating channel/workspace). */
   thread_context?: Record<string, unknown>;
+  /** Emoji name (without colons) for reaction_added events. */
+  reaction?: string;
 }
 
 export type MessageHandler = (event: SlackEvent) => Promise<void>;
+
+/** Short-lived dedup set to prevent double-delivery when app_mention and message both fire. */
+const recentTs = new Set<string>();
+function markSeen(ts: string): boolean {
+  if (recentTs.has(ts)) return true;
+  recentTs.add(ts);
+  setTimeout(() => recentTs.delete(ts), 30_000);
+  return false;
+}
 
 export async function startListener(
   config: ListenerConfig,
@@ -99,6 +110,7 @@ export async function startListener(
   // ── Channel @mentions ─────────────────────────────────────────────────────
   app.event('app_mention', async ({ event }) => {
     if (!event.text || !event.user) return;
+    markSeen(event.ts); // mark so the message handler skips this ts
     try {
       await onMessage({
         channel_id: event.channel,
@@ -109,6 +121,54 @@ export async function startListener(
       });
     } catch (err) {
       logError(`[app_mention] ${err}`);
+    }
+  });
+
+  // ── Channel thread replies (no @mention required) ─────────────────────────
+  // Fires for all messages in channels the bot is a member of.
+  // Filtered to thread replies only (thread_ts present); top-level channel
+  // posts and DMs are excluded. Requires channels:history scope.
+  app.event('message', async ({ event }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e = event as any;
+    if (e.subtype !== undefined) return; // skip bot_message, channel_join, etc.
+    if (!e.thread_ts) return;            // only replies inside a thread
+    if (!e.user) return;                 // must be a real user
+    if (e.channel?.startsWith('D')) return; // DMs handled by assistant.userMessage
+    if (markSeen(e.ts)) return;          // already delivered via app_mention
+    try {
+      await onMessage({
+        channel_id: e.channel,
+        user_id: e.user,
+        text: e.text ?? '',
+        message_ts: e.ts,
+        thread_ts: e.thread_ts,
+      });
+    } catch (err) {
+      logError(`[channel_message] ${err}`);
+    }
+  });
+
+  // ── Emoji reactions ────────────────────────────────────────────────────────
+  // Delivers reaction_added events as synthetic messages so subscribers
+  // (e.g. lead waiting for approval) can act on ✅ / ❌ without a text reply.
+  // thread_ts is set to item.ts so topic C:<channel>:*:<root_ts> matches when
+  // the reaction is placed on the root message of the subscribed thread.
+  app.event('reaction_added', async ({ event }) => {
+    if (event.item.type !== 'message') return;
+    if (!event.user) return;
+    const item = event.item as { type: 'message'; channel: string; ts: string };
+    try {
+      await onMessage({
+        channel_id: item.channel,
+        user_id: event.user,
+        text: `:${event.reaction}:`,
+        message_ts: item.ts,
+        thread_ts: item.ts,
+        reaction: event.reaction,
+      });
+    } catch (err) {
+      logError(`[reaction_added] ${err}`);
     }
   });
 

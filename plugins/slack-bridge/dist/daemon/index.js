@@ -55466,7 +55466,8 @@ function buildSlackMessage(fields) {
     message_ts: fields.message_ts,
     thread_ts: fields.thread_ts,
     is_dm: fields.channel_id.startsWith("D"),
-    thread_context: fields.thread_context
+    thread_context: fields.thread_context,
+    ...fields.reaction !== void 0 ? { reaction: fields.reaction } : {}
   };
 }
 
@@ -55649,6 +55650,13 @@ var logPath = defaultLogger.logPath;
 
 // src/daemon/listener.ts
 var { App, Assistant, LogLevel } = import_bolt.default;
+var recentTs = /* @__PURE__ */ new Set();
+function markSeen(ts) {
+  if (recentTs.has(ts)) return true;
+  recentTs.add(ts);
+  setTimeout(() => recentTs.delete(ts), 3e4);
+  return false;
+}
 async function startListener(config, onMessage) {
   const app2 = new App({
     token: config.botToken,
@@ -55699,6 +55707,7 @@ async function startListener(config, onMessage) {
   app2.assistant(assistant);
   app2.event("app_mention", async ({ event }) => {
     if (!event.text || !event.user) return;
+    markSeen(event.ts);
     try {
       await onMessage({
         channel_id: event.channel,
@@ -55709,6 +55718,42 @@ async function startListener(config, onMessage) {
       });
     } catch (err) {
       error(`[app_mention] ${err}`);
+    }
+  });
+  app2.event("message", async ({ event }) => {
+    const e = event;
+    if (e.subtype !== void 0) return;
+    if (!e.thread_ts) return;
+    if (!e.user) return;
+    if (e.channel?.startsWith("D")) return;
+    if (markSeen(e.ts)) return;
+    try {
+      await onMessage({
+        channel_id: e.channel,
+        user_id: e.user,
+        text: e.text ?? "",
+        message_ts: e.ts,
+        thread_ts: e.thread_ts
+      });
+    } catch (err) {
+      error(`[channel_message] ${err}`);
+    }
+  });
+  app2.event("reaction_added", async ({ event }) => {
+    if (event.item.type !== "message") return;
+    if (!event.user) return;
+    const item = event.item;
+    try {
+      await onMessage({
+        channel_id: item.channel,
+        user_id: event.user,
+        text: `:${event.reaction}:`,
+        message_ts: item.ts,
+        thread_ts: item.ts,
+        reaction: event.reaction
+      });
+    } catch (err) {
+      error(`[reaction_added] ${err}`);
     }
   });
   app2.error(async (error3) => {
