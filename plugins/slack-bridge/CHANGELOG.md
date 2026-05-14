@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.5.3...slack-bridge-v0.6.0) (2026-05-14)
+
+
+### Features
+
+* **slack-bridge:** channel thread replies + emoji reactions + 4-branch auth gate ([#65](https://github.com/julianjab/ia-tools/issues/65)) ([e517ae4](https://github.com/julianjab/ia-tools/commit/e517ae4e97c5a867dbd98b7a000f097a8adb521c))
+
+
+### Bug Fixes
+
+* **ci:** remove path-traversal extra-files from release-please config ([#66](https://github.com/julianjab/ia-tools/issues/66)) ([9f89a5d](https://github.com/julianjab/ia-tools/commit/9f89a5d8b0cb5c1e60ef813349fd0ce04fb53ab6))
+
 ## [0.5.3](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.5.2...slack-bridge-v0.5.3) (2026-05-13)
 
 

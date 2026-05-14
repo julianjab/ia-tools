@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.6.1...team-workflow-v0.7.0) (2026-05-14)
+
+
+### Features
+
+* **slack-bridge:** channel thread replies + emoji reactions + 4-branch auth gate ([#65](https://github.com/julianjab/ia-tools/issues/65)) ([e517ae4](https://github.com/julianjab/ia-tools/commit/e517ae4e97c5a867dbd98b7a000f097a8adb521c))
+* **team-review:** auto-inject repo-type reviewer based on git remote ([#64](https://github.com/julianjab/ia-tools/issues/64)) ([0d27828](https://github.com/julianjab/ia-tools/commit/0d27828a67ba6cdccfb2e21ed87c46605d60952c))
+
+
+### Bug Fixes
+
+* **ci:** remove path-traversal extra-files from release-please config ([#66](https://github.com/julianjab/ia-tools/issues/66)) ([9f89a5d](https://github.com/julianjab/ia-tools/commit/9f89a5d8b0cb5c1e60ef813349fd0ce04fb53ab6))
+
 ## [0.6.1](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.6.0...team-workflow-v0.6.1) (2026-05-13)
 
 

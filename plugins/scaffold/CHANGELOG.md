@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/julianjab/ia-tools/compare/scaffold-v0.3.0...scaffold-v0.4.0) (2026-05-14)
+
+
+### Features
+
+* **team-review:** auto-inject repo-type reviewer based on git remote ([#64](https://github.com/julianjab/ia-tools/issues/64)) ([0d27828](https://github.com/julianjab/ia-tools/commit/0d27828a67ba6cdccfb2e21ed87c46605d60952c))
+
 ## [0.3.0](https://github.com/julianjab/ia-tools/compare/scaffold-v0.2.0...scaffold-v0.3.0) (2026-05-13)
 
 
