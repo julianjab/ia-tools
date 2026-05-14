@@ -100,6 +100,16 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-stop.sh\""
+          }
+        ]
+      }
+    ],
     "InstructionsLoaded": [
       {
         "hooks": [

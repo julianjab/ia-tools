@@ -46,11 +46,17 @@ command -v claude >/dev/null 2>&1 && has_claude=1
 has_gh=0
 command -v gh >/dev/null 2>&1 && has_gh=1
 
-# Build transcript excerpt once: first 6KB (planning) + last 10KB (recent work).
+# Extract events block written by subagent-stop.sh during the session.
+# This is the primary structured source; transcript is a fallback.
+events_content=$(awk '/^events:/{found=1} found{print}' "$state_file" 2>/dev/null || true)
+
+# Build transcript excerpt: first 6KB (planning) + last 4KB (recent).
+# Used only when events block is absent or thin (< 3 entries).
 transcript_excerpt=""
-if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
-  head_part=$(head -c 6144  "$transcript_path" 2>/dev/null || true)
-  tail_part=$(tail -c 10240 "$transcript_path" 2>/dev/null || true)
+event_count=$(printf '%s' "$events_content" | grep -c '^\s*- ts:' 2>/dev/null || true)
+if [ "${event_count:-0}" -lt 3 ] && [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
+  head_part=$(head -c 6144 "$transcript_path" 2>/dev/null || true)
+  tail_part=$(tail -c 4096 "$transcript_path" 2>/dev/null || true)
   transcript_excerpt="${head_part}
 [... middle omitted ...]
 ${tail_part}"
@@ -127,11 +133,14 @@ Repo: ${repo}
 Stack: ${stack}
 Date: ${date_now}
 
+--- agent events (structured, primary source) ---
+${events_content:-"(none recorded)"}
+
 --- state.md ---
 ${state_content}
 
---- transcript excerpt ---
-${transcript_excerpt}
+--- transcript excerpt (fallback) ---
+${transcript_excerpt:-"(omitted — events block sufficient)"}
 --- end ---
 
 Output ONLY this markdown block, no other text:
@@ -264,11 +273,14 @@ Stacks: ${stacks:-unknown}
 PRs: ${pr_urls:-none}
 Date: ${date_now}
 
+--- agent events (structured, primary source) ---
+${events_content:-"(none recorded)"}
+
 --- state.md ---
 ${state_content}
 
---- transcript excerpt ---
-${transcript_excerpt}
+--- transcript excerpt (fallback) ---
+${transcript_excerpt:-"(omitted — events block sufficient)"}
 --- end ---
 
 Output ONLY this markdown block, no other text:
