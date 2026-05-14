@@ -278,6 +278,20 @@ invocation time. Any change to the working tree between security
 APPROVED and `/pr` that the operator wants in the commit requires
 re-staging AND a re-run of `:security`.
 
+The `P:qa:red` task is **optional**. Omit it (and drop `P:qa:red` from
+`P:impl:green`'s `blockedBy`) when the change for that worktree has no
+executable logic to test. Typical cases:
+- `stack == infra` — CI workflows, Dockerfiles, Makefiles, shell scripts,
+  deployment configs.
+- Purely declarative changes — JSON/YAML configs, documentation, version
+  bumps, dependency-only changes with no new logic.
+- Hot-fixes to broken CI/build — the "test" is the pipeline itself.
+
+When omitting `P:qa:red`, write the literal marker
+`qa: skipped for <P>` in the worktree's `markers:` in `state.md` so
+the `task-completed` hook allows `P:impl:green` to complete. Do NOT
+leave the marker out — the hook blocks the green task without it.
+
 The `:team-review` task is **optional**. Omit it entirely when:
 - `TEAM_REVIEW_CHANNEL` is not configured (no env, no CLAUDE.md), OR
 - The feature is a trivial doc / config change that doesn't need formal

@@ -54,15 +54,17 @@ case "$subject" in
     ;;
   *":green"|*":green:"*|*":impl:"*)
     if [ -n "$state_dir" ]; then
-      # Look for the qa:red completion marker. Two equivalent forms accepted:
+      # Look for the qa:red completion marker. Three equivalent forms accepted:
       #   v1 audit log:    "qa:red completed <prefix>"
       #   v2 state.md:     "✅ RED confirmed for <prefix>"
+      #   qa skipped:      "qa: skipped for <prefix>"  (infra/config/no-logic changes)
       found=0
       [ -f "$audit_log" ] && grep -E "qa:red completed ${worktree_prefix}\b" "$audit_log" >/dev/null 2>&1 && found=1
       [ -f "${state_dir}/state.md" ] && grep -E "(RED confirmed|qa:red completed)[[:space:]]+(for[[:space:]]+)?${worktree_prefix}\b" "${state_dir}/state.md" >/dev/null 2>&1 && found=1
+      [ -f "${state_dir}/state.md" ] && grep -E "qa:[[:space:]]*skipped[[:space:]]+(for[[:space:]]+)?${worktree_prefix}\b" "${state_dir}/state.md" >/dev/null 2>&1 && found=1
       if [ "$found" -eq 0 ]; then
-        printf 'ia-tools invariant 2 violated: cannot complete %s before qa publishes the RED-confirmed marker for worktree %s. Wait for the qa:red task on the same prefix to complete first.\n' \
-          "$subject" "$worktree_prefix" >&2
+        printf 'ia-tools invariant 2 violated: cannot complete %s before qa publishes the RED-confirmed marker for worktree %s. Either complete the qa:red task, or write "qa: skipped for %s" in state.md if QA is not applicable (infra/config/docs change).\n' \
+          "$subject" "$worktree_prefix" "$worktree_prefix" >&2
         exit 2
       fi
 
