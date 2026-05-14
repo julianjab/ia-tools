@@ -19,9 +19,9 @@
     {
       "name": "slack-bridge",
       "source": "./plugins/slack-bridge",
-      "description": "Slack bridge MCP server: subscribe to channels, claim and reply to messages, read threads via daemon + MCP architecture.",
+      "description": "Slack bridge MCP server: subscribe to channels, claim and reply to messages, read threads, receive channel thread replies without @mention, and react with emoji (✅/❌) as approval signals via daemon + MCP architecture.",
       "category": "integration",
-      "keywords": ["slack", "mcp", "messaging", "daemon"]
+      "keywords": ["slack", "mcp", "messaging", "daemon", "reactions", "threads"]
     },
     {
       "name": "scaffold",
