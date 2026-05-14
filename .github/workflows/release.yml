@@ -35,7 +35,13 @@ jobs:
       # If branch protection on main requires status checks, this errors
       # and the PR stays open — operator either relaxes the rule or
       # merges manually.
+      # NOTE: gh pr merge uses GITHUB_TOKEN, so the resulting push to main
+      # does NOT trigger a new workflow run (GitHub blocks recursive triggers
+      # from GITHUB_TOKEN). The marketplace sync therefore runs in this same
+      # run, right after the merge, reading versions from the manifest that
+      # was just landed — not from a follow-up run that never fires.
       - name: Auto-merge the Release PR
+        id: automerge
         if: ${{ steps.release.outputs.pr }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -47,29 +53,23 @@ jobs:
             exit 0
           fi
           echo "Merging release PR #$pr_number..."
-          gh pr merge "$pr_number" \
-            --squash \
-            --repo "${{ github.repository }}"
+          gh pr merge "$pr_number" --squash --repo "${{ github.repository }}"
+          echo "merged=true" >> "$GITHUB_OUTPUT"
 
-      # When release-please tags a real release (not just opening a release PR),
-      # update .claude-plugin/marketplace.json#metadata.version to the highest
-      # version among the three plugins. Uses node for cross-platform semver sort.
       - name: Checkout
-        if: steps.release.outputs.releases_created == 'true'
+        if: steps.automerge.outputs.merged == 'true'
         uses: actions/checkout@v4
         with:
           ref: main
 
+      # Read the highest version from the manifest (just bumped by the release
+      # PR) and write it to marketplace.json in the same run.
       - name: Sync marketplace version
-        if: steps.release.outputs.releases_created == 'true'
-        env:
-          TW_VERSION: ${{ steps.release.outputs.team-workflow--version }}
-          SB_VERSION: ${{ steps.release.outputs.slack-bridge--version }}
-          SC_VERSION: ${{ steps.release.outputs.scaffold--version }}
+        if: steps.automerge.outputs.merged == 'true'
         run: |
           latest=$(node -e "
-            const vs = [process.env.TW_VERSION, process.env.SB_VERSION, process.env.SC_VERSION].filter(Boolean);
-            if (!vs.length) process.exit(1);
+            const m = JSON.parse(require('fs').readFileSync('.github/.release-please-manifest.json', 'utf8'));
+            const vs = Object.values(m).filter(Boolean);
             vs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
             console.log(vs[vs.length - 1]);
           ")
