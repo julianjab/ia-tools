@@ -48,37 +48,20 @@ Resolution priority — first non-empty wins:
      }
    }
    ```
-3. **`CLAUDE.md` block** (backward compat for repos that haven't
-   migrated to settings.local.json):
+3. **`CLAUDE.md` block** — per-repo config (channel, mentions, and
+   optional `repo-reviewer`):
    ```markdown
    ## Team-Review Config
    - channel: #your-channel-name
    - mentions: @user1 U0AGVLRV6A2 S078TCCKQ05
+   - repo-reviewer: U0AHRSSLF4G
    ```
+   `repo-reviewer` is a single user/group ID appended to the resolved
+   mentions list. Use it to designate the stack-specific reviewer for
+   this repo (e.g. the mobile dev, the infra lead). If the ID is
+   already present in the mentions list, skip (no duplicate).
 4. **Ask the user** — if no value is found anywhere, prompt once
    before proceeding. Do not invent defaults.
-
-### Repo-type reviewer injection (LaHaus)
-
-After resolving `TEAM_REVIEW_MENTIONS`, detect the repo type from the
-git remote URL and **append** the matching reviewer to the mentions
-list. This runs automatically — no extra config needed.
-
-Detection: `git remote get-url origin` → match against these patterns:
-
-| Pattern in remote URL | Repo type | Reviewer appended | Slack ID |
-|---|---|---|---|
-| `mobile` / `ai-mobile-app` | mobile | fluttie | `U0ASH40F561` |
-| `seller` / `frontend` / `lh-seller` | frontend | pixelin | `U0AGRBEG6UT` |
-| `infra` / `eks` / `platform-infrastructure` | infra | kubito | `U0AGVM0SRT8` |
-| anything else (backend, subscriptions, ims, comms, claw-agents, etc.) | backend | gordo | `U0AHRSSLF4G` |
-
-Rules:
-- If the repo-type reviewer is already in `TEAM_REVIEW_MENTIONS`, skip
-  (no duplicate).
-- If `git remote get-url origin` fails (no remote), skip silently.
-- CLI argument mentions override everything — repo-type injection still
-  appends unless the reviewer ID is already present.
 
 ### Arguments
 
