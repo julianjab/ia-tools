@@ -41172,6 +41172,22 @@ async function handleListChannels(deps) {
 }
 
 // src/shared/types.ts
+function parseTopic(topic) {
+  if (topic.startsWith("DM:")) {
+    const user = topic.slice(3);
+    return { type: "dm", user: user || void 0 };
+  }
+  const parts = topic.split(":");
+  const rawChannel = parts[0];
+  const rawUser = parts[1];
+  const rawThread = parts[2];
+  return {
+    type: "channel",
+    channel: rawChannel && rawChannel !== "*" ? rawChannel : void 0,
+    user: rawUser && rawUser !== "*" ? rawUser : void 0,
+    thread: rawThread && rawThread !== "*" ? rawThread : void 0
+  };
+}
 function normalizeTopic(input) {
   if (typeof input === "string") return { topic: input };
   return { topic: input.topic, ...input.label ? { label: input.label } : {} };
@@ -41872,15 +41888,26 @@ var McpBridgeServer = class {
   /** Called by the webhook server when a message arrives from the daemon. */
   async handleIncomingMessage(payload) {
     const { message, matched_topics } = payload;
+    const isThreadScoped = matched_topics.some(
+      (t) => parseTopic(t.topic).thread !== void 0
+    );
     if (message.is_dm) {
       if (!this.allowedUsersDm.has(message.user_id)) {
         this.logger.log(`[gate] DM from ${message.user_id} blocked \u2014 not in ALLOWED_USERS_DM`);
         return;
       }
+    } else if (message.reaction) {
+      if (!this.allowedUsersMentions.has(message.user_id)) {
+        this.logger.log(
+          `[gate] reaction :${message.reaction}: from ${message.user_id} blocked \u2014 not in ALLOWED_USERS_MENTIONS`
+        );
+        return;
+      }
+    } else if (message.thread_ts && isThreadScoped) {
     } else {
       if (!this.allowedUsersMentions.has(message.user_id)) {
         this.logger.log(
-          `[gate] mention from ${message.user_id} in #${message.channel_name} blocked \u2014 not in ALLOWED_USERS_MENTIONS`
+          `[gate] message from ${message.user_id} in #${message.channel_name} blocked \u2014 not in ALLOWED_USERS_MENTIONS`
         );
         return;
       }
