@@ -35,7 +35,7 @@ jobs:
       - name: Sync marketplace into release PR
         if: ${{ steps.release.outputs.pr }}
         run: |
-          pr_branch=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.branch')
+          pr_branch=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.headBranchName')
           git fetch origin "$pr_branch"
           git checkout "$pr_branch"
           latest=$(node -e "
