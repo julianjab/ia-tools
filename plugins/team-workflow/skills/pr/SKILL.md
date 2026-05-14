@@ -168,13 +168,24 @@ git push -u origin <branch-name>
 
 #### 5 — Generate Architecture Diagrams
 
-##### Determine Diagram Types
+##### Always generate a component diagram
 
-| Change Type | Diagram |
-|------------|---------|
-| New service/port/adapter | Component diagram (before + after) |
-| Modified components | Component diagram (before + after) |
-| Tests only / docs only | Skip diagrams |
+**MANDATORY — every PR gets a before/after component diagram, no
+exceptions.** This includes docs-only, tests-only, config-only, and
+agent/skill-definition changes. There is no "skip diagrams" path.
+
+| Change Type | What the diagram shows |
+|------------|------------------------|
+| New service/port/adapter/agent/skill | New components in green (`:::new`) |
+| Modified components | Modified components in yellow (`:::modified`) |
+| Removed components | Removed components in red (`:::removed`), present in BEFORE only |
+| Docs / config / tests only | The components, files, or docs the change touches — still grouped and colored |
+
+When the change is not "code components" in the classic sense (e.g.
+docs, agent definitions, CI config), pick the most meaningful unit as
+the diagram node: a doc file, an agent, a workflow, a config section.
+The diagram must still have a BEFORE and an AFTER and use the three
+color classes — that is the whole point.
 
 ##### Component Diagram
 
@@ -353,7 +364,7 @@ Branch: <branch-name>
 Commits: <count>
 Quality gate: fmt ✓ | test ✓ (<N> passed) | coverage ✓ (new: <N>%) | rules ✓
 CI Status: <passing/failing/skipped>
-Diagrams: component (yes/no)
+Diagrams: component before/after (always present)
 Files changed: <count>
 ```
 
