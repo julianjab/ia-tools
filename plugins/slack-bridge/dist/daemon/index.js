@@ -55722,15 +55722,16 @@ async function startListener(config, onMessage) {
   });
   app2.event("message", async ({ event }) => {
     const e = event;
-    if (e.subtype !== void 0) return;
+    if (e.subtype !== void 0 && e.subtype !== "bot_message") return;
     if (!e.thread_ts) return;
-    if (!e.user) return;
+    if (!e.user && !e.bot_id) return;
     if (e.channel?.startsWith("D")) return;
     if (markSeen(e.ts)) return;
     try {
       await onMessage({
         channel_id: e.channel,
-        user_id: e.user,
+        user_id: e.bot_id ?? e.user,
+        // bots carry bot_id, humans carry user
         text: e.text ?? "",
         message_ts: e.ts,
         thread_ts: e.thread_ts

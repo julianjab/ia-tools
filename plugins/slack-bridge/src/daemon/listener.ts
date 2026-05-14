@@ -131,15 +131,17 @@ export async function startListener(
   app.event('message', async ({ event }) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const e = event as any;
-    if (e.subtype !== undefined) return; // skip bot_message, channel_join, etc.
+    // Allow bot_message (e.g. vitruvio replying in a thread); skip everything
+    // else: channel_join, file_share, message_changed, etc.
+    if (e.subtype !== undefined && e.subtype !== 'bot_message') return;
     if (!e.thread_ts) return;            // only replies inside a thread
-    if (!e.user) return;                 // must be a real user
+    if (!e.user && !e.bot_id) return;    // must have an actor (human or bot)
     if (e.channel?.startsWith('D')) return; // DMs handled by assistant.userMessage
     if (markSeen(e.ts)) return;          // already delivered via app_mention
     try {
       await onMessage({
         channel_id: e.channel,
-        user_id: e.user,
+        user_id: e.bot_id ?? e.user,     // bots carry bot_id, humans carry user
         text: e.text ?? '',
         message_ts: e.ts,
         thread_ts: e.thread_ts,
