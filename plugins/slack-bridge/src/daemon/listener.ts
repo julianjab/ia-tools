@@ -27,6 +27,8 @@ export interface SlackEvent {
 }
 
 export type MessageHandler = (event: SlackEvent) => Promise<void>;
+/** Returns true if any subscriber holds an explicit thread-scoped topic for this channel+thread. */
+export type ThreadSubscriptionChecker = (channelId: string, threadTs: string) => boolean;
 
 /** Short-lived dedup set to prevent double-delivery when app_mention and message both fire. */
 const recentTs = new Set<string>();
@@ -40,6 +42,7 @@ function markSeen(ts: string): boolean {
 export async function startListener(
   config: ListenerConfig,
   onMessage: MessageHandler,
+  hasThreadSubscription?: ThreadSubscriptionChecker,
 ): Promise<InstanceType<typeof App>> {
   const app = new App({
     token: config.botToken,
@@ -137,6 +140,8 @@ export async function startListener(
     if (!e.thread_ts) return;            // only replies inside a thread
     if (!e.user && !e.bot_id) return;    // must have an actor (human or bot)
     if (e.channel?.startsWith('D')) return; // DMs handled by assistant.userMessage
+    // Bot replies are only relevant in threads we created and subscribed to.
+    if (e.subtype === 'bot_message' && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) return;
     if (markSeen(e.ts)) return;          // already delivered via app_mention
     try {
       await onMessage({

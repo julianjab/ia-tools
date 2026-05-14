@@ -55657,7 +55657,7 @@ function markSeen(ts) {
   setTimeout(() => recentTs.delete(ts), 3e4);
   return false;
 }
-async function startListener(config, onMessage) {
+async function startListener(config, onMessage, hasThreadSubscription) {
   const app2 = new App({
     token: config.botToken,
     appToken: config.appToken,
@@ -55726,6 +55726,7 @@ async function startListener(config, onMessage) {
     if (!e.thread_ts) return;
     if (!e.user && !e.bot_id) return;
     if (e.channel?.startsWith("D")) return;
+    if (e.subtype === "bot_message" && hasThreadSubscription && !hasThreadSubscription(e.channel, e.thread_ts)) return;
     if (markSeen(e.ts)) return;
     try {
       await onMessage({
@@ -55918,6 +55919,15 @@ var Registry = class {
       if (sub.topics.some((t) => matchesTopic(parseTopic(t.topic), msg))) count++;
     }
     return count;
+  }
+  /** Returns true if any subscriber has an explicit thread-scoped topic for this channel+thread. */
+  hasThreadSubscription(channelId, threadTs) {
+    return this.all().some(
+      (sub) => sub.topics.some((t) => {
+        const p = parseTopic(t.topic);
+        return p.type === "channel" && p.channel === channelId && p.thread === threadTs;
+      })
+    );
   }
   /** Remove a list of topic strings from a subscriber. Returns the new spec list. */
   removeTopics(port2, topicStrings) {
@@ -56187,77 +56197,81 @@ if (IDLE_SHUTDOWN_MS > 0) {
 } else {
   log2("[daemon] idle auto-shutdown disabled (DAEMON_IDLE_SHUTDOWN_MS=0) \u2014 persistent mode");
 }
-var app = await startListener({ botToken, appToken }, async (event) => {
-  socketStatus = "connected";
-  const [userName, channelName] = await Promise.all([
-    resolveUser(app, event.user_id),
-    resolveChannel(app, event.channel_id)
-  ]);
-  const msg = buildSlackMessage({
-    channel_id: event.channel_id,
-    channel_name: channelName,
-    user_id: event.user_id,
-    user_name: userName,
-    text: event.text,
-    message_ts: event.message_ts,
-    thread_ts: event.thread_ts,
-    thread_context: event.thread_context
-  });
-  const targets = registry.match(msg);
-  if (targets.length === 0) {
-    log2(`[route] no subscribers for #${channelName} from ${userName} \u2014 dropping`);
-    return;
-  }
-  log2(
-    `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" \u2192 ${targets.length} subscriber(s)`
-  );
-  const matchingCount = registry.countMatchingSubscribers(msg);
-  const dropped = matchingCount - targets.length;
-  if (dropped > 0) {
-    let maxScore = 0;
-    for (const { matched } of targets) {
-      for (const t of matched) {
-        const p = parseTopic(t.topic);
-        let s = 0;
-        if (p.channel) s++;
-        if (p.user) s++;
-        if (p.thread) s++;
-        if (s > maxScore) maxScore = s;
-      }
+var app = await startListener(
+  { botToken, appToken },
+  async (event) => {
+    socketStatus = "connected";
+    const [userName, channelName] = await Promise.all([
+      resolveUser(app, event.user_id),
+      resolveChannel(app, event.channel_id)
+    ]);
+    const msg = buildSlackMessage({
+      channel_id: event.channel_id,
+      channel_name: channelName,
+      user_id: event.user_id,
+      user_name: userName,
+      text: event.text,
+      message_ts: event.message_ts,
+      thread_ts: event.thread_ts,
+      thread_context: event.thread_context
+    });
+    const targets = registry.match(msg);
+    if (targets.length === 0) {
+      log2(`[route] no subscribers for #${channelName} from ${userName} \u2014 dropping`);
+      return;
     }
-    log2(`[route] specificity max=${maxScore} \u2014 ${targets.length} winner(s), ${dropped} pre-empted`);
-  }
-  await Promise.allSettled(
-    targets.map(async ({ subscriber: sub, matched }) => {
-      const payload = {
-        message: msg,
-        matched_topics: matched,
-        daemon_ts: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : "";
-      const matchedTopics = matched.map((t) => t.topic).join(",");
-      log2(
-        `[route] \u2192 :${sub.port}${sessionSeg} #${channelName} ${userName} matched=[${matchedTopics}]`
-      );
-      try {
-        const res = await fetch(`http://localhost:${sub.port}/message`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) {
-          warn(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} \u2014 removing`);
-          registry.remove(sub.port);
-          return;
+    log2(
+      `[route] #${channelName} ${userName}: "${event.text.slice(0, 60)}" \u2192 ${targets.length} subscriber(s)`
+    );
+    const matchingCount = registry.countMatchingSubscribers(msg);
+    const dropped = matchingCount - targets.length;
+    if (dropped > 0) {
+      let maxScore = 0;
+      for (const { matched } of targets) {
+        for (const t of matched) {
+          const p = parseTopic(t.topic);
+          let s = 0;
+          if (p.channel) s++;
+          if (p.user) s++;
+          if (p.thread) s++;
+          if (s > maxScore) maxScore = s;
         }
-        registry.markSeen(sub.port);
-      } catch (_err) {
-        warn(`[route] subscriber :${sub.port}${sessionSeg} unreachable \u2014 removing`);
-        registry.remove(sub.port);
       }
-    })
-  );
-});
+      log2(`[route] specificity max=${maxScore} \u2014 ${targets.length} winner(s), ${dropped} pre-empted`);
+    }
+    await Promise.allSettled(
+      targets.map(async ({ subscriber: sub, matched }) => {
+        const payload = {
+          message: msg,
+          matched_topics: matched,
+          daemon_ts: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        const sessionSeg = sub.session_id ? ` (session=${sub.session_id})` : "";
+        const matchedTopics = matched.map((t) => t.topic).join(",");
+        log2(
+          `[route] \u2192 :${sub.port}${sessionSeg} #${channelName} ${userName} matched=[${matchedTopics}]`
+        );
+        try {
+          const res = await fetch(`http://localhost:${sub.port}/message`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            warn(`[route] subscriber :${sub.port}${sessionSeg} responded ${res.status} \u2014 removing`);
+            registry.remove(sub.port);
+            return;
+          }
+          registry.markSeen(sub.port);
+        } catch (_err) {
+          warn(`[route] subscriber :${sub.port}${sessionSeg} unreachable \u2014 removing`);
+          registry.remove(sub.port);
+        }
+      })
+    );
+  },
+  (channelId, threadTs) => registry.hasThreadSubscription(channelId, threadTs)
+);
 socketStatus = "connected";
 process.on("SIGINT", () => {
   log2("[daemon] shutting down...");

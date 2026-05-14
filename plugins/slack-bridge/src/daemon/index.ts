@@ -143,7 +143,9 @@ if (IDLE_SHUTDOWN_MS > 0) {
 }
 
 // ─── Slack listener ─────────────────────────────────────────────────
-const app = await startListener({ botToken, appToken }, async (event: SlackEvent) => {
+const app = await startListener(
+  { botToken, appToken },
+  async (event: SlackEvent) => {
   socketStatus = 'connected';
 
   // Resolve names
@@ -226,7 +228,9 @@ const app = await startListener({ botToken, appToken }, async (event: SlackEvent
       }
     }),
   );
-});
+  },
+  (channelId, threadTs) => registry.hasThreadSubscription(channelId, threadTs),
+);
 
 socketStatus = 'connected';
 
