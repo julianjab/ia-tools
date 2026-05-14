@@ -125,12 +125,10 @@ Outcomes:
 
 1. Resolve channel + thread_ts (priority order):
    a. Topic argument (`Cxxx:*:<ts>`) → `channel_id` + `thread_ts` already
-      parsed from arguments. Skip steps b–d.
-   b. `SLACK_THREAD_TS` env → use as `thread_ts`; resolve channel from
-      config.
-   c. Channel name (`#x`) → `slack_search_channels` to get the channel ID.
+      parsed from arguments. Skip steps b–c.
+   b. Channel name (`#x`) → `slack_search_channels` to get the channel ID.
       Then search for existing thread (step 2 below).
-   d. Channel ID from config → use directly. Then search for existing
+   c. Channel ID from config → use directly. Then search for existing
       thread (step 2 below).
 2. Search for existing thread (only when `thread_ts` is still unset):
    `slack_search_public_and_private` for the PR URL in the resolved
