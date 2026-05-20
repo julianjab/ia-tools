@@ -25,10 +25,12 @@
  *                                           e.g. "C06Q8SNF93P,DM:U02M1QFA0AF,..."
  *   ALLOWED_USERS_MENTIONS — Comma-separated Slack user IDs whose @mentions the
  *                            bot processes. Unset / empty → block all mentions.
- *                            Example: "U02M1QFA0AF,U03ABCDEF"
+ *                            Use the literal wildcard "*" to allow any user.
+ *                            Example: "U02M1QFA0AF,U03ABCDEF" or "*"
  *   ALLOWED_USERS_DM       — Comma-separated Slack user IDs who can DM the bot
  *                            (Agent split-view). Unset / empty → block all DMs.
- *                            Example: "U02M1QFA0AF"
+ *                            Use the literal wildcard "*" to allow any DM.
+ *                            Example: "U02M1QFA0AF" or "*"
  *
  * Note: subscribe_slack / unsubscribe_slack are unconditionally blocked when
  * the request originates from a Slack message (requested_by present). Only
@@ -92,9 +94,18 @@ export interface McpBridgeServerOptions {
    * directory under `/tmp/slack-bridge/<session-id>/`.
    */
   sessionId?: string;
-  /** ALLOWED_USERS_DM — user IDs allowed to DM the bot. Empty = block all. */
+  /**
+   * ALLOWED_USERS_DM — user IDs allowed to DM the bot.
+   * - Empty set → block all (deny-by-default).
+   * - Contains `*` → allow all users (wildcard).
+   * - Otherwise → only listed user IDs pass through.
+   */
   allowedUsersDm: Set<string>;
-  /** ALLOWED_USERS_MENTIONS — user IDs whose @mentions the bot processes. Empty = block all. */
+  /**
+   * ALLOWED_USERS_MENTIONS — user IDs whose @mentions / reactions the bot processes.
+   * Same semantics as `allowedUsersDm`: empty = block all, `*` = allow all,
+   * otherwise an explicit user-ID allowlist.
+   */
   allowedUsersMentions: Set<string>;
 }
 
@@ -545,17 +556,21 @@ export class McpBridgeServer {
     const { message, matched_topics } = payload;
 
     // Access control gate — deny-by-default (empty set blocks everyone).
+    // The wildcard "*" in an allowlist short-circuits to allow any user, so
+    // operators can express "any DM is fine" without enumerating user IDs.
     // Branch order matters: each case is mutually exclusive.
+    const dmAllowsAny = this.allowedUsersDm.has('*');
+    const mentionsAllowAny = this.allowedUsersMentions.has('*');
     const isThreadScoped = matched_topics.some((t) => parseTopic(t.topic).thread !== undefined);
     if (message.is_dm) {
       // 1. DM to the bot — checked against ALLOWED_USERS_DM
-      if (!this.allowedUsersDm.has(message.user_id)) {
+      if (!dmAllowsAny && !this.allowedUsersDm.has(message.user_id)) {
         this.logger.log(`[gate] DM from ${message.user_id} blocked — not in ALLOWED_USERS_DM`);
         return;
       }
     } else if (message.reaction) {
       // 2. Emoji reaction in a channel — checked against ALLOWED_USERS_MENTIONS
-      if (!this.allowedUsersMentions.has(message.user_id)) {
+      if (!mentionsAllowAny && !this.allowedUsersMentions.has(message.user_id)) {
         this.logger.log(
           `[gate] reaction :${message.reaction}: from ${message.user_id} blocked — not in ALLOWED_USERS_MENTIONS`,
         );
@@ -568,7 +583,7 @@ export class McpBridgeServer {
     } else {
       // 4. Top-level @mention OR thread reply via a broad channel subscription
       //    — checked against ALLOWED_USERS_MENTIONS
-      if (!this.allowedUsersMentions.has(message.user_id)) {
+      if (!mentionsAllowAny && !this.allowedUsersMentions.has(message.user_id)) {
         this.logger.log(
           `[gate] message from ${message.user_id} in #${message.channel_name} blocked — not in ALLOWED_USERS_MENTIONS`,
         );

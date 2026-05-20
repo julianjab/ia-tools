@@ -818,6 +818,126 @@ describe('McpBridgeServer — oninitialized auto-subscribe', () => {
   });
 });
 
+// ─── Tests: access control — wildcard "*" in allowed-user sets ───────────────
+
+describe('McpBridgeServer — allowedUsers wildcard "*"', () => {
+  /**
+   * Helper: build a SlackMessage payload as the daemon would forward it.
+   * `kind` selects which gate branch the access-control code exercises.
+   */
+  function makePayload(kind: 'dm' | 'mention' | 'reaction', userId: string) {
+    const message = {
+      channel_id: kind === 'dm' ? 'D1' : 'C1',
+      channel_name: kind === 'dm' ? 'directmessage' : 'general',
+      user_id: userId,
+      user_name: 'tester',
+      text: 'hello',
+      message_ts: MESSAGE_TS,
+      is_dm: kind === 'dm',
+      ...(kind === 'reaction' ? { reaction: 'white_check_mark' } : {}),
+    };
+    return { message, matched_topics: [{ topic: message.channel_id }] };
+  }
+
+  /** Spy on the underlying MCP notification call (the bridge's only outbound). */
+  function trackNotifications(bridge: McpBridgeServer): ReturnType<typeof vi.fn> {
+    const spy = vi.fn().mockResolvedValue(undefined);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (bridge.server as any).notification = spy;
+    return spy;
+  }
+
+  it('dmFromAnyUser_dmAllowlistContainsWildcard_isForwardedToAgent', async () => {
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: null,
+      logger: makeLogger(),
+      allowedUsersDm: new Set(['*']),
+      allowedUsersMentions: new Set(),
+    });
+    const notify = trackNotifications(bridge);
+
+    await bridge.handleIncomingMessage(makePayload('dm', 'U_random'));
+
+    expect(notify).toHaveBeenCalledOnce();
+  });
+
+  it('mentionFromAnyUser_mentionsAllowlistContainsWildcard_isForwardedToAgent', async () => {
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: null,
+      logger: makeLogger(),
+      allowedUsersDm: new Set(),
+      allowedUsersMentions: new Set(['*']),
+    });
+    const notify = trackNotifications(bridge);
+
+    await bridge.handleIncomingMessage(makePayload('mention', 'U_random'));
+
+    expect(notify).toHaveBeenCalledOnce();
+  });
+
+  it('reactionFromAnyUser_mentionsAllowlistContainsWildcard_isForwardedToAgent', async () => {
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: null,
+      logger: makeLogger(),
+      allowedUsersDm: new Set(),
+      allowedUsersMentions: new Set(['*']),
+    });
+    const notify = trackNotifications(bridge);
+
+    await bridge.handleIncomingMessage(makePayload('reaction', 'U_random'));
+
+    expect(notify).toHaveBeenCalledOnce();
+  });
+
+  it('dmFromAnyUser_dmAllowlistEmpty_isBlocked', async () => {
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: null,
+      logger: makeLogger(),
+      allowedUsersDm: new Set(),
+      allowedUsersMentions: new Set(),
+    });
+    const notify = trackNotifications(bridge);
+
+    await bridge.handleIncomingMessage(makePayload('dm', 'U_random'));
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('dmFromUnlistedUser_dmAllowlistHasSpecificUserButNoWildcard_isBlocked', async () => {
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: null,
+      logger: makeLogger(),
+      allowedUsersDm: new Set(['U_specific']),
+      allowedUsersMentions: new Set(),
+    });
+    const notify = trackNotifications(bridge);
+
+    await bridge.handleIncomingMessage(makePayload('dm', 'U_random'));
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('dmFromListedUser_dmAllowlistHasSpecificUser_isForwardedToAgent', async () => {
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: null,
+      logger: makeLogger(),
+      allowedUsersDm: new Set(['U_specific']),
+      allowedUsersMentions: new Set(),
+    });
+    const notify = trackNotifications(bridge);
+
+    await bridge.handleIncomingMessage(makePayload('dm', 'U_specific'));
+
+    expect(notify).toHaveBeenCalledOnce();
+  });
+});
+
 // ─── Tests: ensureDaemon wired into mcp-server.ts ─────────────────────────────
 
 describe('McpBridgeServer — ensureDaemon wired into mcp-server.ts', () => {

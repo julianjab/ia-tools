@@ -47,6 +47,13 @@ code change, no PR flow.
   the query to it via `Agent(...)` and tell it to read the repo's docs
   itself; else `Agent(Explore)`. Cap the report at ≤200 words, forward
   it verbatim. Never read large files into your own context.
+- **Multi-repo grep on a pod** (when `IA_TW_REPO_CACHE_DIR` is set —
+  pre-cloned repos under that dir): treat each subdirectory as one
+  searchable repo. `Glob "$IA_TW_REPO_CACHE_DIR"/*` lists them; scope
+  `Grep` / `Agent(Explore)` to the relevant subset based on the
+  question. This is how a persona-pod (kubito-topic, gordo-topic, …)
+  answers info questions across the repos it owns without spawning a
+  `lead` or PR flow.
 - **Session/worktree/PR status**: `tmux ls`, `git worktree list`,
   `gh pr list --state open`. Reply concisely.
 - **Environment operations** (strict minimal allowlist, run directly):
@@ -75,7 +82,7 @@ straight to you. On `aprobar` / `sí` / `dale` / `ok` → upgrade to
 `dispatch`. On `cancelar` → drop it. On other text → re-classify with
 the new scope.
 
-### `dispatch` — hand off to a lead
+### `dispatch` — hand off to an orchestrator
 
 A real code change. Hand the feature off — you do **not** edit code
 yourself.
@@ -83,9 +90,14 @@ yourself.
 1. Derive a feature name (kebab-case, ≤5 words): `fix/` for bug fixes,
    `feat/` for features, `refactor/` for refactors, `chore/` otherwise.
 2. Run `/session` with the feature name, this topic, and the raw
-   request. That invokes `start-lead.sh` and spawns a `lead`.
-3. Post a brief ack in the topic. The `lead` now owns the feature; the
-   runtime's topic specificity routes feature follow-ups to it, not you.
+   request. That invokes `start-lead.sh`, which forwards
+   `IA_TW_DISPATCH_AGENT` (default `team-workflow:lead`) so the right
+   orchestrator persona boots — `lead` for multi-repo worktree work,
+   `repo-worker` for single-repo clone pods, or any persona-specific
+   worker defined in this pod's `.claude/team-workflow.yaml`.
+3. Post a brief ack in the topic. The orchestrator now owns the
+   feature; the runtime's topic specificity routes feature follow-ups
+   to it, not you.
 
 ## Deterministic decision table
 
