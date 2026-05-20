@@ -235,19 +235,37 @@ not found" and waste a turn.
    - description aligns with the worktree's `stack` → `impl` bucket
    - else → ignore
 3. **Pick per bucket** (use ONLY names from the Glob output above —
-   never invent or hallucinate an agent name):
+   never invent or hallucinate an agent name). Each bucket follows the
+   same resolution order: repo-local specific match → consumer agent
+   override (`$IA_TW_TOPIC_WORKER_AGENT` when set, treated as a generic
+   fallback for any empty bucket — this is how a persona pod plugs
+   into worktrees that ship no specialised agents) → plugin fallback.
    - `impl`: first repo-local match (persistent teammate, name verbatim);
-     else use the `implementer` plugin agent as a persistent teammate
-     named `impl-<wt_prefix>` (unique per worktree — prevents
-     cross-worktree task bleed when multiple repos share the same fallback).
-   - `qa`:   first repo-local match (persistent teammate); else `lead`
-     (inline — you write the tests yourself).
-   - `sec`:  first repo-local match; else `lead`
-   - `arch`: first repo-local match; else `implementer` (it handles
-     architecture sketches when no architect exists)
+     else `$IA_TW_TOPIC_WORKER_AGENT` if set (persistent teammate,
+     name = `impl-<wt_prefix>` to keep cross-worktree task lanes
+     separate); else use the `implementer` plugin agent as a persistent
+     teammate named `impl-<wt_prefix>`.
+   - `qa`:   first repo-local match (persistent teammate); else
+     `$IA_TW_TOPIC_WORKER_AGENT` if set; else `lead` (inline — you
+     write the tests yourself).
+   - `sec`:  first repo-local match; else `$IA_TW_TOPIC_WORKER_AGENT`
+     if set; else `lead`.
+   - `arch`: first repo-local match; else `$IA_TW_TOPIC_WORKER_AGENT`
+     if set; else `implementer`.
+
+   The consumer-agent fallback step is opt-in: it only kicks in when
+   `IA_TW_TOPIC_WORKER_AGENT` resolves to a non-empty name AND that
+   name addresses an agent reachable from the current session (baked
+   in the image at `$HOME/.claude/agents/`, exposed via `/add-dir` on
+   a host repo, or shipped by the plugin). If the consumer agent
+   cannot be resolved at spawn time, treat the bucket as if the
+   override were unset and continue to the plugin fallback.
 4. Append the worktree entry to `state.md` with `agents:` populated.
    For `impl` fallback, record `impl: "impl-<wt_prefix>"` so the
    dispatch loop and TeammateIdle hook can resolve the correct name.
+   When a bucket uses the consumer-agent fallback, record the actual
+   name in `state.md` (not the env var reference) so the audit log is
+   readable without resolving env at read time.
 
 ### Spawn rule for repo-local agents
 

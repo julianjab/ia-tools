@@ -58,20 +58,40 @@ you want a public bot: `dm: true` or `mentions: true`.
 See `plugins/slack-bridge/README.md` → "Access control" for the full
 behaviour at the bridge level.
 
-## Persona pods (kubito, gordo, centinela, …)
+## Single-agent pods (one persona handles answer + dispatch)
 
-A persona pod is just a `team-workflow.yaml` that points
-`topic_worker_agent` and `dispatch.agent` at the persona-specific
-overlays you wrote on top of the base `topic-worker.md` / `lead.md` /
-`repo-worker.md`. See `plugins/team-workflow/agents/example-topic.md`
-and `example-worker.md` for the overlay template.
+When `router.topic_worker_agent` is set to a consumer-owned agent
+(reachable by name from the running session), that agent plays TWO
+roles in the framework — without any new abstraction or extra env var:
+
+1. **Per-topic conversational agent.** The router spawns it as the
+   topic-worker on every new topic. Classification (answer / ask /
+   dispatch) and replies live in this agent's `.md` (typically by
+   `@`-importing the base `topic-worker.md` for the decision table).
+2. **Bucket fallback inside `lead`.** When `lead` provisions a touched
+   repo and finds a bucket (impl / qa / sec / arch) without a
+   repo-local specialist agent, it falls back to
+   `$IA_TW_TOPIC_WORKER_AGENT` **before** the plugin-shipped
+   `implementer` / `lead-inline`. This lets the consumer's agent
+   execute concrete tasks (write tests, audit security, draft
+   architecture) in repos that ship no per-bucket agents — same agent
+   file, no duplication.
+
+The fallback step is opt-in by definition: it only fires when
+`router.topic_worker_agent` is configured. A worktree-local dev session
+with no override keeps today's behaviour exactly (plugin defaults for
+empty buckets).
+
+`lead` records the resolved name (not the env var reference) in
+`state.md` so the audit log stays readable: a bucket using the
+fallback shows up as `qa: <resolved-name>`, not `qa: $IA_TW_…`.
 
 ```yaml
+# Single-agent pod: ONE consumer-owned agent handles both topic-worker
+# duties and bucket fallbacks inside lead.
 router:
-  topic_worker_agent: team-workflow:kubito-topic
-  dispatch:
-    agent: team-workflow:kubito-worker
-    provision: clone
+  topic_worker_agent: kubito       # resolved from $HOME/.claude/agents/kubito.md
+                                    # (or wherever the consumer ships it)
 repos:
   - https://github.com/your-org/eks.git
   - https://github.com/your-org/platform-infrastructure.git
