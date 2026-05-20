@@ -76,13 +76,51 @@ report goes through the active Slack channel:
 
 ### Local mode (`IA_TW_TOPIC == "local"`)
 
-All user interaction is through this terminal:
+Local mode does NOT mean "only the terminal". The operator may not be
+attached to this tmux session, and a blocked `AskUserQuestion` is
+invisible until they reattach — which freezes the feature indefinitely.
 
-1. Plan publication, gates, and progress updates use `AskUserQuestion`
-   for choices and direct assistant messages for free text.
-2. Do NOT call any Slack tools (`reply`, `claim_message`, etc.).
-3. `state.md` records the same data as Slack mode would — the only
-   difference is the I/O channel.
+To avoid that, local mode uses a **two-tier escalation** for every
+user-facing prompt (plan publication, approval gates, ambiguity
+clarifications, status updates that require an answer):
+
+1. **Tier 1 — Slack DM fallback (preferred).** At boot, probe the
+   slack-bridge tools by calling `list_subscriptions`. If it returns
+   without error, the bridge is reachable and you MUST:
+   - Resolve the operator DM: `LEAD_LOCAL_FALLBACK_DM` env var if set,
+     otherwise the hardcoded default `DM:U02M1QFA0AF` (Julian
+     Buitrago). The env override exists so other operators / CI can
+     redirect the fallback.
+   - `subscribe_slack` to that DM with label
+     `lead-local-fallback:<IA_TW_FEATURE>`.
+   - Send the prompt via `reply(channel_id=<dm channel>, text=...)`.
+     Prefix the message with `[local-fallback]` and the feature name so
+     the operator immediately sees which tmux session is waiting.
+   - Block on the next inbound message on that DM topic. Approval
+     matching is identical to Slack mode (`aprobar` / `cancelar` / emoji
+     reactions / edit text).
+   - On final cleanup, `unsubscribe_slack` from the fallback topic.
+2. **Tier 2 — terminal fallback.** Only when the bridge probe fails
+   (tool missing, error, or `subscribe_slack` rejects the call) drop
+   to `AskUserQuestion` (for choices) and assistant messages (for free
+   text) in this terminal. Record `mode_fallback: terminal` in the
+   `state.md` audit log so it is visible at resume time.
+
+Hard rules for local mode:
+
+- The choice between tier 1 and tier 2 happens **once at boot** and
+  stays fixed for the whole session, same as Slack mode. Do NOT
+  bounce between tiers mid-flight; the operator picks one channel and
+  stays there.
+- When tier 1 is active, `AskUserQuestion` is FORBIDDEN (same as full
+  Slack mode). The DM is the only inbound.
+- When tier 2 is active, Slack tools are FORBIDDEN.
+- `state.md` records the same data as Slack mode would — only the I/O
+  channel differs. Add a top-level `mode: local-slack-fallback` or
+  `mode: local-terminal` field to the YAML frontmatter so resume picks
+  the same tier.
+- The fallback DM is **never** used for code changes or routine status
+  pings — only for prompts that block the workflow.
 
 ## State file (one per feature, OUTSIDE any repo)
 

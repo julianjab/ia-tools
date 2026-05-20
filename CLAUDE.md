@@ -191,6 +191,12 @@ happens at MCP init via the `SLACK_TOPICS` env var (set by
 - `/session` — Spawn a lead sub-session in tmux. Invokes
   `start-lead.sh` with feature label, topic, and request. Used by
   `router` on `dispatch` intent.
+- `/send-session-message` — Forward a message into a running tmux
+  session (typically a `lead`) and submit it. Pastes literally with
+  `tmux send-keys -l`, then fires a **separate** `tmux send-keys
+  Enter` so Claude Code's TUI actually processes the message. Used by
+  the `router` when it needs to relay into a lead that lives in
+  another tmux session.
 - `/worktree` — Git worktree management (`init`, `list`, `switch`,
   `cleanup`, `status`). `init` now auto-runs `/add-dir` via the
   `SlashCommand` tool so repo-local agents are immediately spawnable.
