@@ -1,0 +1,40 @@
+# docker.example — local test harness for the team-workflow router pod.
+#
+# This mirrors what the Kubernetes Deployment does, but on your machine:
+#   cp docker.example/.env.example docker.example/.env   # then fill it in
+#   docker compose -f docker.example/docker-compose.example.yml up --build
+#
+# Attach to the running router session:
+#   docker compose -f docker.example/docker-compose.example.yml exec router \
+#     tmux attach -t 0
+#
+# Inspect a dispatched repo-worker sub-session:
+#   docker compose ... exec router tmux ls
+#   docker compose ... exec router tmux attach -t feat-<slug>
+
+services:
+  router:
+    build:
+      # Build context is the repo root so the Dockerfile can COPY the
+      # whole ia-tools bundle.
+      context: ..
+      dockerfile: docker.example/Dockerfile
+    image: ia-tools-router-pod:dev
+    # Env vars are the pod's configuration contract. IA_TW_DISPATCH_*
+    # in .env select the pod profile (repo-worker + clone).
+    env_file:
+      - .env
+    volumes:
+      # Persistent state: state.md + repo clones survive `docker compose down`
+      # and container restarts, exactly like the k8s PVC.
+      - router-state:/state
+      # Optional: mount your own pod-config.json over the baked-in one.
+      # - ./pod-config.json:/opt/ia-tools/pod-config.json:ro
+    # The router is a long-lived process; restart it if it crashes.
+    restart: unless-stopped
+    # Interactive so you can `compose exec` in and attach to tmux.
+    stdin_open: true
+    tty: true
+
+volumes:
+  router-state:
