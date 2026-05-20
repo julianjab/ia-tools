@@ -44,6 +44,26 @@ SLACK_BOT_TOKEN=xoxb-... SLACK_APP_TOKEN=xapp-... pnpm --filter @ia-tools/slack-
 | `SLACK_THREADS` | No | from config | Comma-separated thread timestamps |
 | `SLACK_ACK_EMOJI` | No | `eyes` | Reaction emoji added when Claude starts processing a message |
 | `SLACK_ACK_STATUS` | No | `thinking...` | Assistant thread status set while Claude is processing |
+| `ALLOWED_USERS_DM` | No | _(empty → block all)_ | Comma-separated Slack user IDs allowed to DM the bot. Use the literal wildcard `*` to allow any user. Example: `U02M1QFA0AF,U03ABCDEF` or `*`. |
+| `ALLOWED_USERS_MENTIONS` | No | _(empty → block all)_ | Same shape as `ALLOWED_USERS_DM`, applied to channel @mentions, reactions, and broad-channel thread replies. |
+
+### Access control (`ALLOWED_USERS_*`)
+
+The bridge enforces a **deny-by-default** allowlist before forwarding any
+Slack event to Claude:
+
+- Empty / unset → bot ignores every DM (or mention/reaction).
+- `*` → bot accepts any user. Use this when channel membership already
+  provides the access boundary (e.g. private channels).
+- `U02M1QFA0AF,U03ABCDEF` → only those user IDs.
+
+The check runs in the MCP layer, **before** the model sees the message.
+A blocked event is logged (`[gate] ... blocked`) and silently dropped —
+no claim, no notification.
+
+Threaded replies inside a thread the bot subscribed to itself (`reply()`,
+`/ship`, etc.) bypass the user allowlist: the bot opened that thread, so
+participants are pre-authorized for the conversation.
 
 ### Thinking acknowledgement (`SLACK_ACK_EMOJI` / `SLACK_ACK_STATUS`)
 

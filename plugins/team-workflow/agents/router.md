@@ -58,16 +58,24 @@ notice yourself doing any of that, stop: it belongs in the worker.
      1. Derive a stable worker `name` from the topic (kebab-case,
         e.g. `worker-<channel>-<thread-suffix>` or `worker-dm-<user>`).
         This is the only judgment you make.
-     2. Spawn it:
+     2. Resolve the topic-worker persona — read env var
+        `IA_TW_TOPIC_WORKER_AGENT` once (via the Bash tool if available,
+        otherwise treat as unset). It selects which agent answers/asks
+        on this pod:
+        - Set (e.g. `team-workflow:kubito-topic`) → use that persona.
+        - Unset → fall back to the generic `team-workflow:topic-worker`.
+        This is how a single pod becomes "Kubito" or "Gordo" without
+        changing the router code.
+     3. Spawn it:
         ```
         Agent(
-          subagent_type: "team-workflow:topic-worker",
+          subagent_type: "<persona resolved above>",
           name: <derived name>,
           run_in_background: true,
           prompt: <raw inbound text + resolved topic + thread metadata>
         )
         ```
-     3. Record `<topic> → <name>` in the registry.
+     4. Record `<topic> → <name>` in the registry.
 
 3. **Stop.** The worker owns the conversation. Subsequent messages on
    the same topic repeat step 2 → Hit path.
@@ -80,6 +88,20 @@ A future message on that topic falls through to the Miss path and
 re-spawns a fresh worker — which re-seeds itself from the MCP context
 file for that topic. Eviction is the only thing that shrinks your
 context.
+
+## Persona parametrization (single-source-of-truth env)
+
+The router itself stays generic. Two env vars decide which personas run
+on this pod, both set by `start-lead.sh` and ultimately sourced from
+`.claude/team-workflow.yaml` (when present):
+
+| Env var | Used for | Default |
+|---|---|---|
+| `IA_TW_TOPIC_WORKER_AGENT` | answer / ask intents (the worker you spawn) | `team-workflow:topic-worker` |
+| `IA_TW_DISPATCH_AGENT` | on `dispatch`, the worker passes this to `/session` so the lead/repo-worker boots with the right persona | `team-workflow:lead` |
+
+You only read the first one. The worker handles the second when it calls
+`/session`.
 
 ## Hard rules
 

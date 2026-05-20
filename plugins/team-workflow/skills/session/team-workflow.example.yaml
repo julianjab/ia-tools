@@ -1,0 +1,81 @@
+# team-workflow.example.yaml — declarative pod / repo configuration.
+#
+# Copy to `<consumer-repo>/.claude/team-workflow.yaml` (or
+# `~/.claude/team-workflow.yaml` for a user-level default, or to any path
+# you point `$IA_TW_CONFIG` at).
+#
+# Loader: plugins/team-workflow/skills/session/scripts/load-tw-config.sh.
+# Source it from your wrapper (start-lead.sh does this automatically) and
+# the values become env vars. Env vars that were already set BEFORE the
+# loader runs always win — the file fills gaps, it does not override.
+#
+# `${VAR}` references inside string values are interpolated against the
+# current process environment. Unset → empty. This lets you keep secrets
+# out of this file (they come from Kubernetes Secrets / .env files / etc.).
+
+# --- Router: which personas this pod / dev-host runs --------------------------
+router:
+  # Persona the router spawns for `answer` / `ask` intents.
+  # Default: team-workflow:topic-worker (generic classifier).
+  # Set to a persona-specific agent (e.g. team-workflow:kubito-topic) to
+  # make this pod "behave as kubito" when answering info questions.
+  topic_worker_agent: team-workflow:example-topic
+
+  # Persona the router hands off to on `dispatch` (the actual code-changer).
+  dispatch:
+    # Default: team-workflow:lead. Use team-workflow:repo-worker for
+    # single-repo pods, or any persona-specific worker.
+    agent: team-workflow:example-worker
+    # worktree-local (default — sibling host repos), clone (this pod
+    # clones repos onto a persistent volume), or none (pure delegator).
+    provision: clone
+
+# --- Repos this pod owns -----------------------------------------------------
+# String list OR {url, name} objects. Pre-clone iterates over `url`s and
+# clones each into $IA_TW_STATE_ROOT/clone-cache/<name>/. The
+# topic-worker uses that cache for cross-repo `Grep` on `answer` intent.
+repos:
+  - url: ${KUBITO_EKS_REPO_URL}
+    name: eks
+  - url: ${KUBITO_INFRA_REPO_URL}
+    name: platform-infrastructure
+  # Or simply:
+  # - https://github.com/your-org/your-other-repo.git
+
+# --- Slack transport (optional) ----------------------------------------------
+slack:
+  # Topics the slack-bridge MCP auto-subscribes to at boot. Each entry is
+  # passed through unchanged; see plugins/slack-bridge/src/shared/types.ts
+  # for the topic-string grammar (channel, channel:user, channel:*:thread,
+  # DM:user).
+  topics:
+    - ${KUBITO_SLACK_INFRA_CHANNEL}      # whole channel
+    - DM:${KUBITO_OWNER}                  # DMs from one user
+
+# --- Access control (slack-bridge ALLOWED_USERS_*) ---------------------------
+# Three shapes per axis:
+#   true     → allow any user (slack-bridge wildcard "*")
+#   false    → block everyone (deny-by-default)
+#   [U1,U2]  → explicit allowlist of Slack user IDs
+#   absent   → don't emit the env var (respects what's already set)
+access:
+  # Allow any user to DM this bot (channel membership is the boundary).
+  dm: true
+  # Restrict @mentions / reactions / channel posts to a specific allowlist.
+  mentions:
+    - U02M1QFA0AF
+    - U03ABCDEF
+  # Equivalent shortcuts you might use instead:
+  # mentions: true            # any user
+  # mentions: false           # block all
+
+# --- State / persistence -----------------------------------------------------
+# Root for state.md + clone-cache. Mount a PVC here in k8s so state and
+# clones survive pod restarts. Default: /state in pod, $HOME/.claude/... on dev host.
+state:
+  root: ${IA_TW_STATE_ROOT}
+
+# --- Git identity for commits ------------------------------------------------
+git:
+  author_name: ${GIT_AUTHOR_NAME}
+  author_email: ${GIT_AUTHOR_EMAIL}

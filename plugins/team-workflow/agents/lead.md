@@ -197,12 +197,35 @@ is what makes the worktree's repo-local agents callable — without it,
 `Agent(subagent_type=<repo-local-name>)` will fail with "agent type
 not found" and waste a turn.
 
-1. **Create the worktree + register it with the session**:
+**Provisioning mode** is selected by env var `IA_TW_PROVISION`
+(forwarded by `start-lead.sh`, ultimately sourced from
+`.claude/team-workflow.yaml`):
+
+- `worktree-local` (default) — touched repos exist on the host as
+  sibling directories; create one git worktree per repo. This is the
+  developer-host profile.
+- `clone` — no host repos; the pod pre-clones `IA_TW_REPO_URLS` at
+  boot into `IA_TW_REPO_CACHE_DIR/<repo-slug>/`. Create the feature
+  branch in each cache clone instead of running `/worktree init`. PR
+  per repo works the same; `enforce-worktree.sh` does not gate edits
+  outside a host repo.
+
+1. **Create the working copy + register it with the session**:
+
+   _Worktree-local mode:_
    `/worktree init $IA_TW_FEATURE --repo <repo-abs>` (single-repo:
    omit `--repo`). The `/worktree` skill runs `init.sh` and then
-   `/add-dir <worktree-abs>` automatically — you do not need to call
-   `/add-dir` separately. Confirm the printed worktree path so you can
-   reference it in later steps.
+   `/add-dir <worktree-abs>` automatically.
+
+   _Clone mode:_
+   Resolve `<wt-abs>` to `$IA_TW_REPO_CACHE_DIR/<repo-slug>` (already
+   cloned at pod boot). Inside that path:
+   `git -C <wt-abs> fetch origin` then
+   `git -C <wt-abs> checkout -B "$IA_TW_FEATURE" origin/<default-branch>`.
+   Call `/add-dir <wt-abs>` explicitly (no skill ran it for you).
+
+   Either way: confirm the printed working-copy path so you can
+   reference it as `<worktree-abs>` in later steps.
 2. **Discover repo-local agents**:
    `Glob <worktree-abs>/.claude/agents/*.md`. For each match, read
    frontmatter `name` + `description`. Classify by name regex:
