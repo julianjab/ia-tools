@@ -1,0 +1,44 @@
+# docker.example — local test harness for the team-workflow router pod.
+#
+# Mirror of the Kubernetes setup, sized for one machine:
+#   cp docker.example/.env.example                docker.example/.env
+#   cp docker.example/team-workflow.example.yaml  docker.example/team-workflow.yaml
+#   # edit both files
+#   docker compose -f docker.example/docker-compose.example.yml up --build
+#
+# Attach to the running router session:
+#   docker compose -f docker.example/docker-compose.example.yml exec router \
+#     tmux attach -t 0
+#
+# Inspect a dispatched sub-session (lead / repo-worker):
+#   docker compose ... exec router tmux ls
+#   docker compose ... exec router tmux attach -t feat-<slug>
+
+services:
+  router:
+    build:
+      # Build context is the repo root so the Dockerfile can COPY the
+      # whole ia-tools bundle.
+      context: ..
+      dockerfile: docker.example/Dockerfile
+    image: ia-tools-router-pod:dev
+    env_file:
+      - .env
+    volumes:
+      # The pod profile (router.topic_worker_agent, repos whitelist, ACL,
+      # Slack topics) lives in this yaml. The loader inside the container
+      # reads it at boot and exports the env vars team-workflow consumes.
+      - ./team-workflow.yaml:/opt/ia-tools/.claude/team-workflow.yaml:ro
+      # Persistent state: state.md + clone-cache/ survive `docker compose
+      # down` and container restarts — exactly like the k8s PVC.
+      - router-state:/state
+      # OPTIONAL: bind-mount your consumer agent file (no rebuild needed
+      # when iterating on the prompt). For production, bake it into a
+      # derived image instead (see Dockerfile docstring).
+      # - ./agents/<agent>.md:/root/.claude/agents/<agent>.md:ro
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+volumes:
+  router-state:

@@ -1,0 +1,71 @@
+# docker.example/team-workflow.example.yaml
+# ------------------------------------------------------------------------
+# Sample pod profile. Copy to `docker.example/team-workflow.yaml` (or
+# generate as a ConfigMap in k8s) and mount it into the container at
+# /opt/ia-tools/.claude/team-workflow.yaml. The entrypoint sources
+# load-tw-config.sh which reads it, interpolates `${VAR}` against the
+# process environment, and exports IA_TW_* / SLACK_TOPICS /
+# ALLOWED_USERS_*. Env vars set before the loader runs always win.
+#
+# Canonical schema reference + every field documented:
+#   plugins/team-workflow/skills/session/team-workflow.example.yaml
+# This file is just a deployment-shaped instance of that schema.
+
+# --- Which agent runs in this pod -------------------------------------------
+# Leave the whole `router` block out (or empty) for the generic
+# deterministic flow (router → topic-worker → lead). Set
+# `topic_worker_agent` when this pod hosts a single consumer-owned
+# persona that should handle answer/ask AND act as the bucket fallback
+# inside `lead`.
+#
+# The name must resolve from the running session. Common shapes:
+#   - Baked in the image at /root/.claude/agents/<name>.md (recommended
+#     for production pods — see Dockerfile docstring for how a consumer
+#     extends this base image).
+#   - Provided by the plugin (`team-workflow:<name>`).
+#   - Discovered after `/add-dir <repo>` ran (dev-host).
+router:
+  topic_worker_agent: ${IA_TW_AGENT_NAME}
+
+# --- Repos this pod is allowed to touch -------------------------------------
+# WHITELIST, not a pre-clone list. Agents clone on demand into
+# $IA_TW_STATE_ROOT/clone-cache/<slug>/ the first time they need to grep
+# or branch off a repo. Subsequent invocations reuse the cache (git fetch).
+repos:
+  - ${REPO_URL_PRIMARY}
+  - ${REPO_URL_SECONDARY}
+
+# --- Slack transport (optional) ---------------------------------------------
+# Topics the slack-bridge MCP auto-subscribes to at boot. Topic grammar:
+#   <channel>                 — any message in the channel
+#   <channel>:<user>          — only that user in that channel
+#   <channel>:*:<thread_ts>   — replies in a specific thread
+#   DM:<user>                 — DMs from that user
+# Omit the section to run terminal-only (no Slack daemon, no auto-subscribe).
+slack:
+  topics:
+    - ${SLACK_CHANNEL_PRIMARY}
+    - DM:${SLACK_OPERATOR}
+
+# --- Access control (slack-bridge ALLOWED_USERS_*) ---------------------------
+# Three shapes per axis:
+#   true            → allow any user (wildcard "*")
+#   false           → block all (deny-by-default)
+#   [U1, U2, ...]   → explicit allowlist of Slack user IDs
+#   absent          → don't emit the env var (respect what's already set)
+access:
+  dm: true
+  mentions:
+    - ${SLACK_OPERATOR}
+    - ${SLACK_TEAM_MEMBER_A}
+
+# --- State / persistence ----------------------------------------------------
+# Root for state.md + clone-cache. In k8s, mount a PVC here so state and
+# clones survive pod restarts.
+state:
+  root: ${IA_TW_STATE_ROOT}
+
+# --- Git identity for commits -----------------------------------------------
+git:
+  author_name: ${GIT_AUTHOR_NAME}
+  author_email: ${GIT_AUTHOR_EMAIL}
