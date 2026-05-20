@@ -1,32 +1,26 @@
 # docker.example/k8s — example manifests for running a team-workflow
-# `router` as a long-lived Kubernetes pod with a POD dispatch profile.
-# NOT production-ready; adjust namespace, resource limits, image
-# registry, and security context for your cluster.
+# `router` as a long-lived Kubernetes pod. NOT production-ready; adjust
+# namespace, resource limits, image registry, and security context for
+# your cluster.
 #
 # Apply:
+#   # 1. tokens → Secret
 #   kubectl create secret generic router-pod-secrets \
 #     --from-literal=CLAUDE_CODE_OAUTH_TOKEN=... \
 #     --from-literal=GITHUB_TOKEN=... \
 #     --from-literal=SLACK_BOT_TOKEN=... \
 #     --from-literal=SLACK_APP_TOKEN=...
+#
+#   # 2. pod profile (the yaml) → ConfigMap
+#   kubectl create configmap router-pod-profile \
+#     --from-file=team-workflow.yaml=docker.example/team-workflow.yaml
+#
+#   # 3. PVC + Deployment
 #   kubectl apply -f docker.example/k8s/deployment.example.yaml
----
-# Non-secret pod profile. THIS is "configuration by variables": editing
-# this ConfigMap and restarting the pod re-points it at a different repo
-# or flips it back to a worktree-local dev profile — no image rebuild.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: router-pod-profile
-data:
-  IA_TW_DISPATCH_AGENT: "team-workflow:repo-worker"
-  IA_TW_DISPATCH_PROVISION: "clone"
-  IA_TW_REPO_URL: "https://github.com/your-org/your-frontend-repo.git"
-  IA_TW_STATE_ROOT: "/state"
-  GIT_AUTHOR_NAME: "team-workflow-bot"
-  GIT_AUTHOR_EMAIL: "team-workflow-bot@users.noreply.github.com"
-  # Optional: auto-subscribe the router to a Slack topic at boot.
-  # SLACK_TOPICS: "C0123456789"
+#
+# Re-pointing the pod at a different agent/repo: edit the yaml in the
+# ConfigMap and `kubectl rollout restart deployment/router-pod`. The
+# entrypoint re-reads the file on boot.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -36,8 +30,8 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      # Holds state.md + one git clone per repo this pod owns. Size for
-      # your repo; clones are reused across features, not re-cloned.
+      # Holds state.md + clone-cache/. Size for the repos this pod will
+      # actually clone (lazy: only the ones it touches get fetched).
       storage: 5Gi
 ---
 apiVersion: apps/v1
@@ -47,8 +41,8 @@ metadata:
   labels:
     app: router-pod
 spec:
-  # Exactly one replica: the router is a stateful long-lived process, not
-  # a horizontally-scalable service. Each repo gets its own Deployment.
+  # Exactly one replica: the router is a stateful long-lived process,
+  # not a horizontally-scalable service.
   replicas: 1
   strategy:
     type: Recreate            # never run two routers against one PVC
@@ -62,15 +56,20 @@ spec:
     spec:
       containers:
         - name: router
+          # For a consumer-specific pod (with a baked agent), this would
+          # be your derived image:
+          #   FROM ia-tools-router-pod:0.x.y
+          #   COPY agents/<name>.md /root/.claude/agents/<name>.md
           image: your-registry/ia-tools-router-pod:dev
-          # Profile from the ConfigMap, secrets from the Secret. Together
-          # they are the entire pod configuration — no baked-in values.
+          # Secrets only — the pod profile comes from the mounted yaml.
           envFrom:
-            - configMapRef:
-                name: router-pod-profile
             - secretRef:
                 name: router-pod-secrets
           volumeMounts:
+            - name: profile
+              mountPath: /opt/ia-tools/.claude/team-workflow.yaml
+              subPath: team-workflow.yaml
+              readOnly: true
             - name: state
               mountPath: /state
           # tmux + claude need a TTY-ish stdin to stay alive.
@@ -83,13 +82,16 @@ spec:
             limits:
               cpu: "2"
               memory: "4Gi"
-          # router is the PID-1 process; if claude exits, restart the pod.
+          # Router is PID 1; if claude exits, restart the pod.
           livenessProbe:
             exec:
               command: ["pgrep", "-f", "claude"]
             initialDelaySeconds: 30
             periodSeconds: 30
       volumes:
+        - name: profile
+          configMap:
+            name: router-pod-profile
         - name: state
           persistentVolumeClaim:
             claimName: router-pod-state

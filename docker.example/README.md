@@ -1,116 +1,119 @@
 # docker.example — team-workflow `router` as a configurable pod
 
-A worked example of running team-workflow **non-statically**: one Docker
-image, one `router` agent, and a **pod dispatch profile** supplied
-entirely through environment variables. Flip the profile and the same
-image behaves as a developer-host orchestrator or a single-repo
-Kubernetes pod — no code change, no rebuild.
+A reference deployment for running team-workflow non-statically: **one
+generic image, configured at runtime by a yaml file plus a small set of
+secrets**. The same image hosts any consumer-owned agent (or no persona
+at all) by mounting a different `team-workflow.yaml` and, optionally,
+baking a different `<agent>.md` into a derived image.
 
-## The idea: configuration by variables (openclaw-style)
+## The contract
 
-There is **one router agent** and **two orchestrator personas** (`lead`,
-`repo-worker`). Nothing is hardcoded — the router reads three env vars
-at boot and forwards them to every sub-session it spawns:
-
-| Env var | Default | Purpose |
+| Source of truth | Where it lives | Who owns it |
 |---|---|---|
-| `IA_TW_DISPATCH_AGENT` | `team-workflow:lead` | Orchestrator persona each `dispatch` spawns. |
-| `IA_TW_DISPATCH_PROVISION` | `worktree-local` | `worktree-local` (worktree of a sibling repo) or `clone` (git clone of a remote URL). |
-| `IA_TW_REPO_URL` | — | Git URL to clone. Required when `provision=clone`. |
+| Image (router + slack-bridge + Claude Code + yq) | this `Dockerfile` | ia-tools (generic) |
+| Pod profile (`router.topic_worker_agent`, repos whitelist, ACL, slack topics) | `team-workflow.yaml` mounted at `/opt/ia-tools/.claude/team-workflow.yaml` | the consumer (per pod) |
+| Consumer agent (`<name>.md`) | `/root/.claude/agents/<name>.md` baked in a derived image (or mounted) | the consumer |
+| Secrets (`*_TOKEN`, OAuth) | `.env` (local) or k8s Secret (cluster) | the operator |
 
-Two canonical profiles, same image:
+The image is **agent-agnostic**. It contains zero consumer code. A
+consumer team produces their pod by extending this image:
 
-| Profile | `IA_TW_DISPATCH_AGENT` | `IA_TW_DISPATCH_PROVISION` | Use |
-|---|---|---|---|
-| **Dev host** | _(unset)_ → `lead` | _(unset)_ → `worktree-local` | multi-repo, worktrees on a developer machine |
-| **Pod** | `team-workflow:repo-worker` | `clone` | one repo, clone-work-PR, long-lived k8s pod |
+```dockerfile
+FROM ia-tools-router-pod:0.x.y
+COPY agents/<agent>.md /root/.claude/agents/<agent>.md
+```
 
-In Kubernetes the profile lives in a **ConfigMap** (non-secret) and
-tokens in a **Secret**. Editing the ConfigMap + restarting the pod
-re-points it at a different repo — that is the whole "configuration by
-variables" story.
+and writing their `team-workflow.yaml`:
 
-### Optional: `pod-config.json` (the openclaw-style mirror)
-
-Env vars are the real contract. `pod-config.json` is an optional single
-readable file that mirrors the profile; `entrypoint.sh` reads it,
-interpolates `${ENV}` refs, and exports the `IA_TW_*` vars it implies.
-**Env always wins** — the file only fills gaps. Delete it to go
-pure-env.
+```yaml
+router:
+  topic_worker_agent: <agent>
+repos:
+  - https://github.com/your-org/your-primary-repo.git
+  - https://github.com/your-org/your-secondary-repo.git
+access:
+  dm: true                       # any user can DM; channel membership is the boundary
+  mentions: [U02M1QFA0AF]
+```
 
 ## How a request flows
 
 ```
-request arrives (Slack / terminal)
-   ↓
-router  (always-on, PID 1 of the pod) — classifies answer / ask / dispatch
-   ↓ dispatch
-router invokes start-lead.sh, forwarding the pod profile:
-   IA_TW_AGENT=$IA_TW_DISPATCH_AGENT
-   IA_TW_PROVISION=$IA_TW_DISPATCH_PROVISION
-   IA_TW_REPO_URL=$IA_TW_REPO_URL
-   ↓
-repo-worker  (new tmux session, same pod)
-   - git clone IA_TW_REPO_URL → /state/<hash>/clone  (reused on restart: git fetch)
-   - plan → BLOCK on `aprobar`
-   - task graph: qa:red → impl:green → security → pr
-   - opens exactly ONE PR
-   ↓
-router stays up for the next request; pod is never torn down per feature
+Slack / terminal
+     ↓
+router (always-on, PID 1 of the pod) — deterministic dispatcher
+     ↓ topic miss
+Agent("$IA_TW_TOPIC_WORKER_AGENT") spawned as topic-worker
+     ↓ classify
+   answer/ask → reply inline (grep cache when needed)
+   dispatch   → /session --agent team-workflow:lead
+                 ↓
+              lead (sub-tmux session)
+                 ↓ provision worktree / clone (lazy)
+                 ↓ /add-dir <repo>
+                 ↓ discover .claude/agents/*.md in the repo
+                 ↓ bucket fallback = $IA_TW_TOPIC_WORKER_AGENT
+                 ↓ task graph (qa:red → impl:green → security → /pr)
+                 ↓ PR opened
+router stays up for the next request; pod is never torn down per feature.
 ```
 
 The four invariants (approval gate, QA-first, security-APPROVED-per-PR,
-`/pr`-only-to-main) are identical on both profiles — see `AGENTS.md`.
+`/pr`-only-to-main) live in the framework prompts and apply to every
+agent, including consumer ones.
 
-## Agents involved
+## Lazy clone — no boot-time fetching
 
-| Agent | Role |
-|---|---|
-| `team-workflow:router` | Always-on main session. 3-intent classifier; dispatches per the pod profile. Never edits code. |
-| `team-workflow:repo-worker` | Single-repo orchestrator. Clones `IA_TW_REPO_URL` onto the persistent volume, runs the full graph, opens one PR. |
-| `team-workflow:lead` | Multi-repo orchestrator (dev-host profile). |
-| `team-workflow:implementer` | Plugin fallback when a cloned repo ships no repo-local implementer agent. |
+The `repos:` list in `team-workflow.yaml` is a **whitelist**, not a
+pre-clone instruction. The pod boots in seconds with an empty cache.
+The first time an agent (router-spawned topic-worker, or a `lead` task)
+references a repo, it clones it into
+`$IA_TW_STATE_ROOT/clone-cache/<slug>/`. Subsequent uses reuse the
+cache (`git fetch`). The PVC keeps clones across pod restarts.
+
+This means:
+- Cold boot ≈ image start time, not N × git-clone time.
+- Adding a repo to the whitelist requires no rebuild — just edit the yaml.
+- Disk usage scales with repos actually touched, not declared.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | Image: node + git + tmux + gh + claude-code + the ia-tools plugin bundle. |
-| `entrypoint.sh` | Resolves the pod profile (`pod-config.json` + env), starts the slack-bridge daemon, `exec`s `router` as PID 1. |
-| `pod-config.example.json` | Optional openclaw-style profile mirror. |
-| `.env.example` | All runtime config. Copy to `.env` and fill in. |
-| `docker-compose.example.yml` | Local test harness — mirrors the k8s setup with a named volume. |
-| `k8s/deployment.example.yaml` | ConfigMap (profile) + Secret + PVC + Deployment for a real cluster. |
+| `Dockerfile` | Base image: node + git + tmux + gh + yq + Claude Code + ia-tools plugins. NO baked agent. |
+| `entrypoint.sh` | Sources `load-tw-config.sh`, validates auth, starts slack-bridge daemon, execs `router`. |
+| `team-workflow.example.yaml` | Sample pod profile. Copy to `team-workflow.yaml` and edit. |
+| `.env.example` | Secrets + `${VAR}` placeholders that the yaml interpolates. Copy to `.env` and fill in. |
+| `docker-compose.example.yml` | Local test harness: builds the image, mounts the yaml + a named PVC volume. |
+| `k8s/deployment.example.yaml` | ConfigMap (yaml) + Secret + PVC + Deployment for a real cluster. |
 
 ## Run it locally
 
 ```bash
-cp docker.example/.env.example docker.example/.env
-# edit docker.example/.env — set CLAUDE_CODE_OAUTH_TOKEN, IA_TW_REPO_URL,
-# GITHUB_TOKEN, the IA_TW_DISPATCH_* profile, and (optionally) SLACK_* tokens.
+cp docker.example/.env.example                  docker.example/.env
+cp docker.example/team-workflow.example.yaml    docker.example/team-workflow.yaml
+
+# Edit both: set tokens in .env, fill in agent name + repos + topics in
+# team-workflow.yaml. The placeholders in the yaml resolve from .env at
+# loader time.
 
 docker compose -f docker.example/docker-compose.example.yml up --build
 ```
 
-Drive it. With Slack tokens set, message the bot in the subscribed
-topic. Without Slack, attach to the terminal session:
+Attach to the running router:
 
 ```bash
 docker compose -f docker.example/docker-compose.example.yml exec router \
   tmux attach -t 0
 ```
 
-Ask the router for something concrete ("agrega un botón de logout en el
-header"). It classifies → `dispatch` → spawns a `repo-worker` tmux
-session. Inspect it:
+Send a message in the subscribed Slack topic (or, terminal-only, type
+at the router prompt). On `dispatch` the router spawns a sub-session:
 
 ```bash
 docker compose ... exec router tmux ls
-docker compose ... exec router tmux attach -t feat-logout-button
+docker compose ... exec router tmux attach -t feat-<slug>
 ```
-
-`repo-worker` clones the repo into `/state/<topic-hash>/clone`, posts a
-plan, waits for `aprobar`, then runs the graph and opens a PR.
 
 ## Run it in Kubernetes
 
@@ -122,26 +125,55 @@ kubectl create secret generic router-pod-secrets \
   --from-literal=SLACK_BOT_TOKEN=... \
   --from-literal=SLACK_APP_TOKEN=...
 
-# 2. profile (ConfigMap) + PVC + Deployment
-#    edit IA_TW_REPO_URL in the ConfigMap first
+# 2. pod profile → ConfigMap
+kubectl create configmap router-pod-profile \
+  --from-file=team-workflow.yaml=docker.example/team-workflow.yaml
+
+# 3. PVC + Deployment
 kubectl apply -f docker.example/k8s/deployment.example.yaml
 ```
 
-The PVC keeps `state.md` and the repo clone across pod restarts — on
-reboot `repo-worker` reuses the clone (`git fetch`) instead of
-re-cloning, and resumes any in-flight feature from its `state.md`.
+Re-point at a different repo / agent: edit the yaml, `kubectl create
+configmap router-pod-profile --from-file=... --dry-run=client -o yaml |
+kubectl apply -f -`, then `kubectl rollout restart deployment/router-pod`.
 
-To re-point the pod at another repo: edit `IA_TW_REPO_URL` in the
-`router-pod-profile` ConfigMap and `kubectl rollout restart deployment/router-pod`.
+## Building a consumer pod
+
+A consumer team that owns one or more agents produces one image per
+pod from a derived Dockerfile:
+
+```dockerfile
+# <consumer>/docker/Dockerfile
+FROM ghcr.io/ia-tools/router-pod:0.x.y
+
+ARG AGENT
+COPY agents/${AGENT}.md /root/.claude/agents/${AGENT}.md
+```
+
+```bash
+docker build --build-arg AGENT=<agent-a> -t <consumer>/<agent-a>-pod:1.0 .
+docker build --build-arg AGENT=<agent-b> -t <consumer>/<agent-b>-pod:1.0 .
+```
+
+The agent's `<name>.md` is the only thing that differs between pods of
+the same team — the rest is the same base image plus a different
+ConfigMap.
 
 ## Caveats — this is an *example*
 
 - `--dangerously-skip-permissions` and
   `--dangerously-load-development-channels` are used to make the pod
   non-interactive. Understand the implications before production use.
-- Secrets are passed as plain env vars via a k8s Secret. Use your
-  cluster's real secrets manager (External Secrets, Vault, etc.).
-- One repo per pod. Multi-repo work uses the dev-host profile
-  (`lead` + `worktree-local`) on a developer machine.
-- No autoscaling, no network policy, no non-root user hardening — add
+- Secrets pass as plain env vars via a k8s Secret. Use your cluster's
+  real secrets manager (External Secrets, Vault, …) in production.
+- No autoscaling, no NetworkPolicy, no non-root user hardening — add
   them for your environment.
+- The PVC is `ReadWriteOnce` and `Recreate` strategy: never run two
+  routers against the same volume. Each pod owns its state + cache.
+
+## Prerequisites
+
+This setup depends on the `load-tw-config.sh` loader added in PR #78
+(`feat/team-workflow-slack-agents`). Merge that PR before building the
+image, or rebase this branch on top of it locally if you need to test
+ahead of the merge.

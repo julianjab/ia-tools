@@ -1,14 +1,16 @@
 # docker.example — local test harness for the team-workflow router pod.
 #
-# This mirrors what the Kubernetes Deployment does, but on your machine:
-#   cp docker.example/.env.example docker.example/.env   # then fill it in
+# Mirror of the Kubernetes setup, sized for one machine:
+#   cp docker.example/.env.example                docker.example/.env
+#   cp docker.example/team-workflow.example.yaml  docker.example/team-workflow.yaml
+#   # edit both files
 #   docker compose -f docker.example/docker-compose.example.yml up --build
 #
 # Attach to the running router session:
 #   docker compose -f docker.example/docker-compose.example.yml exec router \
 #     tmux attach -t 0
 #
-# Inspect a dispatched repo-worker sub-session:
+# Inspect a dispatched sub-session (lead / repo-worker):
 #   docker compose ... exec router tmux ls
 #   docker compose ... exec router tmux attach -t feat-<slug>
 
@@ -20,19 +22,21 @@ services:
       context: ..
       dockerfile: docker.example/Dockerfile
     image: ia-tools-router-pod:dev
-    # Env vars are the pod's configuration contract. IA_TW_DISPATCH_*
-    # in .env select the pod profile (repo-worker + clone).
     env_file:
       - .env
     volumes:
-      # Persistent state: state.md + repo clones survive `docker compose down`
-      # and container restarts, exactly like the k8s PVC.
+      # The pod profile (router.topic_worker_agent, repos whitelist, ACL,
+      # Slack topics) lives in this yaml. The loader inside the container
+      # reads it at boot and exports the env vars team-workflow consumes.
+      - ./team-workflow.yaml:/opt/ia-tools/.claude/team-workflow.yaml:ro
+      # Persistent state: state.md + clone-cache/ survive `docker compose
+      # down` and container restarts — exactly like the k8s PVC.
       - router-state:/state
-      # Optional: mount your own pod-config.json over the baked-in one.
-      # - ./pod-config.json:/opt/ia-tools/pod-config.json:ro
-    # The router is a long-lived process; restart it if it crashes.
+      # OPTIONAL: bind-mount your consumer agent file (no rebuild needed
+      # when iterating on the prompt). For production, bake it into a
+      # derived image instead (see Dockerfile docstring).
+      # - ./agents/<agent>.md:/root/.claude/agents/<agent>.md:ro
     restart: unless-stopped
-    # Interactive so you can `compose exec` in and attach to tmux.
     stdin_open: true
     tty: true
 
