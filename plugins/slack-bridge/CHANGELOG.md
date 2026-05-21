@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.7.1...slack-bridge-v1.0.0) (2026-05-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **slack-bridge:** atomic reply with built-in claim + agent realignment ([#83](https://github.com/julianjab/ia-tools/issues/83))
+
+### Features
+
+* **slack-bridge:** atomic reply with built-in claim + agent realignment ([#83](https://github.com/julianjab/ia-tools/issues/83)) ([49b0ed5](https://github.com/julianjab/ia-tools/commit/49b0ed5cdf610a2e364c99f6f33550bb69a72b25))
+
 ## [0.7.1](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.7.0...slack-bridge-v0.7.1) (2026-05-21)
 
 
