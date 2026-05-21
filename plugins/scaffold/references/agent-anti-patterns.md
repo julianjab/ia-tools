@@ -47,9 +47,10 @@ Common mistakes detected by `/audit-agent`. Each entry: signal, why it breaks, f
 
 ## A8. Lead implementing instead of delegating
 
-- **Signal**: Orchestrator/lead body lacks an explicit "wait for teammates" instruction; has `Write`/`Edit` in `tools`.
-- **Why**: Leads with write access tend to do the work themselves, defeating the team.
-- **Fix**: Remove `Write`/`Edit`/`MultiEdit` from lead tools. Body: "You never edit files. Your job is to delegate, verify, and decide."
+- **Signal**: Orchestrator/lead body has `Write`/`Edit`/`MultiEdit` in `tools` (or inherits them implicitly) AND lacks an explicit path-scope rule that limits where those tools may write.
+- **Why**: Leads with unscoped write access tend to do the work themselves, defeating the team. Plugin leads, however, often need write access for legitimate state-keeping (state.md, agent-memory) and inline owner=lead fallback work (qa/sec inside the worktree) — denying write outright would block those flows.
+- **Scope exception (PASS)**: a lead passes A8 when the body declares a concrete path scope for writes — typical phrasings: "Write/Edit only inside metadata.worktree_path", "state.md is the only file the lead edits outside a worktree", or an explicit allowlist of paths (`state.md`, `agent-memory/<name>/MEMORY.md`, `<worktree>/...`). The scope rule must be enforced by the agent body, not implicit. Plugin MCP servers that surface write-like tools (e.g. Slack `reply`) do not count toward A8 — only filesystem write tools do.
+- **Fix when failing**: either remove `Write`/`Edit`/`MultiEdit` from the lead's tools allowlist, OR add a body section "Write scope" that names the exact path prefixes the lead may touch (and reiterates that everything else is delegated). The audit checks for both signals — tool surface AND scope rule — before flagging.
 
 ## A9. Same-file edits by multiple teammates
 

@@ -63,7 +63,7 @@ For each rule in `agent-anti-patterns.md`, evaluate:
 | A5 | Applies only to **leads/orchestrators** (agent body self-identifies as lead OR lacks `Write`/`Edit`/`MultiEdit`). If lead has `Bash` unscoped in body → MEDIUM. Implementers with `Bash + Write` are PASS — they legitimately run test commands. |
 | A6 | Body mentions "blockedBy" and creates a cycle → HIGH. (Static check — look for obvious circular references.) |
 | A7 | Body enumerates >5 teammates → MEDIUM. |
-| A8 | Body identifies as lead/orchestrator AND `tools` includes write tools → HIGH. |
+| A8 | Body identifies as lead/orchestrator AND `tools` includes filesystem write tools (`Write`/`Edit`/`MultiEdit`). PASS when the body declares a concrete write-scope rule (path prefix, e.g. "only inside metadata.worktree_path", "state.md only", or an explicit allowlist of paths). FAIL → HIGH when write tools are present without any such scope rule. MCP write-like tools (e.g. Slack `reply`) do not count — filesystem tools only. |
 | A9 | Body claims ownership of paths that overlap other agents in the same directory → MEDIUM. (Grep other agent files.) |
 | A10 | Body has no "Output" / "Return" / "Output format" heading → MEDIUM. |
 | A11 | Body references "project conventions" / "our framework" without declaring `skills:` preload (for subagents) → MEDIUM. |
