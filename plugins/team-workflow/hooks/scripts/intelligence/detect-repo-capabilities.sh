@@ -29,22 +29,19 @@
 #                     conventional_commits / base_branch.
 #
 #   3. Agents — glob <repo>/.claude/agents/*.md, read frontmatter
-#               (name + first 240 chars of description), then:
-#        Stage A (regex, deterministic):
-#          ^(qa|tester)(-.*)?           → qa candidate
-#          ^(security|sec-review|sec)(-.*)?  → sec candidate
-#          ^(architect|api)(-.*)?       → arch candidate
-#        Stage B (Haiku via fast_claude) on whatever's left:
-#          Ask which agent is the IMPLEMENTER for the detected stack,
-#          and whether any of them are actually an ARCHITECT despite
-#          not matching the name regex.
+#               (name + first 240 chars of description), then call Haiku
+#               via _fast_claude.sh with the full agent list and the
+#               detected stack. One call returns all four bucket picks
+#               from the descriptions; the LLM handles naming variants
+#               (python-unittest-expert → qa, flutter-reviewer → sec,
+#               *-test-writer → qa, etc.) that no regex enumeration
+#               could cover cleanly.
 #
 #   4. Final bucket assignment with fallback chain:
-#        impl  → first repo-local impl candidate (from Haiku)
-#                → impl-${wt_prefix} (plugin implementer fallback)
-#        qa    → first repo-local qa candidate → ${IA_TW_TOPIC_WORKER_AGENT} → lead
-#        sec   → first repo-local sec candidate → ${IA_TW_TOPIC_WORKER_AGENT} → lead
-#        arch  → first repo-local arch candidate → Haiku arch → ${IA_TW_TOPIC_WORKER_AGENT} → implementer
+#        impl  → Haiku pick → impl-${wt_prefix} (plugin implementer fallback)
+#        qa    → Haiku pick → ${IA_TW_TOPIC_WORKER_AGENT} → lead (inline)
+#        sec   → Haiku pick → ${IA_TW_TOPIC_WORKER_AGENT} → lead (inline)
+#        arch  → Haiku pick → ${IA_TW_TOPIC_WORKER_AGENT} → implementer
 #
 # Triggered by PostToolUse Edit/Write because worktree entries can only
 # enter state.md via Edit/Write. Idempotent via per-entry `agents:` presence
@@ -169,35 +166,35 @@ extract_agent_metadata() {
   ' "$f"
 }
 
-# ── Helper: classify agents into qa/sec/arch via regex; remainder ──────────
-classify_agents_regex() {
+# ── Helper: collect all agents as a (name, description) list ────────────────
+# Sets global `all_agents` to a newline-separated "name|description" set so
+# every classification step works against the same input.
+collect_agents() {
   local repo="$1"
-  cand_qa=""; cand_sec=""; cand_arch=""; unclassified=""
+  all_agents=""
   local agents_dir="${repo}/.claude/agents"
   [ -d "$agents_dir" ] || return 0
 
-  local f name desc meta
+  local f meta
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     meta=$(extract_agent_metadata "$f")
     [ -n "$meta" ] || continue
-    name="${meta%%|*}"
-    desc="${meta#*|}"
-    [ -n "$name" ] || continue
-
-    case "$name" in
-      qa|tester|qa-*|tester-*) cand_qa="${cand_qa}${name}"$'\n' ;;
-      security|sec-review|sec|security-*|sec-review-*|sec-*) cand_sec="${cand_sec}${name}"$'\n' ;;
-      architect|api|architect-*|api-*) cand_arch="${cand_arch}${name}"$'\n' ;;
-      *) unclassified="${unclassified}${name}|${desc}"$'\n' ;;
-    esac
+    [ -n "${meta%%|*}" ] || continue
+    all_agents="${all_agents}${meta}"$'\n'
   done < <(find "$agents_dir" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
 }
 
-# ── Helper: ask Haiku which unclassified agent is the impl/architect ─────────
-ask_haiku_impl_arch() {
+# ── Helper: ask Haiku to assign all four buckets in one call ────────────────
+# Primary classifier — works on the full agent list with the description text,
+# so name conventions like `python-unittest-expert` (qa) and `flutter-reviewer`
+# (sec) are picked up by semantic match, not just by name regex.
+#
+# Sets globals: haiku_impl, haiku_qa, haiku_sec, haiku_arch (empty when the
+# call fails or the model returns null / an unknown name).
+ask_haiku_buckets() {
   local stack="$1" pairs="$2"
-  haiku_impl=""; haiku_arch=""
+  haiku_impl=""; haiku_qa=""; haiku_sec=""; haiku_arch=""
   [ -n "$pairs" ] || return 0
 
   local agents_yaml
@@ -207,12 +204,18 @@ ask_haiku_impl_arch() {
   done)
   [ -n "$agents_yaml" ] || return 0
 
-  local classifier_prompt="A repo with stack '${stack}' has these candidate agents. Pick the IMPLEMENTER (the one that writes feature code) and, if any, the ARCHITECT (designs structure / contracts, not implementation). Use the agent descriptions:
+  local classifier_prompt="A repo with stack '${stack}' has these agents. Assign one agent to each role using their names AND descriptions (descriptions matter — names follow many conventions: 'python-unittest-expert' is a QA agent, 'flutter-reviewer' is a SEC agent, etc.):
 
+  impl: writes feature code in this stack
+  qa:   writes or reviews tests
+  sec:  reviews security / threat model / code-review-for-vulnerabilities
+  arch: designs structure / API contracts / system layout (not implementation)
+
+Agents:
 ${agents_yaml}
 
-If no agent fits a role, return null for it. Output ONLY one JSON line:
-{\"impl\":\"<agent-name-or-null>\",\"arch\":\"<agent-name-or-null>\"}
+For each role, return the best-fit agent NAME from the list above, or null if no agent fits. Each role takes at most one agent, but the same agent MAY appear in multiple roles when its description clearly covers more than one. Output ONLY one JSON line:
+{\"impl\":\"<name-or-null>\",\"qa\":\"<name-or-null>\",\"sec\":\"<name-or-null>\",\"arch\":\"<name-or-null>\"}
 No prose, no markdown, no code fence."
 
   . "$(dirname "$0")/_fast_claude.sh"
@@ -220,43 +223,52 @@ No prose, no markdown, no code fence."
   resp=$(printf '%s' "$classifier_prompt" \
     | fast_claude --model claude-haiku-4-5-20251001) || resp=""
 
-  haiku_impl=$(printf '%s' "$resp" | grep -oE '"impl"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
-  haiku_arch=$(printf '%s' "$resp" | grep -oE '"arch"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
-  [ "$haiku_impl" = "null" ] && haiku_impl=""
-  [ "$haiku_arch" = "null" ] && haiku_arch=""
-
-  if [ -n "$haiku_impl" ] && ! printf '%s' "$pairs" | grep -qF "${haiku_impl}|"; then haiku_impl=""; fi
-  if [ -n "$haiku_arch" ] && ! printf '%s' "$pairs" | grep -qF "${haiku_arch}|"; then haiku_arch=""; fi
+  local role
+  for role in impl qa sec arch; do
+    local val
+    val=$(printf '%s' "$resp" | grep -oE "\"${role}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    [ "$val" = "null" ] && val=""
+    # Sanity: only accept names that exist in the input set.
+    if [ -n "$val" ] && ! printf '%s' "$pairs" | grep -qF "${val}|"; then val=""; fi
+    case "$role" in
+      impl) haiku_impl="$val" ;;
+      qa)   haiku_qa="$val"   ;;
+      sec)  haiku_sec="$val"  ;;
+      arch) haiku_arch="$val" ;;
+    esac
+  done
 }
 
 # ── Helper: resolve buckets with full fallback chain ─────────────────────────
+# Precedence per bucket:
+#   Haiku pick  >  IA_TW_TOPIC_WORKER_AGENT  >  plugin default
+#
+# Discovery is Haiku-only by design — the model reads agent descriptions
+# and decides bucket fit based on intent, which generalises across naming
+# conventions that regex cannot enumerate. When `claude` is unavailable,
+# Haiku returns no picks and every bucket falls back to lead / implementer.
 resolve_buckets() {
   local wt_prefix="$1"
   local twa="${IA_TW_TOPIC_WORKER_AGENT:-}"
 
-  local first_qa first_sec first_arch
-  first_qa=$(printf '%s' "$cand_qa" | head -1)
-  first_sec=$(printf '%s' "$cand_sec" | head -1)
-  first_arch=$(printf '%s' "$cand_arch" | head -1)
-
-  if [ -n "$haiku_impl" ]; then
-    bucket_impl="$haiku_impl"
-  else
-    bucket_impl="impl-${wt_prefix}"
+  if   [ -n "$haiku_impl" ];   then bucket_impl="$haiku_impl"
+  else                              bucket_impl="impl-${wt_prefix}"
   fi
 
-  if [ -n "$first_qa" ];   then bucket_qa="$first_qa";
-  elif [ -n "$twa" ];      then bucket_qa="$twa";
-  else                          bucket_qa="lead"; fi
+  if   [ -n "$haiku_qa" ];     then bucket_qa="$haiku_qa"
+  elif [ -n "$twa" ];          then bucket_qa="$twa"
+  else                              bucket_qa="lead"
+  fi
 
-  if [ -n "$first_sec" ];  then bucket_sec="$first_sec";
-  elif [ -n "$twa" ];      then bucket_sec="$twa";
-  else                          bucket_sec="lead"; fi
+  if   [ -n "$haiku_sec" ];    then bucket_sec="$haiku_sec"
+  elif [ -n "$twa" ];          then bucket_sec="$twa"
+  else                              bucket_sec="lead"
+  fi
 
-  if [ -n "$first_arch" ]; then bucket_arch="$first_arch";
-  elif [ -n "$haiku_arch" ]; then bucket_arch="$haiku_arch";
-  elif [ -n "$twa" ];      then bucket_arch="$twa";
-  else                          bucket_arch="implementer"; fi
+  if   [ -n "$haiku_arch" ];   then bucket_arch="$haiku_arch"
+  elif [ -n "$twa" ];          then bucket_arch="$twa"
+  else                              bucket_arch="implementer"
+  fi
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -308,8 +320,8 @@ while IFS='|' read -r wt_prefix repo worktree; do
   stack=$(detect_stack "$local_root")
   eval "$(probe_capabilities "$local_root")"
 
-  classify_agents_regex "$local_root"
-  ask_haiku_impl_arch "$stack" "$unclassified"
+  collect_agents "$local_root"
+  ask_haiku_buckets "$stack" "$all_agents"
   resolve_buckets "$wt_prefix"
 
   splice_file="${discovery_dir}/${wt_prefix}.splice"
