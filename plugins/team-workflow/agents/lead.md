@@ -268,46 +268,38 @@ not found" and waste a turn.
 
    Either way: confirm the printed working-copy path so you can
    reference it as `<worktree-abs>` in later steps.
-2. **Discover repo-local agents**:
-   `Glob <worktree-abs>/.claude/agents/*.md`. For each match, read
-   frontmatter `name` + `description`. Classify by name regex:
-   - `^(qa|tester)(-.*)?$` → `qa` bucket
-   - `^(security|sec-review|sec)(-.*)?$` → `sec` bucket
-   - `^(architect|api)(-.*)?$` → `arch` bucket
-   - description aligns with the worktree's `stack` → `impl` bucket
-   - else → ignore
-3. **Pick per bucket** (use only names from the Glob output above; the
-   discovered set is the entire allowed roster). Each bucket follows the
-   same resolution order: repo-local specific match → consumer agent
-   override (`$IA_TW_TOPIC_WORKER_AGENT` when set, treated as a generic
-   fallback for any empty bucket — this is how a persona pod plugs
-   into worktrees that ship no specialised agents) → plugin fallback.
-   - `impl`: first repo-local match (persistent teammate, name verbatim);
-     else `$IA_TW_TOPIC_WORKER_AGENT` if set (persistent teammate,
-     name = `impl-<wt_prefix>` to keep cross-worktree task lanes
-     separate); else use the `implementer` plugin agent as a persistent
-     teammate named `impl-<wt_prefix>`.
-   - `qa`:   first repo-local match (persistent teammate); else
-     `$IA_TW_TOPIC_WORKER_AGENT` if set; else `lead` (inline — you
-     write the tests yourself).
-   - `sec`:  first repo-local match; else `$IA_TW_TOPIC_WORKER_AGENT`
-     if set; else `lead`.
-   - `arch`: first repo-local match; else `$IA_TW_TOPIC_WORKER_AGENT`
-     if set; else `implementer`.
-
-   The consumer-agent fallback step is opt-in: it only kicks in when
-   `IA_TW_TOPIC_WORKER_AGENT` resolves to a non-empty name AND that
-   name addresses an agent reachable from the current session (baked
-   in the image at `$HOME/.claude/agents/`, exposed via `/add-dir` on
-   a host repo, or shipped by the plugin). If the consumer agent
-   cannot be resolved at spawn time, treat the bucket as if the
-   override were unset and continue to the plugin fallback.
-4. Append the worktree entry to `state.md` with `agents:` populated.
-   For `impl` fallback, record `impl: "impl-<wt_prefix>"` so the
-   dispatch loop and TeammateIdle hook can resolve the correct name.
-   When a bucket uses the consumer-agent fallback, record the actual
-   name in `state.md` (not the env var reference) so the audit log is
-   readable without resolving env at read time.
+2. **Append a minimal worktree entry to `state.md`** — exactly these
+   fields, nothing else:
+   ```yaml
+     - repo: <repo-abs>
+       worktree: <worktree-abs>
+       branch: <IA_TW_FEATURE>
+       wt_prefix: wt-<stack-or-unknown>-<sha1(worktree-path)[:6]>
+       local_phase: planning
+       markers: []
+       pr_url: ""
+   ```
+   Do **NOT** glob `.claude/agents/`, classify, infer `stack:`, or
+   write `agents:`/`capabilities:` here. The
+   `intelligence/detect-repo-capabilities.sh` hook fires on this exact
+   Edit/Write and splices `stack:`, `agents:`, and `capabilities:`
+   into the entry before the next time you read `state.md`. Discovery
+   logic (regex-based bucket classification + Haiku reasoning for the
+   `impl` bucket given the detected stack and agent descriptions +
+   manifest-based stack detection + capability probe) lives entirely
+   in that hook.
+3. **Read the entry back** (the hook ran synchronously inside the
+   Edit; the splice is already there). Note the resolved `agents:`
+   map for the dispatch loop. Fallback chain encoded by the hook:
+   - `impl`: first repo-local match (description aligns with stack
+     per Haiku) → `impl-<wt_prefix>` (plugin `implementer` fallback)
+   - `qa`:   first repo-local qa-named match → `IA_TW_TOPIC_WORKER_AGENT`
+     → `lead` (inline)
+   - `sec`:  first repo-local sec-named match → `IA_TW_TOPIC_WORKER_AGENT`
+     → `lead`
+   - `arch`: first repo-local arch-named match → Haiku's arch pick →
+     `IA_TW_TOPIC_WORKER_AGENT` → `implementer`
+   See the hook source for the exact regex + Haiku contract.
 
 ### Spawn rule for repo-local agents
 
