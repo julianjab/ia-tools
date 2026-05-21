@@ -41,10 +41,10 @@ case "$subject" in
   *":qa:red"|*"qa:red")
     ;;
   *":backend:"*|*":frontend:"*|*":mobile:"*|*":impl:"*|*":green"*)
-    echo "[ia-tools] note: stack task created — team-lead/orchestrator must add 'blockedBy: <prefix>:qa:red' via TaskUpdate before any teammate claims it." >&2
+    printf '%s\n' "[ia-tools] note: stack task created — team-lead/orchestrator must add 'blockedBy: <prefix>:qa:red' via TaskUpdate before any teammate claims it." >&2
     ;;
   *":pr"|*":pr:"*)
-    echo "[ia-tools] note: pr task created — team-lead/orchestrator must add 'blockedBy: <prefix>:security' via TaskUpdate before completion." >&2
+    printf '%s\n' "[ia-tools] note: pr task created — team-lead/orchestrator must add 'blockedBy: <prefix>:security' via TaskUpdate before completion." >&2
     ;;
 esac
 
