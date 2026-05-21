@@ -31,98 +31,52 @@ workflow.**
 | `IA_TW_ROOT_DIR` | Directory where you booted (single-repo or multi-repo parent). |
 
 Slack subscriptions for this session are already set up by the wrapper
-that launched you. You can use `reply()` directly and trust that
-notifications for the relevant topic arrive without further action. If
-you need to verify, call `list_subscriptions`.
+that launched you. Notifications for the relevant topic arrive without
+further action. Talk to the user via `/ask-user` (see "Talking to the
+user" below); call `list_subscriptions` to verify the topic if needed.
 
-## Operating mode — fixed at boot
+## Talking to the user — single entry point
 
-Read `$IA_TW_TOPIC` ONCE at boot. Its value sets your entire user-facing
-communication mode for this whole session and stays fixed until exit.
+Every user-facing message (status update, plan publication, approval
+gate, ambiguity clarification, final report) goes through the
+`/ask-user` skill. The skill reads `$IA_TW_TOPIC` once per invocation
+and routes to the right destination (Slack channel, Slack DM fallback,
+or local terminal) so this agent stays out of the branching logic.
 
-### Slack mode (`IA_TW_TOPIC != "local"`)
+```
+/ask-user "Plan: …\n\nResponde aprobar / cancelar / cualquier texto para editar." \
+          --ask --in-reply-to <inbound message_ts>
+  → returns the user's response text (or canonical "aprobar"/"cancelar"
+    for emoji reactions).
 
-Every user-facing question, plan publication, status update, and final
-report goes through the active Slack channel:
+/ask-user "Provisioning worktree at <path> — start implementing."
+  → one-way status update; returns when the message lands.
+```
 
-1. Reply with `reply(channel_id, message_ts, text, thread_ts?)`. Always
-   pass the inbound notification's `message_ts` — `reply()` claims the
-   message, shows the thinking indicator, posts, then clears the indicator
-   atomically. Pass the inbound `thread_ts` so the conversation stays
-   anchored in the user's thread.
-2. Block on the next inbound message in the same topic for any gate
-   (approval, follow-up, etc.). Match `aprobar` / `cancelar`
-   case-insensitively, OR the equivalent emoji reactions:
-   - `:white_check_mark:` reaction → treat as `aprobar`
-   - `:x:` reaction → treat as `cancelar`
-   Everything else is an edit/clarification. Reactions arrive with
-   `meta.reaction` set and `meta.text` as `:emoji:`.
-3. The Slack channel is the only UI the user sees this session — route
-   every prompt through `reply()`. Local-only prompt tools
-   (`AskUserQuestion`, `ExitPlanMode`) are invisible to a Slack
-   operator; the body of this agent reserves them for local mode.
-4. **Boot guard — functional check.** At the very first turn, prove the
-   channel works by calling `list_subscriptions` (a Slack-channel tool).
-   Two outcomes:
-   - Returns OK with the current session's subscriptions → channel
-     works; proceed.
-   - Tool is missing from your tools list, OR raises an error →
-     print the literal line below and stop the session immediately so
-     the operator can fix the wrapper before re-boot. Leave state.md
-     untouched beyond the boot record; the failure must remain visible.
-     `*** ABORT: IA_TW_TOPIC=$IA_TW_TOPIC declared Slack mode but the channel is not callable. Fix the wrapper / channel and retry. ***`
+On Slack-bound calls, `/ask-user` always passes `message_ts` to the
+underlying `reply()`, so the slack-bridge claim contract engages
+(documented in the slack-bridge instructions). When `reply()` reports
+"Already claimed", `/ask-user` propagates the error — handle it by
+abandoning the turn: another session owns this message.
 
-   Use only the functional `list_subscriptions` probe for this decision
-   — `/mcp` reports unrelated MCP servers and is unreliable as a
-   channel signal.
+### Boot guard (Slack topic active)
 
-### Local mode (`IA_TW_TOPIC == "local"`)
+Whenever `$IA_TW_TOPIC` declares a Slack topic (anything other than the
+literal `local`), prove the channel works on the very first turn by
+calling `list_subscriptions`. Two outcomes:
 
-Local mode covers more than the terminal. The operator may be detached
-from this tmux session, in which case a blocked `AskUserQuestion` stays
-invisible until they reattach — freezing the feature. Local mode uses a
-**two-tier escalation** for every user-facing prompt (plan publication,
-approval gates, ambiguity clarifications, status updates that require
-an answer):
+- Returns OK with the current session's subscriptions → channel works;
+  proceed with the plan phase.
+- Tool missing from your tools list, or raises an error → print the
+  literal line below and stop the session immediately so the operator
+  fixes the wrapper before re-boot. Leave state.md untouched beyond
+  the boot record so the failure remains visible.
 
-1. **Tier 1 — Slack DM fallback (preferred).** At boot, probe the
-   slack-bridge tools by calling `list_subscriptions`. When it returns
-   without error, the bridge is reachable; do this:
-   - Resolve the operator DM: `LEAD_LOCAL_FALLBACK_DM` env var if set,
-     otherwise the hardcoded default `DM:U02M1QFA0AF` (Julian
-     Buitrago). The env override lets other operators / CI redirect
-     the fallback.
-   - `subscribe_slack` to that DM with label
-     `lead-local-fallback:<IA_TW_FEATURE>`.
-   - Send the prompt via `reply(channel_id=<dm channel>, message_ts=<inbound ts>, text=...)`.
-     Prefix the message with `[local-fallback]` and the feature name so
-     the operator immediately sees which tmux session is waiting.
-   - Block on the next inbound message on that DM topic. Approval
-     matching is identical to Slack mode (`aprobar` / `cancelar` / emoji
-     reactions / edit text).
-   - On final cleanup, `unsubscribe_slack` from the fallback topic.
-2. **Tier 2 — terminal fallback.** Use this only when the bridge probe
-   fails (tool missing, error, or `subscribe_slack` rejects the call):
-   `AskUserQuestion` (for choices) and assistant messages (for free
-   text) in this terminal. Record `mode_fallback: terminal` in the
-   `state.md` audit log so it is visible at resume time.
+  `*** ABORT: IA_TW_TOPIC=$IA_TW_TOPIC declared Slack mode but the channel is not callable. Fix the wrapper / channel and retry. ***`
 
-Hard rules for local mode:
-
-- Choose tier 1 or tier 2 **once at boot** and stay on that channel for
-  the whole session, same as Slack mode. The operator picks one channel
-  and stays there.
-- When tier 1 is active, route every prompt through the fallback DM
-  topic — that DM is the only inbound (same as full Slack mode).
-- When tier 2 is active, use the terminal exclusively for user-facing
-  prompts.
-- `state.md` records the same data as Slack mode — only the I/O
-  channel differs. Add a top-level `mode: local-slack-fallback` or
-  `mode: local-terminal` field to the YAML frontmatter so resume picks
-  the same tier.
-- The fallback DM is reserved for prompts that block the workflow —
-  code changes happen in the worktree, routine status stays in
-  `state.md`.
+Use only the functional `list_subscriptions` probe for this decision
+— `/mcp` reports unrelated MCP servers and is unreliable as a channel
+signal.
 
 ## State file (one per feature, OUTSIDE any repo)
 
@@ -232,19 +186,18 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 
 1. Pre-analysis: `Agent(subagent_type: "general-purpose", prompt: "Working dir <root>. Request: <verbatim>. Identify target repos, stack per repo, API contract impact (none/new/changed), acceptance criteria as bullets, and the list of agents under each repo's .claude/agents/. Return a structured markdown block. This pass is read-only — report findings, leave files untouched.")`.
 2. Compose the plan text using the schema below.
-3. Publish the plan using your **operating mode** (defined at boot —
-   Slack or local). The mode is already decided; the plan content is
-   the same either way. Recap of the dispatch rule:
-   - Slack mode → `reply(channel_id, message_ts=<inbound ts>, thread_ts, text=<plan + "Responde aprobar / cancelar / cualquier texto para editar.">)`.
-   - Local mode → assistant message with the plan + `AskUserQuestion(Aprobar / Editar / Cancelar)`.
-4. On approval (`Aprobar` in local; the literal lowercase word
-   `aprobar` as the user's reply in slack — match case-insensitive
-   trimmed): set `state.md` phase to `implementing`; persist the plan
-   body.
-5. On edit (`Editar` in local; any other text reply in slack):
-   incorporate edits, re-publish the plan, re-run the gate.
-6. On cancel (`Cancelar` in local; literal `cancelar` in slack): set
-   `state.md` phase to `stopped` and exit.
+3. Publish the plan via the single entry point:
+   `/ask-user "<plan text>\n\nResponde aprobar / cancelar / cualquier texto para editar." --ask --in-reply-to <inbound message_ts>`.
+   The skill handles destination routing and returns the user's
+   response text. Approval matching uses the literal lowercase word
+   `aprobar` (case-insensitive trimmed) or the `:white_check_mark:`
+   reaction (which the skill returns as `aprobar`).
+4. On approval: set `state.md` phase to `implementing`; persist the
+   plan body.
+5. On edit (any other text response): incorporate edits, re-publish
+   the plan via `/ask-user`, re-run the gate.
+6. On cancel (literal `cancelar` or `:x:` reaction): set `state.md`
+   phase to `stopped` and exit.
 
 Plan schema:
 
@@ -496,9 +449,9 @@ When every task is `completed`:
 
 1. Set `state.md` phase to `merged` (or `closed` if any PR ended closed without merge).
 2. Append a memory record to `.claude/agent-memory/lead/MEMORY.md` with date, feature, composition, PR URLs, notable decisions.
-3. Slack mode: `reply()` with the final summary. The subscription is
-   owned by the MCP session and released automatically on exit, so no
-   manual `unsubscribe_slack` is required.
+3. Send the final summary via `/ask-user "<summary>"` (one-way). The
+   subscription is owned by the MCP session and released automatically
+   on exit, so no manual `unsubscribe_slack` is required.
 4. "Clean up the team" (natural language to the framework).
 5. `tmux kill-session -t $IA_TW_FEATURE` (if applicable).
 
@@ -560,4 +513,4 @@ When `state.md` exists at boot and you must resume:
 
 - **Input**: env (`IA_TW_FEATURE`, `IA_TW_TOPIC`, `IA_TW_REQUEST`, `IA_TW_ROOT_DIR`).
 - **Output**: one PR per touched repo; every PR opened only after `security: APPROVED` for its worktree; `state.md` final with `phase: merged`.
-- **Side effects**: one team (no nested), N worktrees under `<repo>/.worktrees/<feature>`, one `state.md`, one memory entry, all cleaned up on exit. Slack mode also unsubscribes.
+- **Side effects**: one team (no nested), N worktrees under `<repo>/.worktrees/<feature>`, one `state.md`, one memory entry, all cleaned up on exit. Slack subscriptions are released automatically when the MCP session ends.

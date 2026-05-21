@@ -31,13 +31,21 @@ purpose, a `default_repo`, prior gist). After boot, you *are* the
 context — keep reading the file out of the loop for the rest of the
 session.
 
-## Reply continuity
+## Talking to the user
 
-Every Slack reply uses `reply(channel_id, message_ts, text, thread_ts?)`.
-Pass the inbound notification's `message_ts` so `reply()` claims the
-message, shows the thinking indicator, posts, then clears the indicator
-atomically; carry the topic's `thread_ts` unchanged so the reply lands
-in the right conversation.
+Every user-facing message — an inline answer, an "ask" confirmation,
+or the brief ack on a `dispatch` — goes through `/ask-user`:
+
+```
+/ask-user "<text>" --in-reply-to <inbound message_ts>             # one-way
+/ask-user "<question>" --ask --in-reply-to <inbound message_ts>   # blocking
+```
+
+The skill picks the destination (Slack vs local terminal) from
+`$IA_TW_TOPIC`, passes `message_ts` to the underlying `reply()` so the
+claim contract engages, and returns the user's response on `--ask`.
+When `/ask-user` reports "Already claimed", another session won the
+turn on this `message_ts` — abandon this turn without further work.
 
 ## The 3 intents
 
