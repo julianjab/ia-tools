@@ -156,17 +156,19 @@ export class McpBridgeServer {
     // (if any) decides what to do; this text only documents the tools.
     const instructions = [
       'slack-bridge — Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,',
-      'list_subscriptions, claim_message, reply, reply_update, read_thread, read_channel, list_channels.',
+      'list_subscriptions, reply, reply_update, read_thread, read_channel, list_channels.',
       'Lifecycle for an incoming Slack message:',
-      '(1) call claim_message(message_ts) first; if claimed=false, another session won — stop.',
-      '(2) Compose your full response. The thinking indicator (set on claim) stays visible until reply() is called — do NOT send a placeholder "..." message.',
-      '(3) call reply(full_text_or_first_chunk). For channel messages always reply in a thread:',
-      'pass thread_ts when known, or pass message_ts (the server uses message_ts as the thread',
-      'anchor when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root',
-      'unless the source had an explicit thread_ts.',
-      '(4) Optionally call reply_update(ts, more_text) one or more times with growing text to stream.',
+      '(1) Compose your full response. Do NOT send a placeholder "..." message.',
+      '(2) call reply(channel_id, message_ts, text, ...). reply() atomically claims the',
+      'message, shows the thinking indicator, posts, then clears the indicator. If another',
+      'session already claimed the message, reply() returns isError=true and posts nothing.',
+      'For channel messages always reply in a thread: pass thread_ts when known, or pass',
+      'message_ts (the server uses message_ts as the thread anchor when thread_ts is omitted',
+      'and is_dm is not true). For DMs reply at the DM root unless the source had an explicit thread_ts.',
+      '(3) Optionally call reply_update(ts, more_text) one or more times with growing text to stream.',
       'Use read_thread / read_channel to inspect history before replying.',
       'Use subscribe_slack / unsubscribe_slack to change which topics this session listens to.',
+      'NOTE: claim_message is deprecated and a no-op — kept only for backward compatibility with old prompts.',
     ].join(' ');
 
     this.mcp = new Server(
@@ -280,39 +282,28 @@ export class McpBridgeServer {
         {
           name: 'claim_message',
           description:
-            'Claim a Slack message before replying. First session to claim wins. ' +
-            'ALWAYS call this before reply. If claimed=false, do NOT reply. ' +
-            'Pass channel_id (and thread_ts if available) to activate the thinking indicator ' +
-            'immediately on successful claim.',
+            'DEPRECATED — no-op. reply() now claims atomically before posting. ' +
+            'Kept only for backward compatibility with old prompts; calling it logs a warning ' +
+            'and returns a deprecation notice without touching the daemon. Migrate to reply().',
           inputSchema: {
             type: 'object' as const,
             properties: {
-              message_ts: {
-                type: 'string',
-                description: 'The message_ts from the channel notification',
-              },
-              channel_id: {
-                type: 'string',
-                description:
-                  'Channel ID from the notification. Required to show the thinking indicator.',
-              },
-              thread_ts: {
-                type: 'string',
-                description: 'Thread ts from the notification (if present).',
-              },
+              message_ts: { type: 'string' },
+              channel_id: { type: 'string' },
+              thread_ts: { type: 'string' },
             },
-            required: ['message_ts'],
           },
         },
         {
           name: 'reply',
           description:
-            'Reply to a Slack message. Only call after a successful claim. ' +
-            'Threading rules: (a) DM (is_dm=true) → reply at the DM root unless ' +
-            'thread_ts is set; (b) channel (is_dm=false or omitted) → reply MUST ' +
-            'be in a thread. Pass thread_ts when known; if you omit it but pass ' +
-            'message_ts, the server uses message_ts as thread_ts to anchor the ' +
-            'thread on the original message.',
+            'Reply to a Slack message. Atomically claims the message, shows the thinking ' +
+            'indicator, posts via chat.postMessage, then clears the indicator. If another ' +
+            'session already claimed the message, returns isError=true and posts nothing — ' +
+            'no separate claim_message step is needed. ' +
+            'Threading rules: (a) DM (is_dm=true) → reply at the DM root unless thread_ts is ' +
+            'set; (b) channel (is_dm=false or omitted) → reply MUST be in a thread. Pass ' +
+            'thread_ts when known; if you omit it the server uses message_ts as the thread anchor.',
           inputSchema: {
             type: 'object' as const,
             properties: {
@@ -321,7 +312,7 @@ export class McpBridgeServer {
               message_ts: {
                 type: 'string',
                 description:
-                  'Timestamp of the original message (optional). Used to clear the thinking ack and, in channels, as the thread anchor when thread_ts is not provided.',
+                  'Timestamp of the original message being replied to. Required — used to claim the message before posting and to anchor the thread when thread_ts is omitted.',
               },
               thread_ts: {
                 type: 'string',
@@ -334,7 +325,7 @@ export class McpBridgeServer {
                   'True if the source message was a DM. Forwarded from the channel notification. When false/omitted, the server enforces in-thread replies for channel messages.',
               },
             },
-            required: ['channel_id', 'text'],
+            required: ['channel_id', 'text', 'message_ts'],
           },
         },
         {

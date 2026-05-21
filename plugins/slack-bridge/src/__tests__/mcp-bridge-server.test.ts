@@ -44,6 +44,7 @@ vi.mock('../config.js', async (importOriginal) => {
 });
 
 vi.mock('../ack-client.js', () => ({
+  addThinkingAck: vi.fn().mockResolvedValue(undefined),
   clearThinkingAck: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -424,10 +425,10 @@ describe('McpBridgeServer — unsubscribe_slack tool', () => {
   });
 });
 
-// ─── Tests: claim_message ─────────────────────────────────────────────────────
+// ─── Tests: claim_message (deprecated no-op shim) ─────────────────────────────
 
-describe('McpBridgeServer — claim_message tool', () => {
-  it('claimMessage_withMessageTs_callsDaemonClientClaim', async () => {
+describe('McpBridgeServer — claim_message tool (deprecated)', () => {
+  it('claimMessage_called_doesNotCallDaemonClientClaim', async () => {
     // Arrange
     const mock_daemonClient = makeDaemonClientMock();
     const bridge = new McpBridgeServer({
@@ -439,79 +440,55 @@ describe('McpBridgeServer — claim_message tool', () => {
     // Act
     await invokeTool(bridge, 'claim_message', { message_ts: MESSAGE_TS });
 
+    // Assert — deprecated shim must NOT touch the daemon
+    expect(mock_daemonClient.claim).not.toHaveBeenCalled();
+  });
+
+  it('claimMessage_called_responseMentionsDeprecation', async () => {
+    // Arrange
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: makeDaemonClientMock(),
+      logger: makeLogger(),
+    });
+
+    // Act
+    const result = await invokeTool(bridge, 'claim_message', { message_ts: MESSAGE_TS });
+
+    // Assert
+    expect(result.content[0].text).toMatch(/deprecated/i);
+  });
+});
+
+// ─── Tests: reply (atomic claim + ack + post + clearAck) ──────────────────────
+
+describe('McpBridgeServer — reply tool', () => {
+  it('replyAtomic_withChannelTextAndMessageTs_callsDaemonClientClaim', async () => {
+    // Arrange
+    const mock_daemonClient = makeDaemonClientMock();
+    const bridge = new McpBridgeServer({
+      web: makeWebClientMock() as never,
+      daemonClient: mock_daemonClient,
+      logger: makeLogger(),
+    });
+
+    // Act
+    await invokeTool(bridge, 'reply', {
+      channel_id: CHANNEL_ID,
+      text: MESSAGE_TEXT,
+      message_ts: MESSAGE_TS,
+    });
+
     // Assert
     expect(mock_daemonClient.claim).toHaveBeenCalledWith(MESSAGE_TS);
   });
 
-  it('claimMessage_claimedTrue_responseContainsClaimed', async () => {
-    // Arrange
-    const mock_daemonClient = makeDaemonClientMock();
-    (mock_daemonClient.claim as ReturnType<typeof vi.fn>).mockResolvedValue({ claimed: true });
-    const bridge = new McpBridgeServer({
-      web: makeWebClientMock() as never,
-      daemonClient: mock_daemonClient,
-      logger: makeLogger(),
-    });
-
-    // Act
-    const result = await invokeTool(bridge, 'claim_message', { message_ts: MESSAGE_TS });
-
-    // Assert
-    expect(result.content[0].text).toMatch(/claimed/i);
-  });
-
-  it('claimMessage_claimedFalse_responseContainsAlreadyClaimed', async () => {
-    // Arrange
-    const OTHER_PORT = 8888;
-    const mock_daemonClient = makeDaemonClientMock();
-    (mock_daemonClient.claim as ReturnType<typeof vi.fn>).mockResolvedValue({
-      claimed: false,
-      claimed_by: OTHER_PORT,
-    });
-    const bridge = new McpBridgeServer({
-      web: makeWebClientMock() as never,
-      daemonClient: mock_daemonClient,
-      logger: makeLogger(),
-    });
-
-    // Act
-    const result = await invokeTool(bridge, 'claim_message', { message_ts: MESSAGE_TS });
-
-    // Assert
-    expect(result.content[0].text).toMatch(/already claimed/i);
-  });
-
-  it('claimMessage_claimedFalse_responseContainsClaimedByPort', async () => {
-    // Arrange
-    const OTHER_PORT = 8888;
-    const mock_daemonClient = makeDaemonClientMock();
-    (mock_daemonClient.claim as ReturnType<typeof vi.fn>).mockResolvedValue({
-      claimed: false,
-      claimed_by: OTHER_PORT,
-    });
-    const bridge = new McpBridgeServer({
-      web: makeWebClientMock() as never,
-      daemonClient: mock_daemonClient,
-      logger: makeLogger(),
-    });
-
-    // Act
-    const result = await invokeTool(bridge, 'claim_message', { message_ts: MESSAGE_TS });
-
-    // Assert
-    expect(result.content[0].text).toContain(String(OTHER_PORT));
-  });
-});
-
-// ─── Tests: reply ───────────────────────────────────────────────────────
-
-describe('McpBridgeServer — reply tool', () => {
-  it('replySlack_withChannelAndText_callsWebChatPostMessage', async () => {
+  it('replyAtomic_claimSucceeds_callsWebChatPostMessage', async () => {
     // Arrange
     const stub_web = makeWebClientMock();
     const bridge = new McpBridgeServer({
       web: stub_web as never,
-      daemonClient: null,
+      daemonClient: makeDaemonClientMock(),
       logger: makeLogger(),
     });
 
@@ -528,12 +505,11 @@ describe('McpBridgeServer — reply tool', () => {
     );
   });
 
-  it('replySlack_success_responseContainsSentAndTs', async () => {
+  it('replyAtomic_claimSucceeds_responseContainsSentAndTs', async () => {
     // Arrange
-    const stub_web = makeWebClientMock();
     const bridge = new McpBridgeServer({
-      web: stub_web as never,
-      daemonClient: null,
+      web: makeWebClientMock() as never,
+      daemonClient: makeDaemonClientMock(),
       logger: makeLogger(),
     });
 
@@ -549,13 +525,41 @@ describe('McpBridgeServer — reply tool', () => {
     expect(result.content[0].text).toContain(REPLY_TS);
   });
 
-  it('replySlack_missingMessageTs_stillSendsMessage', async () => {
-    // message_ts is optional — omitting it skips clearThinkingAck but still sends
+  it('replyAtomic_claimLost_doesNotPostAndReturnsIsError', async () => {
+    // Arrange
+    const OTHER_PORT = 8888;
+    const mock_daemonClient = makeDaemonClientMock();
+    (mock_daemonClient.claim as ReturnType<typeof vi.fn>).mockResolvedValue({
+      claimed: false,
+      claimed_by: OTHER_PORT,
+    });
+    const stub_web = makeWebClientMock();
+    const bridge = new McpBridgeServer({
+      web: stub_web as never,
+      daemonClient: mock_daemonClient,
+      logger: makeLogger(),
+    });
+
+    // Act
+    const result = await invokeTool(bridge, 'reply', {
+      channel_id: CHANNEL_ID,
+      text: MESSAGE_TEXT,
+      message_ts: MESSAGE_TS,
+    });
+
+    // Assert
+    expect(stub_web.chat.postMessage).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/already claimed/i);
+  });
+
+  it('replyAtomic_missingMessageTs_returnsIsError', async () => {
+    // message_ts is now required — reply() always claims before posting.
     // Arrange
     const stub_web = makeWebClientMock();
     const bridge = new McpBridgeServer({
       web: stub_web as never,
-      daemonClient: null,
+      daemonClient: makeDaemonClientMock(),
       logger: makeLogger(),
     });
 
@@ -567,8 +571,31 @@ describe('McpBridgeServer — reply tool', () => {
     });
 
     // Assert
-    expect(result.isError).toBeUndefined();
-    expect(result.content[0].text).toContain('Sent');
+    expect(stub_web.chat.postMessage).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/message_ts/i);
+  });
+
+  it('replyAtomic_noDaemonClient_returnsIsError', async () => {
+    // Arrange — reply() now requires the daemon to claim.
+    const stub_web = makeWebClientMock();
+    const bridge = new McpBridgeServer({
+      web: stub_web as never,
+      daemonClient: null,
+      logger: makeLogger(),
+    });
+
+    // Act
+    const result = await invokeTool(bridge, 'reply', {
+      channel_id: CHANNEL_ID,
+      text: MESSAGE_TEXT,
+      message_ts: MESSAGE_TS,
+    });
+
+    // Assert
+    expect(stub_web.chat.postMessage).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/daemon/i);
   });
 });
 
