@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.0.0...team-workflow-v1.1.0) (2026-05-21)
+
+
+### Features
+
+* **team-workflow:** script-followups — bucket split, intelligence detectors, prompt-first user-correction ([#95](https://github.com/julianjab/ia-tools/issues/95)) ([7f0cbd5](https://github.com/julianjab/ia-tools/commit/7f0cbd5e94e5506682e12f7b2806899f278a1182))
+
 ## [1.0.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.11.0...team-workflow-v1.0.0) (2026-05-21)
 
 
