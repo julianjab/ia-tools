@@ -75,8 +75,9 @@ if command -v claude >/dev/null 2>&1; then
   Output ONLY a JSON object on one line: {\"signal\":\"<label>\"}
   No prose, no markdown, no code fence."
 
+  . "$(dirname "$0")/_fast_claude.sh"
   classifier_response=$(printf '%s' "$classifier_prompt" \
-    | claude -p --model claude-haiku-4-5-20251001 2>/dev/null) || classifier_response=""
+    | fast_claude --model claude-haiku-4-5-20251001) || classifier_response=""
 
   # Extract the signal field. Tolerant of leading/trailing whitespace; rejects
   # 'none' so we don't write spurious events.

@@ -76,8 +76,9 @@ if command -v claude >/dev/null 2>&1 && [ -n "$output_for_prompt" ]; then
     {\"coverage_failure\": false}
   No prose, no markdown, no code fence."
 
+  . "$(dirname "$0")/_fast_claude.sh"
   classifier_response=$(printf '%s' "$classifier_prompt" \
-    | claude -p --model claude-haiku-4-5-20251001 2>/dev/null) || classifier_response=""
+    | fast_claude --model claude-haiku-4-5-20251001) || classifier_response=""
 
   case "$classifier_response" in
     *'"coverage_failure"'*':'*'true'*)  is_coverage_failure=1 ;;

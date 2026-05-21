@@ -159,9 +159,10 @@ Output ONLY this markdown block, no other text:
 ### Próxima vez
 - <concrete behavioral change: check X first, skip Y pattern, always Z in this repo>"
 
+  . "$(dirname "$0")/_fast_claude.sh"
   local result
   result=$(printf '%s' "$prompt" | \
-    claude -p --model claude-haiku-4-5-20251001 2>/dev/null) || true
+    fast_claude --model claude-haiku-4-5-20251001) || result=""
   # Strip leading/trailing ```markdown fences if Haiku wrapped its output.
   result=$(printf '%s' "$result" | sed -E '1{/^```[a-zA-Z]*$/d;}; $!{/^```$/d;}' )
 
@@ -306,8 +307,9 @@ Output ONLY this markdown block, no other text:
 ### Próxima vez
 - <concrete behavioral change: verify X before Y, allocate more turns for Z, add W to CLAUDE.md>"
 
+    . "$(dirname "$0")/_fast_claude.sh"
     lead_result=$(printf '%s' "$lead_prompt" | \
-      claude -p --model claude-haiku-4-5-20251001 2>/dev/null) || true
+      fast_claude --model claude-haiku-4-5-20251001) || lead_result=""
     # Strip ```markdown fences if Haiku wrapped its output.
     lead_result=$(printf '%s' "$lead_result" | sed -E '1{/^```[a-zA-Z]*$/d;}; $!{/^```$/d;}' )
 
