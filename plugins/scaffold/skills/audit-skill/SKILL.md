@@ -5,7 +5,7 @@ when_to_use: |
   Trigger phrases: "review this skill", "validate SKILL.md", "check skill frontmatter",
   "lint a slash command", "does this skill follow best practices", "audit skill directory",
   "find issues in skills/X/", "verify allowed-tools scope", "check disable-model-invocation",
-  "skill anti-patterns", "run S1-S18 rules", "skill-author output review",
+  "skill anti-patterns", "run S1-S19 rules", "skill-author output review",
   "is my skill portable", "check argument-hint", "verify fork-skill body".
 argument-hint: <path-to-SKILL.md-or-skill-dir> [--strict]
 arguments: [path, flag]
@@ -76,6 +76,7 @@ Rule IDs map 1:1 to `references/skill-anti-patterns.md`. S1 is layout; S2–S18 
 | S16 | `description` starts with "This skill", "This command", "A skill that", "This tool" → MEDIUM |
 | S17 | SKILL.md references sibling file A, and A references a further file B (3+ levels deep) → MEDIUM |
 | S18 | A sibling reference file > 100 lines has no TOC heading in its first 20 lines → LOW |
+| S19 | Body contains prohibition prose about non-actions. Scan body (skipping headings and fenced code) for the case-insensitive ERE `(^|[^a-zA-Z])(Do NOT|Never|Don't|Avoid)[[:space:]]+[a-z]`. For each hit on a line that does NOT contain `invariant`, `constraint`, or an uppercase `MUST`: flag as MEDIUM. Report file:line and the matched phrase. Cluster of 3+ in one section → upgrade to HIGH on the first occurrence. |
 
 ### 3. Additional smoke checks
 
@@ -104,7 +105,7 @@ Rule IDs map 1:1 to `references/skill-anti-patterns.md`. S1 is layout; S2–S18 
   Name:         <name>
   Layout:       <directory | flat>
   Sibling files: <count files in dir>
-  Rules run:    S1–S18 + 5 smoke checks
+  Rules run:    S1–S19 + 5 smoke checks
 
 | Severity | Rule | Finding | Location |
 |----------|------|---------|----------|
@@ -133,7 +134,7 @@ Next actions:
 
 ## Scope
 
-Own: reading the target SKILL.md (and sibling files), loading the references, running rules S1–S18 plus smoke checks, and emitting the report.
+Own: reading the target SKILL.md (and sibling files), loading the references, running rules S1–S19 plus smoke checks, and emitting the report.
 
 Boundaries:
 - Stay read-only. Report findings; the caller decides whether to apply fixes (typically via `/edit-skill`).
