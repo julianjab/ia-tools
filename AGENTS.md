@@ -197,24 +197,37 @@ regardless of repo coverage.
 
 ### Repo-local agent discovery
 
+Discovery is fully delegated to the
+`intelligence/detect-repo-capabilities.sh` hook. The lead's only
+responsibility is to **provision the worktree and append a minimal
+entry to `state.md`**; the hook does the rest synchronously inside the
+PostToolUse Edit/Write that wrote the entry.
+
 For every worktree provisioned, lead:
 
-1. `/worktree init <branch> --repo <repo>` — provisions the worktree AND
-   runs `/add-dir <worktree-abs>` (registered with the active session).
-2. Globs `<worktree>/.claude/agents/*.md` and reads each frontmatter
-   `name` + `description`.
-3. Classifies by name regex:
-   - `^(qa|tester)(-.*)?$` → `qa` bucket
-   - `^(security|sec-review|sec)(-.*)?$` → `sec` bucket
-   - `^(architect|api)(-.*)?$` → `arch` bucket
-   - description aligns with worktree `stack` → `impl` bucket
-   - else → ignored
-4. Picks per bucket:
-   - `impl`: first match; else `implementer` (plugin fallback)
-   - `qa`:   first match; else `lead` (inline)
-   - `sec`:  first match; else `lead` (runs `/security-audit`)
-   - `arch`: first match; else `implementer`
-5. Persists the choice in `state.md` under the worktree entry.
+1. `/worktree init <branch> --repo <repo>` — provisions the worktree
+   AND runs `/add-dir <worktree-abs>` (registered with the active
+   session).
+2. Writes a worktree entry to `state.md` with fields: `repo`,
+   `worktree`, `branch`, `wt_prefix`, `local_phase: planning`, empty
+   `markers`, empty `pr_url`. The hook fires on this Edit and
+   splices `stack:`, `agents:`, and `capabilities:` in place.
+3. Reads the entry back to consume the resolved `agents:` map.
+
+The hook pipeline (see `plugins/team-workflow/hooks/scripts/intelligence/detect-repo-capabilities.sh`):
+
+| Step | What the hook does | How |
+|------|--------------------|-----|
+| Stack | Detects backend / frontend / mobile / infra | Manifest probe (pubspec, package.json+UI dep, pyproject, Cargo, go.mod, *.tf) |
+| Agents (qa/sec/arch) | First-pass classification | Name regex: `^(qa\|tester)…`, `^(security\|sec-review\|sec)…`, `^(architect\|api)…` |
+| Agents (impl + leftover arch) | LLM reasoning | Haiku via `_fast_claude.sh` — reads each unclassified agent's description and picks the implementer/architect given the detected stack |
+| Bucket assignment | Resolves with full fallback chain | repo-local match → `IA_TW_TOPIC_WORKER_AGENT` → plugin fallback (`impl-<wt_prefix>` / `lead` / `implementer`) |
+| Capabilities | Probes the repo | `pre_push_hook`, `agent_memory_dir`, `team_review_config`, `conventional_commits_enforced`, `base_branch` |
+
+Idempotent — entries that already declare `agents:` are skipped. The
+hook also emits a `kind: repo_capabilities` event so the SessionEnd
+feedback aggregator can include it in the `feedback_<feature>.md`
+auto-memory file.
 
 ## Operating mode — coercive in lead
 
@@ -257,7 +270,7 @@ resolve the state dir via `$IA_TW_STATE_DIR` (or fall back to a v1
 | Hook            | Script                                | Effect                                                                                                          |
 |-----------------|---------------------------------------|-----------------------------------------------------------------------------------------------------------------|
 | `TaskCreated`   | `bookkeeping/task-created.sh`         | Audit-only — logs each task subject; warns when a stack/pr task is created without a clear `blockedBy` prefix. |
-| `TaskCompleted` | `enforcement/task-completed.sh`       | Blocks (exit 2) `*:pr*` completion when `state.md` lacks `security: APPROVED for <wt_prefix>`; blocks `*:green*` without `RED confirmed for <wt_prefix>`. |
+| `TaskCompleted` | `enforcement/enforce-task-invariants.sh` + `bookkeeping/record-state-event.sh` | Enforcement blocks (exit 2) `*:pr*` completion when `state.md` lacks `security: APPROVED for <wt_prefix>`; blocks `*:green*` without `RED confirmed for <wt_prefix>`. Bookkeeping (runs after) appends to hook-audit.log + state.md events: + transitions local_phase. |
 | `TeammateIdle`  | `enforcement/teammate-idle.sh`        | Blocks `qa` teammates from idling until the transcript contains `RED confirmed`; blocks `security` teammates until verdict.                              |
 
 The hooks scan transcripts and `state.md`; when they cannot reach those
