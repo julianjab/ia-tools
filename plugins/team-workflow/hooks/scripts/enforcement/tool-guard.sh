@@ -188,69 +188,83 @@ while IFS= read -r extra; do
   [[ -n "$extra" ]] && PATTERNS+=("$extra")
 done < <(load_settings_patterns)
 
-# ── Strip quoted strings + heredoc bodies for Bash subjects ──────────────────
-# The patterns are designed to match COMMANDS that would actually execute.
-# When dangerous tokens appear only inside quoted strings or heredoc bodies
-# (e.g. `echo "rm -rf /tmp"`, a for-loop with literal commands as data),
-# they are not invocations and shouldn't trigger a prompt. We sanitize the
-# subject by removing those regions before matching.
-#
-# Removes (in order):
-#   1. Heredoc bodies:  <<EOF ... EOF   /  <<'EOF' ... EOF   /  <<-EOF ... EOF
-#   2. Single-quoted strings:  '...'
-#   3. Double-quoted strings:  "..."
-# Then collapses runs of whitespace so patterns with [[:space:]]+ still match.
-match_subject="$subject"
-if [ "$tool_name" = "Bash" ]; then
-  match_subject=$(printf '%s' "$subject" | awk '
-    BEGIN { in_heredoc=0; tag="" }
+# ── Helper: sanitize a Bash command for pattern matching ─────────────────────
+# Removes regions that look like commands-as-data so they cannot trigger a
+# false positive:
+#   1. Heredoc bodies:        <<EOF ... EOF   /  <<'EOF' ... EOF   /  <<-EOF ... EOF
+#   2. Single-quoted strings: '...'
+#   3. Double-quoted strings: "..."
+# Stdin: raw Bash command. Stdout: sanitized command.
+sanitize_bash_subject() {
+  awk '
+    BEGIN { in_heredoc = 0; tag = "" }
     {
-      line=$0
+      line = $0
       if (in_heredoc) {
-        if (line ~ "^[[:space:]]*" tag "[[:space:]]*$") { in_heredoc=0 }
+        if (line ~ "^[[:space:]]*" tag "[[:space:]]*$") in_heredoc = 0
         next
       }
       # Detect heredoc start: <<-?["'\'']?TAG["'\'']?
       if (match(line, /<<-?[[:space:]]*[\x27"]?[A-Za-z_][A-Za-z0-9_]*[\x27"]?/)) {
-        h=substr(line, RSTART, RLENGTH)
+        h = substr(line, RSTART, RLENGTH)
         gsub(/^<<-?[[:space:]]*[\x27"]?/, "", h)
         gsub(/[\x27"]$/, "", h)
-        tag=h
-        in_heredoc=1
-        line=substr(line, 1, RSTART-1)
+        tag = h
+        in_heredoc = 1
+        line = substr(line, 1, RSTART - 1)
       }
-      # Strip single- and double-quoted regions
+      # Strip single- and double-quoted regions.
       gsub(/\x27[^\x27]*\x27/, " ", line)
       gsub(/"[^"]*"/, " ", line)
       print line
     }
-  ')
+  '
+}
+
+# ── Helper: emit a permissionDecision=ask response with an escaped reason ────
+# Args: $1=reason text. Always exits 0 (the harness reads the JSON).
+emit_ask() {
+  local reason="$1"
+  local escaped
+  escaped=$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
+    "$escaped"
+  exit 0
+}
+
+# ── Helper: split a PATTERNS entry into (tool, pattern, reason) ──────────────
+# Entry format: "ToolName|ERE|Human reason". Sets globals: entry_tool,
+# entry_pattern, entry_reason. (Bash functions can't return tuples; using
+# globals avoids the overhead of three subshells per iteration.)
+split_pattern_entry() {
+  local entry="$1" rest
+  entry_tool="${entry%%|*}"
+  rest="${entry#*|}"
+  entry_pattern="${rest%%|*}"
+  entry_reason="${rest#*|}"
+}
+
+# ── Sanitize Bash subjects before matching ───────────────────────────────────
+match_subject="$subject"
+if [ "$tool_name" = "Bash" ]; then
+  match_subject=$(printf '%s' "$subject" | sanitize_bash_subject)
 fi
 
-# ── Match loop ────────────────────────────────────────────────────────────────
+# ── Match loop ───────────────────────────────────────────────────────────────
 tool_name_lower=$(printf '%s' "$tool_name" | tr '[:upper:]' '[:lower:]')
 
 for entry in "${PATTERNS[@]}"; do
-  entry_tool="${entry%%|*}"
-  rest="${entry#*|}"
-  pattern="${rest%%|*}"
-  reason="${rest#*|}"
+  split_pattern_entry "$entry"
 
+  # Tool name match: case-insensitive, "*" matches all.
   entry_tool_lower=$(printf '%s' "$entry_tool" | tr '[:upper:]' '[:lower:]')
+  [[ "$entry_tool_lower" != "*" && "$entry_tool_lower" != "$tool_name_lower" ]] && continue
 
-  # Match tool name (case-insensitive, "*" matches all)
-  if [[ "$entry_tool_lower" != "*" && "$entry_tool_lower" != "$tool_name_lower" ]]; then
-    continue
-  fi
-
-  if printf '%s' "$match_subject" | grep -qE "$pattern" 2>/dev/null; then
-    escaped=$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
-      "$escaped"
-    exit 0
+  if printf '%s' "$match_subject" | grep -qE "$entry_pattern" 2>/dev/null; then
+    emit_ask "$entry_reason"
   fi
 done
 
-# No match — allow
+# No match — allow.
 printf '{}'
 exit 0
