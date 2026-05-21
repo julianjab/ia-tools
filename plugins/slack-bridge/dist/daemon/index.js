@@ -56073,6 +56073,12 @@ function createApiServer(registry2, startedAt2, getSocketStatus, onClaimed, logg
         const body = JSON.parse(await readBody(req));
         const existing = claims.get(messageTs);
         if (existing !== void 0) {
+          if (existing === body.subscriber_port) {
+            const resp3 = { claimed: true };
+            log3(`[claim] ${messageTs} re-claim by holder :${existing} (idempotent)`);
+            json(res, 200, resp3);
+            return;
+          }
           const resp2 = { claimed: false, claimed_by: existing };
           log3(
             `[claim] ${messageTs} already claimed by :${existing}, rejected :${body.subscriber_port}`

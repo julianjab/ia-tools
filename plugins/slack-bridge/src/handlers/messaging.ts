@@ -1,13 +1,23 @@
 /**
- * Tool handlers for `reply` (claim+ack+post+clearAck atomic) and the
- * deprecated `claim_message` shim. Extracted from `mcp-server.ts` for SRP.
+ * Tool handlers for `claim_message` and `reply`.
  *
- * `reply` now folds claim into the post path so no caller can skip it:
- *   claim(message_ts) → addThinkingAck → chat.postMessage → clearThinkingAck.
- * If the claim is lost the post is skipped and the call returns an error.
+ * Multiple Claude sessions can subscribe to the same Slack topic (DM,
+ * channel, thread). To keep two sessions from working the same inbound
+ * in parallel, the daemon owns a claim map keyed by `message_ts`:
  *
- * `claim_message` is kept as a deprecated no-op for one release so existing
- * agent prompts keep working while they migrate.
+ *   claim_message(ts)  — call this BEFORE doing any work on the inbound
+ *                        (Reads, Greps, Agent calls, drafting). First
+ *                        session wins; losers get isError and exit the
+ *                        turn without working.
+ *
+ *   reply(ts, …)       — post + clear the indicator. Re-claims (idempotent
+ *                        for the holder) so a session that claimed upfront
+ *                        posts normally, while a session whose claim was
+ *                        lost gets isError instead of double-posting.
+ *
+ * The thinking indicator (👀 + assistant.threads.setStatus) lives across
+ * both calls — `claim_message` sets it when work begins, `reply` clears
+ * it on a successful post.
  */
 
 import type { WebClient } from '@slack/web-api';
@@ -25,20 +35,62 @@ type ToolResult = {
 };
 
 export async function handleClaimMessage(
-  _args: Record<string, unknown>,
-  _deps: MessagingHandlerDeps,
+  args: Record<string, unknown>,
+  deps: MessagingHandlerDeps,
 ): Promise<ToolResult> {
-  process.stderr.write(
-    '[slack-bridge] claim_message is deprecated and a no-op — reply() now claims atomically.\n',
-  );
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: 'claim_message is deprecated and a no-op — reply() now claims atomically. You may call reply() directly with message_ts.',
-      },
-    ],
+  const { message_ts, channel_id, thread_ts } = args as {
+    message_ts?: string;
+    channel_id?: string;
+    thread_ts?: string;
   };
+  if (!message_ts) {
+    return {
+      content: [{ type: 'text' as const, text: 'Error: message_ts is required.' }],
+      isError: true,
+    };
+  }
+  if (!deps.daemonClient) {
+    // No daemon → no multi-session contention. Treat as held by this
+    // session so the rest of the workflow proceeds normally.
+    if (channel_id) {
+      await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    }
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: 'Claimed (no daemon — single-session mode). Work the message and call reply() when done.',
+        },
+      ],
+    };
+  }
+  try {
+    const result = await deps.daemonClient.claim(message_ts);
+    if (!result.claimed) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Already claimed by another session (:${result.claimed_by}). Exit this turn — do not work the message.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+    if (channel_id) {
+      await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    }
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: 'Claimed — work the message. The thinking indicator is visible until reply() clears it.',
+        },
+      ],
+    };
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Claim error: ${err}` }], isError: true };
+  }
 }
 
 export async function handleReply(

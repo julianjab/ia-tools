@@ -15,6 +15,8 @@ allowed-tools: Bash(echo *), Read, AskUserQuestion
 
 The user lives in different places depending on how the session booted. This skill picks the destination from the environment so the calling agent does not branch on `IA_TW_TOPIC` itself.
 
+**Precondition (Slack topics with multi-listener potential).** When the inbound this call responds to may have been received by other sessions on the same topic, the caller is expected to have already invoked `claim_message(message_ts, …)` from slack-bridge before doing the work that produced this text. `/ask-user` does not re-acquire the claim; it relies on the holder's existing claim and re-checks it implicitly via `reply()`. If the caller skipped the upfront claim, `reply()` will attempt an atomic claim now — which protects against double-posting but does not protect against the wasted work that already happened.
+
 Two modes:
 
 | Form | Behavior |

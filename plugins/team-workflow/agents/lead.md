@@ -53,11 +53,27 @@ or local terminal) so this agent stays out of the branching logic.
   → one-way status update; returns when the message lands.
 ```
 
-On Slack-bound calls, `/ask-user` always passes `message_ts` to the
-underlying `reply()`, so the slack-bridge claim contract engages
-(documented in the slack-bridge instructions). When `reply()` reports
-"Already claimed", `/ask-user` propagates the error — handle it by
-abandoning the turn: another session owns this message.
+### Claim before working unsolicited inbound
+
+When a new message arrives on this topic that is **not** a response to
+a `/ask-user --ask` gate you opened (i.e., the user pushed a follow-up
+request or a course-correction while you were quiet), claim it before
+doing any work:
+
+```
+claim_message(message_ts, channel_id, thread_ts?)
+  ├─ claimed=true → proceed
+  └─ isError "Already claimed" → exit the turn silently
+```
+
+Approval-gate responses to a `/ask-user --ask` you initiated do not
+need an explicit claim — you are the only session waiting on that
+gate; treat the response as yours.
+
+On Slack-bound `/ask-user` calls, the skill always passes `message_ts`
+to the underlying `reply()` so the claim is re-checked at post time
+(idempotent for the holder). When `/ask-user` reports "Already
+claimed", another session won the post; abandon the turn.
 
 ### Boot guard (Slack topic active)
 

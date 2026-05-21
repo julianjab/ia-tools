@@ -156,25 +156,27 @@ export class McpBridgeServer {
     // (if any) decides what to do; this text only documents the tools.
     const instructions = [
       'slack-bridge — Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,',
-      'list_subscriptions, reply, reply_update, read_thread, read_channel, list_channels.',
+      'list_subscriptions, claim_message, reply, reply_update, read_thread, read_channel, list_channels.',
       'Contention model: multiple Claude sessions may subscribe to the same Slack topic (DM, channel,',
-      'thread). Whenever you decide to work a user message, that decision implicitly claims the message',
-      'via reply(): the daemon serializes by message_ts, so the first session whose reply() lands wins.',
-      'When reply() returns isError "Already claimed", another session is on it — abandon the turn',
-      'without posting and without continuing the work.',
+      'thread). The daemon serializes work by message_ts via a claim lock.',
       'Lifecycle for an incoming Slack message:',
-      '(1) Read the message, classify intent (cheap — a quick text scan).',
-      '(2) If you will work the message, do the work and then call',
-      'reply(channel_id, message_ts, text, thread_ts?). reply() atomically claims via the daemon,',
-      'shows the thinking indicator, posts via chat.postMessage, then clears the indicator.',
-      'Passing message_ts is required — it is the claim key.',
-      'For channel messages reply in a thread: pass thread_ts when known, or rely on message_ts as',
-      'the thread anchor (the server falls back when thread_ts is omitted and is_dm is not true).',
+      '(1) Read the message, classify intent (cheap — a quick text scan, no Reads of project files yet).',
+      '(2) Decide whether you will work it. If yes, call claim_message(message_ts, channel_id, thread_ts?)',
+      'BEFORE any Read / Grep / Glob / Bash / Agent call or drafting. First session to claim wins;',
+      'losers receive isError "Already claimed" and must exit the turn without doing any work —',
+      'that is how the system protects against wasted work in parallel sessions.',
+      '(3) On a successful claim the thinking indicator (👀 + assistant.threads.setStatus) is set',
+      'immediately, so the operator sees someone is on it while you work.',
+      '(4) Do the work — Reads, Greps, exploration, drafting.',
+      '(5) Call reply(channel_id, message_ts, text, thread_ts?). reply re-checks the claim (idempotent',
+      'for the holder), posts via chat.postMessage, then clears the thinking indicator. If a different',
+      'session somehow won the claim while you were working, reply returns isError and posts nothing.',
+      'For channel messages reply in a thread: pass thread_ts when known, or rely on message_ts as the',
+      'thread anchor (the server falls back when thread_ts is omitted and is_dm is not true).',
       'For DMs reply at the DM root unless the source had an explicit thread_ts.',
-      '(3) Optionally call reply_update(ts, more_text) with growing text to stream.',
+      '(6) Optionally call reply_update(ts, more_text) with growing text to stream.',
       'Use read_thread / read_channel to inspect history before replying.',
       'Use subscribe_slack / unsubscribe_slack to change which topics this session listens to.',
-      'NOTE: claim_message is deprecated and a no-op — kept only for backward compatibility with old prompts.',
     ].join(' ');
 
     this.mcp = new Server(
@@ -288,28 +290,42 @@ export class McpBridgeServer {
         {
           name: 'claim_message',
           description:
-            'DEPRECATED — no-op. reply() now claims atomically before posting. ' +
-            'Kept only for backward compatibility with old prompts; calling it logs a warning ' +
-            'and returns a deprecation notice without touching the daemon. Migrate to reply().',
+            'Claim a Slack inbound BEFORE doing any work on it (Read/Grep/Glob/Bash/Agent/drafting). ' +
+            'Multiple sessions may receive the same notification; first to claim wins. On isError ' +
+            '"Already claimed", exit the turn without working the message — another session owns it. ' +
+            'On success the thinking indicator (👀 + assistant.threads.setStatus) is set so the operator ' +
+            'sees someone is on it. Same-session re-claim is idempotent, so reply() later works without ' +
+            'an extra explicit re-claim.',
           inputSchema: {
             type: 'object' as const,
             properties: {
-              message_ts: { type: 'string' },
-              channel_id: { type: 'string' },
-              thread_ts: { type: 'string' },
+              message_ts: {
+                type: 'string',
+                description: 'Timestamp of the inbound message you intend to work on.',
+              },
+              channel_id: {
+                type: 'string',
+                description:
+                  'Channel ID from the notification. Required to show the thinking indicator.',
+              },
+              thread_ts: {
+                type: 'string',
+                description: 'Thread ts from the notification (if present).',
+              },
             },
+            required: ['message_ts'],
           },
         },
         {
           name: 'reply',
           description:
-            'Reply to a Slack message. Atomically claims the message, shows the thinking ' +
-            'indicator, posts via chat.postMessage, then clears the indicator. If another ' +
-            'session already claimed the message, returns isError=true and posts nothing — ' +
-            'no separate claim_message step is needed. ' +
-            'Threading rules: (a) DM (is_dm=true) → reply at the DM root unless thread_ts is ' +
-            'set; (b) channel (is_dm=false or omitted) → reply MUST be in a thread. Pass ' +
-            'thread_ts when known; if you omit it the server uses message_ts as the thread anchor.',
+            'Post a reply to a Slack message and clear the thinking indicator. Call claim_message ' +
+            'BEFORE doing any work on the inbound (Reads, Greps, drafting); reply re-checks the claim ' +
+            '(idempotent for the holder) and refuses to post when another session won the claim, so ' +
+            'double-posting is impossible. ' +
+            'Threading rules: (a) DM (is_dm=true) → reply at the DM root unless thread_ts is set; ' +
+            '(b) channel (is_dm=false or omitted) → reply MUST be in a thread. Pass thread_ts when known; ' +
+            'if you omit it the server uses message_ts as the thread anchor.',
           inputSchema: {
             type: 'object' as const,
             properties: {

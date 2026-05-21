@@ -31,21 +31,33 @@ purpose, a `default_repo`, prior gist). After boot, you *are* the
 context — keep reading the file out of the loop for the rest of the
 session.
 
-## Talking to the user
+## Processing a Slack inbound — claim first, then work
 
-Every user-facing message — an inline answer, an "ask" confirmation,
-or the brief ack on a `dispatch` — goes through `/ask-user`:
+Multiple sessions may subscribe to the same topic. Before doing any
+real work on a received message:
+
+1. Read the message text and classify intent (cheap — text only, no
+   project Reads yet).
+2. If you decide to work it, call
+   `claim_message(message_ts, channel_id, thread_ts?)` BEFORE any
+   `Read` / `Grep` / `Glob` / `Bash` / `Agent` call or drafting.
+   - `claimed=true` → the thinking indicator (👀 + "thinking…") is now
+     visible to the operator; proceed with the work.
+   - `isError "Already claimed"` → another session owns this message;
+     exit this turn silently. The operator already sees their
+     indicator from the winning session.
+3. Do the work.
+4. Send the user-facing output via `/ask-user`:
 
 ```
 /ask-user "<text>" --in-reply-to <inbound message_ts>             # one-way
 /ask-user "<question>" --ask --in-reply-to <inbound message_ts>   # blocking
 ```
 
-The skill picks the destination (Slack vs local terminal) from
-`$IA_TW_TOPIC`, passes `message_ts` to the underlying `reply()` so the
-claim contract engages, and returns the user's response on `--ask`.
-When `/ask-user` reports "Already claimed", another session won the
-turn on this `message_ts` — abandon this turn without further work.
+`/ask-user` picks the destination (Slack vs local terminal) from
+`$IA_TW_TOPIC` and reuses the same claim under the hood (re-claim is
+idempotent for the holder). On `--ask` the skill returns the user's
+response text.
 
 ## The 3 intents
 
