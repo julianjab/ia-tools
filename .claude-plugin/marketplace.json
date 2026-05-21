@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Centralized AI toolbox: shared agents, pipeline skills, enforcement hooks, and the Slack bridge MCP server for development teams.",
-    "version": "0.11.0"
+    "version": "1.0.0"
   },
   "plugins": [
     {
