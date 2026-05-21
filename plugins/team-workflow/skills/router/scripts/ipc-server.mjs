@@ -26,11 +26,11 @@
  * disconnects after receiving the answer.
  */
 
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import { dirname } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 
 const SOCK = process.env.IA_TW_PARENT_SOCK;
 const TMUX_SESSION = process.env.IA_TW_PARENT_TMUX_SESSION;

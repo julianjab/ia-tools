@@ -19,9 +19,9 @@
  * terminal path (AskUserQuestion).
  */
 
-import net from 'node:net';
-import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import net from 'node:net';
 
 const TIMEOUT_MS = Number(process.env.IA_TW_IPC_TIMEOUT_MS || 30 * 60 * 1000);
 
