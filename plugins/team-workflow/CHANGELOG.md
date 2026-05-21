@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.2.0...team-workflow-v1.3.0) (2026-05-21)
+
+
+### Features
+
+* **team-workflow:** session-env.yaml + /worktree rehydrate works outside lead sessions ([#100](https://github.com/julianjab/ia-tools/issues/100)) ([40b5f7a](https://github.com/julianjab/ia-tools/commit/40b5f7a7e076cb7ccc61ed869cd118a3de1fbce0))
+
 ## [1.2.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.1.0...team-workflow-v1.2.0) (2026-05-21)
 
 
