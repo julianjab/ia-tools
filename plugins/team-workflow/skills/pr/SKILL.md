@@ -113,7 +113,32 @@ disable-model-invocation: false
    
    Si se detectan commits ajenos o de merge → **STOP**: reportar exactamente qué commits sobran y pedir instrucciones. No continuar.
 
-4. Si el audit pasa: continuar al paso 2.
+4. **Commit cadence check**:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/pr/scripts/check-commit-cadence.sh" \
+     "$(git remote get-url origin >/dev/null 2>&1 && git for-each-ref --format='%(upstream:short)' "refs/heads/$(git rev-parse --abbrev-ref HEAD)")"
+   ```
+   The script (`check-commit-cadence.sh`) compares `base..HEAD` against
+   a layer heuristic on file paths. If the diff touches more than one
+   layer (e.g. both `migrations/` and `services/`) but the branch
+   carries only one commit, the script aborts with `exit 2` and prints
+   the layers detected + the rebase command the implementer should
+   run. Override for legitimate single-commit cases:
+   `IA_TW_ALLOW_SINGLE_COMMIT=1` in the environment.
+
+5. **`--amend`-after-push check**:
+   ```bash
+   # If the upstream ref exists, the branch was pushed at least once.
+   # Re-detecting amend-after-push is non-trivial; rely on the local
+   # reflog instead — any `amend` entry with a `push` after it on the
+   # same ref means rewrite-then-push, which is forbidden.
+   ```
+   When the reflog shows an `amend` followed by a successful `push`
+   on this branch, STOP and tell the user to recover via a new
+   forward commit (`fix(<scope>): ...`) and `git revert` of the amend
+   if needed. See `commit/SKILL.md` → "`--amend` rule".
+
+6. Si todos los audits pasan: continuar al paso 2 (Quality Gate).
 
 | Problema | Acción |
 |----------|--------|
@@ -121,6 +146,8 @@ disable-model-invocation: false
 | Rebase demasiado complejo | Abort + reportar |
 | Commits ajenos después del rebase | STOP — listar commits que sobran, pedir instrucciones |
 | Commits de merge en el historial | STOP — historial sucio, reportar |
+| Cadence check falla (multi-layer, 1 commit) | STOP — pedir al implementer `git rebase -i origin/<base>` y split en N commits |
+| `--amend` después de un push previo | STOP — recovery vía commit forward, no force-push |
 
 #### 2 — Quality Gate (invoke /review)
 
@@ -288,11 +315,24 @@ cat > /tmp/pr_body.md << 'PREOF'
 - <bullet 2: key implementation detail>
 - <bullet 3: testing approach>
 
+## Commit map
+<!--
+One line per commit on this branch (from `git log --oneline base..HEAD`,
+oldest first). The reviewer uses GitHub's "Review per commit" tab and
+scans this map first to know what each slice contains. If the map has
+only one line and the diff touches multiple layers, the cadence check
+should have aborted before this body was written — investigate.
+-->
+- `<short-sha>` <type>(<scope>): <subject>
+- `<short-sha>` <type>(<scope>): <subject>
+- `<short-sha>` <type>(<scope>): <subject>
+
 ## Quality Gate (pre-push validation)
 - [x] Code formatted — auto-verified by /review
 - [x] Unit tests pass — <N> tests, 0 failures
 - [x] Coverage validated — new files: <N>% | no regressions
 - [x] Coding standards — <N> rules checked, 0 violations
+- [x] Commit cadence — <N> commits for <M> layers touched
 
 ## Architecture Impact
 
