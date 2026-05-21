@@ -198,6 +198,12 @@ jobs:
 
       # Squash-merge the release PR. Because the marketplace sync commit is
       # already on the PR branch, everything lands in one commit on main.
+      #
+      # GitHub computes mergeability asynchronously after a push: immediately
+      # after the previous `git push` of the marketplace sync, the PR's
+      # `mergeable` field is `UNKNOWN` for ~5-15s and `gh pr merge` fails
+      # with `Pull Request is not mergeable`. Poll until GitHub finishes
+      # the computation (or timeout), then merge.
       - name: Auto-merge the Release PR
         if: steps.resolve_pr.outputs.no_pr == 'false'
         env:
@@ -205,5 +211,26 @@ jobs:
         run: |
           set -euo pipefail
           pr_number="${{ steps.resolve_pr.outputs.pr_number }}"
+          repo="${{ github.repository }}"
+
+          echo "Waiting for GitHub to compute mergeability of PR #$pr_number..."
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            mergeable=$(gh pr view "$pr_number" --repo "$repo" --json mergeable --jq .mergeable)
+            echo "  attempt $attempt: mergeable=$mergeable"
+            if [ "$mergeable" = "MERGEABLE" ]; then
+              break
+            fi
+            if [ "$mergeable" = "CONFLICTING" ]; then
+              echo "PR #$pr_number has conflicts; cannot auto-merge."
+              exit 1
+            fi
+            sleep 6
+          done
+
+          if [ "$mergeable" != "MERGEABLE" ]; then
+            echo "Timed out waiting for mergeable=MERGEABLE (last value: $mergeable)."
+            exit 1
+          fi
+
           echo "Merging release PR #$pr_number..."
-          gh pr merge "$pr_number" --squash --repo "${{ github.repository }}"
+          gh pr merge "$pr_number" --squash --repo "$repo"
