@@ -197,24 +197,38 @@ regardless of repo coverage.
 
 ### Repo-local agent discovery
 
+Discovery is fully delegated to the
+`intelligence/detect-repo-capabilities.sh` hook. The lead's only
+responsibility is to **provision the worktree and append a minimal
+entry to `state.md`**; the hook does the rest synchronously inside the
+PostToolUse Edit/Write that wrote the entry.
+
 For every worktree provisioned, lead:
 
-1. `/worktree init <branch> --repo <repo>` — provisions the worktree AND
-   runs `/add-dir <worktree-abs>` (registered with the active session).
-2. Globs `<worktree>/.claude/agents/*.md` and reads each frontmatter
-   `name` + `description`.
-3. Classifies by name regex:
-   - `^(qa|tester)(-.*)?$` → `qa` bucket
-   - `^(security|sec-review|sec)(-.*)?$` → `sec` bucket
-   - `^(architect|api)(-.*)?$` → `arch` bucket
-   - description aligns with worktree `stack` → `impl` bucket
-   - else → ignored
-4. Picks per bucket:
-   - `impl`: first match; else `implementer` (plugin fallback)
-   - `qa`:   first match; else `lead` (inline)
-   - `sec`:  first match; else `lead` (runs `/security-audit`)
-   - `arch`: first match; else `implementer`
-5. Persists the choice in `state.md` under the worktree entry.
+1. `/worktree init <branch> --repo <repo>` — provisions the worktree
+   AND runs `/add-dir <worktree-abs>` (registered with the active
+   session).
+2. Writes a **minimal** worktree entry to `state.md`:
+   `repo`, `worktree`, `branch`, `wt_prefix`, `local_phase: planning`,
+   empty `markers`, empty `pr_url`. **No `stack:`, no `agents:`, no
+   `capabilities:`** — those are filled by the hook.
+3. Reads the entry back; the hook has spliced `stack:`, `agents:`,
+   and `capabilities:` in place.
+
+The hook pipeline (see `plugins/team-workflow/hooks/scripts/intelligence/detect-repo-capabilities.sh`):
+
+| Step | What the hook does | How |
+|------|--------------------|-----|
+| Stack | Detects backend / frontend / mobile / infra | Manifest probe (pubspec, package.json+UI dep, pyproject, Cargo, go.mod, *.tf) |
+| Agents (qa/sec/arch) | First-pass classification | Name regex: `^(qa\|tester)…`, `^(security\|sec-review\|sec)…`, `^(architect\|api)…` |
+| Agents (impl + leftover arch) | LLM reasoning | Haiku via `_fast_claude.sh` — reads each unclassified agent's description and picks the implementer/architect given the detected stack |
+| Bucket assignment | Resolves with full fallback chain | repo-local match → `IA_TW_TOPIC_WORKER_AGENT` → plugin fallback (`impl-<wt_prefix>` / `lead` / `implementer`) |
+| Capabilities | Probes the repo | `pre_push_hook`, `agent_memory_dir`, `team_review_config`, `conventional_commits_enforced`, `base_branch` |
+
+Idempotent — entries that already declare `agents:` are skipped. The
+hook also emits a `kind: repo_capabilities` event so the SessionEnd
+feedback aggregator can include it in the `feedback_<feature>.md`
+auto-memory file.
 
 ## Operating mode — coercive in lead
 
