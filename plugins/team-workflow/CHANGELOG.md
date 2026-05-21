@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.9.0...team-workflow-v0.10.0) (2026-05-21)
+
+
+### Features
+
+* **team-workflow:** atomic-commits-per-layer contract + cadence check ([#80](https://github.com/julianjab/ia-tools/issues/80)) ([bbf0eb6](https://github.com/julianjab/ia-tools/commit/bbf0eb670c4edcf13a4fdf65242764cfdf634c81))
+
 ## [0.9.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.8.0...team-workflow-v0.9.0) (2026-05-21)
 
 
