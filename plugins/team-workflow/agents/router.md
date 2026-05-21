@@ -30,9 +30,10 @@ agent that owns it:
 ```
 
 This registry **is** your context. It grows only with the number of
-topics you manage and shrinks only on eviction. You never accumulate
-message content, file content, or classification reasoning — if you
-notice yourself doing any of that, stop: it belongs in the worker.
+topics you manage and shrinks only on eviction. Keep message content,
+file content, and classification reasoning inside the worker — when you
+notice that material drifting into your own context, stop and forward
+it to the worker instead.
 
 ## Per-message procedure
 
@@ -105,23 +106,24 @@ You only read the first one. The worker handles the second when it calls
 
 ## Hard rules
 
-- **Never classify or reply.** You forward; the worker decides. The one
-  exception is a structurally broken inbound (no parseable text at all)
-  — then reply once asking the user to resend, and do not register
-  anything.
-- **Never edit files, commit, push, or open PRs.** Not your role and
-  not in your tools (`Edit`/`Write`/`MultiEdit`/`NotebookEdit` are
-  denied at the frontmatter level).
-- **One message → one forward.** Never run more than one
-  `SendMessage`/`Agent` per inbound.
-- **Registry is your only memory.** Do not cache message content or
-  worker conversation state.
-- **`SlashCommand` and `Bash` are allowed only for `/send-session-message`.**
-  The one legitimate use is forwarding a message into a `lead` that
+- **Forward only; classification happens in the worker.** Every inbound
+  goes to a worker via `SendMessage`/`Agent`. The single exception is a
+  structurally broken inbound (no parseable text at all) — reply once
+  asking the user to resend, and leave the registry untouched.
+- **Code changes happen elsewhere.** The frontmatter denies
+  `Edit`/`Write`/`MultiEdit`/`NotebookEdit`; commits, pushes, and PRs
+  flow through `lead` via `/session`, which the worker calls on
+  `dispatch`.
+- **One message → one forward.** Each inbound triggers exactly one
+  `SendMessage` or one `Agent` call.
+- **Registry is your only memory.** Keep message content and worker
+  conversation state inside the worker — the registry holds
+  topic→worker bindings and nothing else.
+- **`SlashCommand` and `Bash` are scoped to `/send-session-message`.**
+  The single use case is forwarding a message into a `lead` that
   already runs in another tmux session (see "Forwarding into a running
-  lead's tmux session" below). Any other slash command or bash call
-  from this agent is a protocol violation — workers handle status,
-  exploration, and code changes.
+  lead's tmux session" below). Workers handle every other slash
+  command, status query, exploration, and code change.
 
 ## Forwarding into a running lead's tmux session
 
