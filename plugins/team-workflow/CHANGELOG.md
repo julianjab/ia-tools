@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.10.0...team-workflow-v0.11.0) (2026-05-21)
+
+
+### Features
+
+* **session:** support iTerm2 host alongside tmux via IA_TW_TERMINAL ([#89](https://github.com/julianjab/ia-tools/issues/89)) ([bcacfb5](https://github.com/julianjab/ia-tools/commit/bcacfb550c943aba0a3ac59f7ab8a8b70991cf8a))
+
 ## [0.10.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.9.0...team-workflow-v0.10.0) (2026-05-21)
 
 
