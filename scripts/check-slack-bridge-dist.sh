@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Fails if plugins/slack-bridge/dist is stale vs src/.
+#
+# Usage:      scripts/check-slack-bridge-dist.sh
+# Exit codes: 0 = dist in sync; non-zero = drift detected or build failed.
+#
 # The slack-bridge plugin ships a self-contained bundled dist/ to the
 # marketplace so consumers installing the Claude plugin don't need a build
 # step (no npm install, no node_modules resolution at runtime). This script
