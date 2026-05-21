@@ -44,9 +44,35 @@ if tmux has-session -t "$session_name" 2>/dev/null; then
   exit 0
 fi
 
+# Parent-IPC socket: the router runs a small Node Unix-socket server in
+# background so child leads booted in local mode (no Slack topic) can
+# escalate questions to the router-Claude. The server injects each ask
+# into this tmux session via tmux send-keys; the router-Claude responds
+# via the /ipc-answer skill which writes back through the same socket.
+ipc_dir="${HOME}/.claude/team-workflow/ipc"
+mkdir -p "$ipc_dir"
+ipc_sock="${ipc_dir}/router-${session_name}.sock"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+# Spawn the server in the background, fully detached. It outlives this
+# wrapper and stays bound to the socket for as long as the router tmux
+# session exists; a SIGTERM (e.g. on `tmux kill-session`) cleans it up.
+if command -v node >/dev/null 2>&1; then
+  IA_TW_PARENT_SOCK="$ipc_sock" \
+  IA_TW_PARENT_TMUX_SESSION="$session_name" \
+    nohup node "$script_dir/ipc-server.mjs" >/tmp/ia-tw-ipc-router-"$session_name".log 2>&1 &
+  disown $! 2>/dev/null || true
+  # Pointer file so /ask-user can discover the socket without env propagation.
+  printf '%s\n' "$ipc_sock" > "${ipc_dir}/current.sock"
+else
+  echo "warning: node not found — parent-IPC disabled. Child leads will fall back to AskUserQuestion in local mode." >&2
+fi
+
 env_args=(
   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
   "CLAUDE_CODE_DISABLE_AGENT_VIEW=1"
+  "IA_TW_PARENT_SOCK=$ipc_sock"
+  "IA_TW_PARENT_TMUX_SESSION=$session_name"
 )
 [ -n "$topic" ] && env_args+=("SLACK_TOPICS=$topic")
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_args+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")

@@ -591,10 +591,21 @@ export class McpBridgeServer {
       }
     }
 
+    // Prepend a short claim-first reminder so the agent sees the rule
+    // right next to the inbound text. Multiple sessions may be subscribed
+    // to the same topic; the daemon serializes by message_ts via the
+    // claim map, but only if the agent calls claim_message before doing
+    // any work. The reminder is kept terse to limit context overhead.
+    const claimReminder = buildClaimReminder({
+      message_ts: message.message_ts,
+      channel_id: message.channel_id,
+      thread_ts: message.thread_ts,
+    });
+
     await this.mcp.notification({
       method: 'notifications/claude/channel',
       params: {
-        content: message.text,
+        content: `${claimReminder}\n\n${message.text}`,
         meta: {
           source: 'slack-bridge',
           channel_id: message.channel_id,
@@ -615,10 +626,36 @@ export class McpBridgeServer {
             .filter((l): l is string => Boolean(l))
             .join(','),
           subscribed_topics: JSON.stringify(this.subscribedTopics),
+          // Hint to agents and tooling that this inbound expects an
+          // upfront claim. Machine-readable mirror of claimReminder above.
+          pre_action_required: 'claim_message',
         },
       },
     });
   }
+}
+
+/**
+ * Build the short "claim first" reminder that gets prepended to every
+ * inbound notification's `content`. Other sessions may have received the
+ * same notification; the first to call claim_message wins, losers exit
+ * the turn without working. Keeping this in the transport (instead of
+ * trusting every agent prompt to remember) means even a generic Claude
+ * session loaded with no specialised --agent sees the rule.
+ */
+function buildClaimReminder(args: {
+  message_ts: string;
+  channel_id: string;
+  thread_ts?: string;
+}): string {
+  const threadArg = args.thread_ts ? `, thread_ts: "${args.thread_ts}"` : '';
+  return [
+    '[slack-bridge] Multiple sessions may receive this inbound. If you decide to work it,',
+    `call claim_message({ message_ts: "${args.message_ts}", channel_id: "${args.channel_id}"${threadArg} })`,
+    'BEFORE any Read / Grep / Glob / Bash / Agent / drafting. On isError "Already claimed",',
+    'another session owns this message — exit the turn without working. The thinking indicator',
+    'appears on a successful claim and is cleared by reply() when you post the response.',
+  ].join(' ');
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
