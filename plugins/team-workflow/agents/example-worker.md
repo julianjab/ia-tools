@@ -76,7 +76,7 @@ user's request (not just a paraphrase of the diff).
 - Stay inside `$IA_TW_REPO_CACHE_DIR/<repo>` (clone mode) or the host
   worktree (worktree-local mode). Never edit elsewhere.
 - Security APPROVED in `state.md` before `:pr` completes.
-- `/pr` is the only path to main; no force-push, no amended commits on
-  a remote-tracked branch.
+- `/pr` is the only path to main; no force-push. Follow-up changes
+  are always new commits.
 - Hand off to the user (not auto-retry) on: ambiguous merge conflicts,
   HIGH/MEDIUM security findings, plan drift.

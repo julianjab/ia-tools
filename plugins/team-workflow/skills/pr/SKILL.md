@@ -126,19 +126,7 @@ disable-model-invocation: false
    run. Override for legitimate single-commit cases:
    `IA_TW_ALLOW_SINGLE_COMMIT=1` in the environment.
 
-5. **`--amend`-after-push check**:
-   ```bash
-   # If the upstream ref exists, the branch was pushed at least once.
-   # Re-detecting amend-after-push is non-trivial; rely on the local
-   # reflog instead — any `amend` entry with a `push` after it on the
-   # same ref means rewrite-then-push, which is forbidden.
-   ```
-   When the reflog shows an `amend` followed by a successful `push`
-   on this branch, STOP and tell the user to recover via a new
-   forward commit (`fix(<scope>): ...`) and `git revert` of the amend
-   if needed. See `commit/SKILL.md` → "`--amend` rule".
-
-6. Si todos los audits pasan: continuar al paso 2 (Quality Gate).
+5. Si todos los audits pasan: continuar al paso 2 (Quality Gate).
 
 | Problema | Acción |
 |----------|--------|
@@ -146,8 +134,7 @@ disable-model-invocation: false
 | Rebase demasiado complejo | Abort + reportar |
 | Commits ajenos después del rebase | STOP — listar commits que sobran, pedir instrucciones |
 | Commits de merge en el historial | STOP — historial sucio, reportar |
-| Cadence check falla (multi-layer, 1 commit) | STOP — pedir al implementer `git rebase -i origin/<base>` y split en N commits |
-| `--amend` después de un push previo | STOP — recovery vía commit forward, no force-push |
+| Cadence check falla (multi-layer, 1 commit) | STOP — pedir al implementer split en N commits |
 
 #### 2 — Quality Gate (invoke /review)
 

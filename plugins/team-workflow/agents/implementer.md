@@ -108,8 +108,8 @@ slice, in dependency order:
 
 Rules:
 - Every commit is independently valid (no "broken in the middle").
-- No `--amend` after push — follow-up changes are new commits. See
-  `commit/SKILL.md` for the single local-only exception.
+- Follow-up changes are always NEW commits (`fix(<scope>): ...`,
+  `test(<scope>): add coverage`, ...). See `commit/SKILL.md`.
 - Single-layer change → one commit is fine.
 
 Final marker: emit `expected_marker` (e.g.
@@ -138,10 +138,10 @@ Final marker: emit `expected_marker` (e.g.
   to approve and may escalate to the user.
 - **Don't touch unrelated lint warnings.** Only fix what your
   changes introduced.
-- **One commit per layer; never `git add .`; never `--amend` on a
-  pushed branch.** See `lead.md` → "Commit cadence contract" and
-  `commit/SKILL.md` for the full rules. Multi-layer features land
-  as N commits, not one mega-commit.
+- **One commit per layer; never `git add .`.** See `lead.md` →
+  "Commit cadence contract" and `commit/SKILL.md` for the full rules.
+  Multi-layer features land as N commits, not one mega-commit.
+  Follow-ups are always new commits.
 - **Never open a PR.** That is the lead's responsibility (and
   the explicit `:pr` task assigned to a different agent in many
   workflows).

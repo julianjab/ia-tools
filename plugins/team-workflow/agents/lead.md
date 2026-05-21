@@ -341,7 +341,8 @@ endpoint, wiring, tests). Rules:
 - TDD per slice: `test(<scope>):` (RED) → `feat(<scope>):` (GREEN).
 - Each commit is independently valid (lint, typecheck, tests pass).
 - Explicit `git add <files>` per slice. Never `git add .` / `-A`.
-- No `--amend` after push. Follow-up changes are new commits.
+- Follow-up changes are always NEW commits (`fix(<scope>): ...`,
+  `test(<scope>): add coverage`, ...). SHAs are stable once written.
 - Append each SHA to `commit_shas:` in `state.md` as it lands.
 - Single-layer change → one commit is fine.
 

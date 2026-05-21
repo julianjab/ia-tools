@@ -184,30 +184,7 @@ Execute a commit checkpoint when ANY of these conditions are met:
 - **Each commit must be atomic per layer**: one commit per architectural layer touched (migration / model / adapter / service / endpoint / wiring / tests). A multi-layer change lands as N commits, not one mega-commit. The commit must also be independently valid — lint passes, typecheck passes, tests at that point pass. See `lead.md` → "Commit cadence contract" for the full feature-level contract.
 - **Conventional commit format** is mandatory for every commit
 - **Worktree-safe**: Works identically from main repo or any worktree
-
-### `--amend` rule
-
-`git commit --amend` is forbidden by default. It rewrites history,
-which breaks any tool that already observed the old SHA (CI, reviewers,
-mirror remotes, `git bisect` runs that started before the amend).
-
-- **Forbidden, no exceptions** when the branch has already been
-  pushed (`git rev-parse origin/<branch>` resolves). Subsequent
-  changes are NEW commits — `fix(<scope>): ...`,
-  `test(<scope>): add coverage`, etc.
-- **Prefer a new commit even when the branch is local-only.** A
-  follow-up `fix(<scope>): ...` makes history honest: it shows the
-  iteration the implementer actually went through. Amend should
-  feel like the second-best option, not the default.
-- **Single local-only exception.** Amend is acceptable when ALL of
-  these hold: (a) the previous commit was just made by you in this
-  same session, (b) the branch has not been pushed, (c) the
-  addition only fixes something you forgot seconds ago AND has the
-  identical intent as the previous commit (e.g. you forgot to add
-  one file the commit was supposed to include), (d) no new test,
-  no new dependency, no new behavior. If you're unsure whether the
-  exception applies, it does not — write a new commit.
-
-This rule applies to every commit produced by team-workflow agents.
-The `/pr` skill's pre-push check refuses to push when it detects an
-amend after a previous push.
+- **Granular, professional history**: every iteration is a NEW commit
+  (`fix(<scope>): ...`, `test(<scope>): add coverage`, ...). Each SHA
+  must remain stable once written — observers (CI, reviewers, mirrors,
+  `git bisect`) rely on it.
