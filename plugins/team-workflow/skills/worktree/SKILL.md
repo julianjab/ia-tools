@@ -14,7 +14,7 @@ description: >
   `/worktree rehydrate`, `/worktree rehydrate --feature feat-notif`.
 argument-hint: "[init|list|switch|cleanup|status|rehydrate] [branch-name] [--base main] [--review <pr>] [--repo <path>] [--feature <name>] [--state-dir <path>]"
 disable-model-invocation: false
-allowed-tools: Read, Grep, Glob, SlashCommand, Bash(bash *), Bash(git *), Bash(gh *), Bash(find *), Bash(ls *), Bash(awk *), Bash(sed *), Bash(grep *), Bash(cat *), Bash(printf *), Bash(test *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(chmod *)
+allowed-tools: Read, Grep, Glob, Task, Bash(bash *), Bash(git *), Bash(gh *), Bash(find *), Bash(ls *), Bash(awk *), Bash(sed *), Bash(grep *), Bash(cat *), Bash(printf *), Bash(test *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(chmod *)
 ---
 
 ## Worktree Manager
@@ -84,24 +84,23 @@ name → directory name conversion, idempotent creation, `.claude/`
 config copy, and the result report. Don't reproduce its steps in chat —
 just invoke it.
 
-**After the script returns successfully, you MUST also invoke the
-`/add-dir` slash command** for the new worktree:
+**After the script returns successfully, you MUST also register the
+worktree with the active session** by delegating to the
+`team-workflow:dir-register` agent. Extract `<worktree-absolute-path>`
+from the script's report line (`Path: …`) and spawn the agent via the
+Task tool:
 
 ```
-SlashCommand(command="/add-dir <worktree-absolute-path>")
+Task(
+  subagent_type = "team-workflow:dir-register",
+  prompt        = "/add-dir <worktree-absolute-path>"
+)
 ```
 
-`/add-dir` is a slash command of the **current** Claude Code session.
-Invoke it via the `SlashCommand` tool — NOT via Bash (`claude
---add-dir` is a different CLI flag that affects a separate process and
-does NOT modify the running session). NOT via typing it as plain text.
-The slash command registers the worktree's `.claude/` (agents, skills,
-hooks, settings) with the active session so any repo-local subagent
-under the new worktree can be spawned via `Agent(...)`.
-
-Extract `<worktree-absolute-path>` from the script's report line
-(`Path: …`). Skipping this step makes repo-local agents invisible to
-the spawner and produces "Agent type '…' not found" errors at spawn
+The `dir-register` agent owns the SlashCommand invocation and reports
+back a structured `succeeded:` / `failed:` block. Skipping this step
+makes repo-local agents invisible to the spawner and produces
+"Agent type '…' not found" errors at spawn
 time. This is part of the `init` contract, not an optional follow-up.
 
 **Flags**:
@@ -332,10 +331,10 @@ registrations that `init` set up. `rehydrate` resolves the target
    Empty output → report "No worktrees to rehydrate for <feature>" and
    exit.
 
-3. **Always print the `/add-dir` commands** to the user before running
-   anything. This is the operator's fallback when SlashCommand cannot
-   reach `/add-dir` in the current session — they can copy the block
-   and paste it manually. The output block looks like:
+3. **Print the `/add-dir` commands** to the user before delegating.
+   This is the operator's manual fallback when the `dir-register`
+   agent cannot reach SlashCommand in the current session — they can
+   copy the block and paste it directly. The output block looks like:
    ```
    /worktree rehydrate — N worktrees to register for <feature>:
      /add-dir <path1>
@@ -343,10 +342,16 @@ registrations that `init` set up. `rehydrate` resolves the target
      /add-dir <path3>
    ```
 
-4. **Re-register each path** by invoking `/add-dir <path>` via the
-   SlashCommand tool. On failure (tool not available, permission
-   denied), report which paths the operator must paste manually
-   (taken from step 3's output).
+4. **Delegate registration to `team-workflow:dir-register`**. Spawn
+   the agent once with all paths in the prompt:
+   ```
+   Task(
+     subagent_type = "team-workflow:dir-register",
+     prompt        = "/add-dir <path1>\n/add-dir <path2>\n/add-dir <path3>"
+   )
+   ```
+   Read the agent's structured `succeeded:` / `failed:` block; map
+   failures to "paste manually" guidance for the operator.
 
 5. **Verify by sampling**. Read the `.claude/agents/` listing of the
    first rehydrated worktree to confirm registration took effect.
@@ -357,8 +362,8 @@ registrations that `init` set up. `rehydrate` resolves the target
 /worktree rehydrate complete:
   feature:         <name>
   state_dir:       <abs path>
-  rehydrated:      <N>     (auto-registered via SlashCommand)
-  printed-only:    <M>     (printed for manual paste — SlashCommand failed)
+  rehydrated:      <N>     (auto-registered via dir-register agent)
+  printed-only:    <M>     (printed for manual paste — agent could not reach SlashCommand)
   skipped:         <list>  (terminal phases or paths that no longer exist)
 
 Repo-local agents under each rehydrated worktree are now callable via

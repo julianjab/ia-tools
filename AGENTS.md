@@ -183,6 +183,7 @@ parallel where deps allow.
 | `topic-worker` | `plugins/team-workflow/agents/topic-worker.md`| Per-topic conversational agent. Classifies + acts; never edits. | sonnet | teal   |
 | `lead`         | `plugins/team-workflow/agents/lead.md`        | Per-feature orchestrator. Plan, provision, dispatch.            | opus   | purple |
 | `implementer`  | `plugins/team-workflow/agents/implementer.md` | Stack-aware fallback subagent when a repo has no impl.          | sonnet | green  |
+| `dir-register` | `plugins/team-workflow/agents/dir-register.md` | One-shot dispatcher: receives `/add-dir <path>` lines, invokes SlashCommand, reports per-path outcome. Used only by `/worktree init` and `/worktree rehydrate`. | haiku  | gray   |
 
 Everything else — qa, security, architect, per-stack implementers — is
 **discovered at runtime** from each touched repo's `<repo>/.claude/agents/`.

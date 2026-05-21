@@ -204,8 +204,10 @@ happens at MCP init via the `SLACK_TOPICS` env var (set by
   the `router` when it needs to relay into a lead that lives in
   another tmux session.
 - `/worktree` — Git worktree management (`init`, `list`, `switch`,
-  `cleanup`, `status`). `init` now auto-runs `/add-dir` via the
-  `SlashCommand` tool so repo-local agents are immediately spawnable.
+  `cleanup`, `status`, `rehydrate`). `init` and `rehydrate` delegate
+  `/add-dir` registration to the `team-workflow:dir-register` agent
+  (one-shot, SlashCommand-only), so repo-local agents are immediately
+  spawnable after worktree creation or context-loss recovery.
 - `/commit` — Conventional commits: format, stage, commit.
 - `/review` — Quality gate: formatting, tests, coverage, standards.
 - `/pr` — Push + PR: invokes `/review`, resolves conflicts, creates PR.
