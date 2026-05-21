@@ -132,7 +132,7 @@ export async function startListener(
   // Filtered to thread replies only (thread_ts present); top-level channel
   // posts and DMs are excluded. Requires channels:history scope.
   app.event('message', async ({ event }) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: Slack Bolt's message-event union is too narrow to cover subtype fields we discriminate on below
     const e = event as any;
     // Allow bot_message (e.g. vitruvio replying in a thread); skip everything
     // else: channel_join, file_share, message_changed, etc.

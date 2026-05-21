@@ -37,7 +37,8 @@ const DEFAULT_EMOJI = 'eyes';
 
 // ─── WebClient stub builder ─────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: vi.fn generic accepts any-tuple signatures
+// biome-ignore lint/suspicious/noExplicitAny: vi.fn generic accepts any-tuple signatures
 type AnyFn = (...args: any[]) => any;
 type WebMock = {
   reactions: { remove: ReturnType<typeof vi.fn<AnyFn>> };
