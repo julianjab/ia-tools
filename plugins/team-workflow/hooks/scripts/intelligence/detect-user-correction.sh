@@ -8,17 +8,19 @@
 # Output: exit 0 always; appends `kind: user_correction` to state.md events:
 #         when a deterministic correction signal is detected.
 #
-# Signals (regex-based, V1 — no LLM call):
+# Signals (regex-based, V1 — no LLM call). Each signal kind is matched in
+# both Spanish and English to cover bilingual operators:
 #
-#   - "cancelar"             (case-insensitive, whole word)   — explicit cancel
-#   - "no, eso no"           — explicit pushback
-#   - "deberías" / "debias"  — direction-setting
-#   - "espera"               — pause request
-#   - "stop"                 (Bash command guard line; whole word)
-#   - "retract"              — explicit retract
-#   - "no debió"             — past correction
-#   - "asumiste mal"         — assumption rebuttal
-#   - "eso no es lo que"     — misunderstanding
+#   cancel       — "cancelar" / "cancel"
+#   pushback     — "no, eso no" / "eso no es lo que" /
+#                  "no, that's not" / "not what I"
+#   redirection  — "deberías" / "debias" / "you should" / "you ought to"
+#   rebuttal     — "asumiste mal" / "no debió" / "no debio" /
+#                  "you assumed" / "you got it wrong" / "wrong assumption"
+#   retract      — "retract" (universal)
+#   pause        — "espera," / "para," / "wait," / "hold on" / "hang on"
+#   stop         — "stop"  (universal, whole-word)
+#   undo         — "deshaz" / "revierte" / "undo" / "revert"
 #
 # Only fires in active lead sessions (IA_TW_FEATURE set), and only when phase
 # is NOT "planning" (planning-phase edits go through the approval gate, which
@@ -45,16 +47,45 @@ phase=$(grep '^phase:' "$state_file" 2>/dev/null | head -1 | sed 's/phase:[[:spa
 prompt=$(printf '%s' "$payload" | jq -r '.prompt // empty' 2>/dev/null)
 [ -n "$prompt" ] || exit 0
 
-# Detect signals (case-insensitive, ERE).
+# Detect signals (case-insensitive). Each kind has Spanish + English patterns.
+# Order matters: more-specific patterns (rebuttal, pushback) come BEFORE the
+# generic ones (redirection, cancel) so a longer match wins.
 signal=""
 prompt_lc=$(printf '%s' "$prompt" | tr '[:upper:]' '[:lower:]')
 case "$prompt_lc" in
-  *cancelar*)                        signal="cancel" ;;
-  *"no, eso no"*|*"eso no es lo que"*) signal="pushback" ;;
-  *"deberías"*|*"debias"*)            signal="redirection" ;;
-  *"asumiste mal"*|*"no debió"*|*"no debio"*) signal="rebuttal" ;;
-  *retract*)                          signal="retract_request" ;;
-  *"espera,"*|*"espera "*|*"para,"*)   signal="pause" ;;
+  # Cancel — explicit abort.
+  *cancelar*|*"cancel "*|*"cancel,"*|*"cancel."*)
+    signal="cancel" ;;
+
+  # Rebuttal — past tense correction of an assumption.
+  *"asumiste mal"*|*"no debió"*|*"no debio"*\
+  |*"you assumed"*|*"you got it wrong"*|*"wrong assumption"*)
+    signal="rebuttal" ;;
+
+  # Pushback — explicit "no, that's not".
+  *"no, eso no"*|*"eso no es lo que"*\
+  |*"no, that's not"*|*"no thats not"*|*"not what i"*)
+    signal="pushback" ;;
+
+  # Redirection — direction-setting.
+  *"deberías"*|*"debias"*\
+  |*"you should"*|*"you ought to"*|*"you need to"*)
+    signal="redirection" ;;
+
+  # Pause — please wait.
+  *"espera,"*|*"espera "*|*"para,"*\
+  |*"wait,"*|*"wait "*|*"hold on"*|*"hang on"*)
+    signal="pause" ;;
+
+  # Undo — please revert.
+  *deshaz*|*revierte*\
+  |*"undo "*|*"undo,"*|*"undo."*|*revert*)
+    signal="undo" ;;
+
+  # Retract request — universal.
+  *retract*)
+    signal="retract_request" ;;
+
   *)
     # Word-boundary check for "stop" to avoid matching "stopped" / "stopwatch".
     if printf '%s' "$prompt_lc" | grep -qE '(^|[[:space:][:punct:]])stop([[:space:][:punct:]]|$)'; then
