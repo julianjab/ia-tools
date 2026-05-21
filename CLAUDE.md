@@ -42,12 +42,13 @@
 >     (booted by `/session` via `start-lead.sh`)
 >   - No `--agent`: only slack-bridge tools visible.
 >   No `SessionStart` hook, no `IA_TOOLS_ROLE` env var.
-> - **`PreToolUse` hook** (`plugins/team-workflow/hooks/scripts/enforce-worktree.sh`)
+> - **`PreToolUse` hook** (`plugins/team-workflow/hooks/scripts/enforcement/enforce-worktree.sh`)
 >   is gitignore-aware: blocks `Edit`/`Write`/`MultiEdit` on tracked files
 >   when on `main`/`master`, or on any tracked file outside `.worktrees/*`
 >   inside a `lead` session. Edits to gitignored / non-repo files pass.
 > - **Quality-gate hooks** for agent teams
->   (`plugins/team-workflow/hooks/scripts/{task-created,task-completed,teammate-idle}.sh`)
+>   (`plugins/team-workflow/hooks/scripts/bookkeeping/task-created.sh`,
+>   `plugins/team-workflow/hooks/scripts/enforcement/{task-completed,teammate-idle}.sh`)
 >   enforce invariants 2 and 3 at task completion / teammate-idle time.
 >   See AGENTS.md → "Hook-enforced quality gates".
 >
