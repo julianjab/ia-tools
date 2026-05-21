@@ -1,7 +1,7 @@
 ---
 name: session
 description: >
-  Spawn a Claude orchestrator sub-session in a dedicated tmux window.
+  Spawn a Claude orchestrator sub-session in tmux (default) or iTerm2 (via osascript, when IA_TW_TERMINAL=iterm or as fallback if tmux is missing).
   Defaults to the `lead` agent (`team-workflow:lead`) with worktree
   provisioning, but `--agent` / `--topic-worker-agent` / `--provision`
   / `--repo-url[s]` let the caller pick a different persona — e.g.
@@ -22,12 +22,31 @@ disable-model-invocation: false
 
 ## /session — Spawn a lead sub-session
 
-`/session` opens a fresh tmux session running Claude Code with the
-`lead` agent preloaded. All runtime context (feature label, user
-request, Slack topic) travels via environment variables that the wrapper
-sets up. The lead is responsible for the entire downstream flow:
-plan, approval gate, worktree provisioning per touched repo, agent
-discovery, task list, dispatch loop, and PR creation.
+`/session` opens a fresh terminal host (tmux by default, iTerm2 on
+demand) running Claude Code with the `lead` agent preloaded. All
+runtime context (feature label, user request, Slack topic) travels via
+environment variables that the wrapper sets up. The lead is responsible
+for the entire downstream flow: plan, approval gate, worktree
+provisioning per touched repo, agent discovery, task list, dispatch
+loop, and PR creation.
+
+### Terminal host
+
+Selection is driven by the `IA_TW_TERMINAL` env var:
+
+| `IA_TW_TERMINAL` | Behavior |
+|---|---|
+| unset / `auto` (default) | tmux if installed, else iTerm2, else abort with install hint. |
+| `tmux` | Detached tmux session named `<feature>`. Fail if tmux missing. |
+| `iterm` | New iTerm2 window driven by AppleScript. Fail if iTerm2 missing. |
+
+Default is tmux-first because the rest of the system — notably
+`/send-session-message` — speaks tmux send-keys natively.
+`/send-session-message` auto-detects the host (tmux first, iTerm2
+fallback), so iTerm2-hosted leads still receive forwarded messages.
+
+If neither host is available the wrapper exits with code 2 and prints
+install instructions (`brew install tmux` or `https://iterm2.com`).
 
 ## Contract
 
@@ -82,7 +101,7 @@ env var already set (including these flag-derived ones) wins.
 2. Computes `topic_hash` from the topic (or `local:<feature>` if no topic) and prepares `~/.claude/team-workflow/state/<topic_hash>/`.
 3. Exports the IA_TW_* env vars + `SLACK_TOPICS` (when topic is set) + OAuth token (if present).
 4. Creates a tmux session named `<feature-name>` and launches `claude --agent team-workflow:lead --dangerously-load-development-channels plugin:slack-bridge@ia-tools --dangerously-skip-permissions <description>` inside it.
-5. Dismisses the boot-time dev-channels and trust-folder prompts automatically (background poller, 30s window).
+5. Dismisses the boot-time dev-channels and trust-folder prompts automatically (background poller, 30s window). Works on both hosts: tmux uses `capture-pane` + `send-keys Enter`; iTerm2 uses `contents of session` + `write text "" newline YES`.
 6. Reports the tmux attach command and the state directory path.
 
 ## What it does NOT do
@@ -125,6 +144,10 @@ the env-var prefixes for flags that were actually provided.
 |---|---|
 | `<feature-name>` empty or contains `.` / `:` | Reject. |
 | `--topic` value contains newline / CR | Reject. |
-| `tmux` or `claude` not on PATH | Abort with install hint; nothing spawned. |
+| Neither tmux nor iTerm2 available (default `auto`) | Exit 2 with install hint (`brew install tmux` / `https://iterm2.com`); nothing spawned. |
+| `IA_TW_TERMINAL=tmux` and tmux missing | Exit 2; print `brew install tmux`. |
+| `IA_TW_TERMINAL=iterm` and iTerm2 missing | Exit 2; print iTerm2 install URL. |
+| `claude` not on PATH | Abort with install hint; nothing spawned. |
 | tmux session `<feature-name>` already exists | Warn and reuse; do not relaunch claude. |
+| iTerm2 window with the same session name already exists | A new window is created; the previous one stays. Operator manages duplicates. |
 | `<description>` contains newline or NUL | Reject. |

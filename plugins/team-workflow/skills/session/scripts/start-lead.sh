@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# Spawn an orchestrator sub-session in a tmux session.
+# Spawn an orchestrator sub-session in tmux (default) or iTerm2.
 #
 # Usage:
 #   start-lead.sh <feature> <topic|""> <request>
 #
+# Exit codes:
+#   0  spawned OK
+#   1  argument / configuration error
+#   2  requested terminal host unavailable / no usable host
+#
 # Exports the IA_TW_* env vars the orchestrator expects, plus SLACK_TOPICS
 # for the slack-bridge MCP auto-subscribe (when topic is non-empty).
+#
+# Terminal selection — driven by IA_TW_TERMINAL:
+#   tmux  (default fallback)  → detached tmux session named <feature>
+#   iterm                     → new iTerm2 window driven by osascript
+#   (unset / "auto")          → tmux if installed, else iTerm2, else fail
+#
+# Default behavior: tmux when present, because the rest of the system
+# (notably /send-session-message) speaks tmux send-keys natively. iTerm2
+# is a GUI alternative for operators who want a real window; the relay
+# script auto-detects the host.
 #
 # Parametrization (env-var overridable — this is what makes team-workflow
 # non-static; the spawner picks the persona and provisioning strategy):
@@ -18,6 +33,7 @@
 #   IA_TW_REPO_URL           Singular repo URL when IA_TW_PROVISION=clone.
 #   IA_TW_REPO_URLS          CSV of repo URLs for multi-repo pods. Pre-clone
 #                            iterates over this list when set.
+#   IA_TW_TERMINAL           tmux | iterm | auto (default auto → tmux first).
 #
 # Configuration cascade: if .claude/team-workflow.yaml exists in $PWD or
 # $HOME, load-tw-config.sh maps it into these env vars before we spawn.
@@ -40,6 +56,7 @@ topic_worker_agent="${IA_TW_TOPIC_WORKER_AGENT:-team-workflow:topic-worker}"
 provision="${IA_TW_PROVISION:-worktree-local}"
 repo_url="${IA_TW_REPO_URL:-}"
 repo_urls="${IA_TW_REPO_URLS:-}"
+terminal_pref="${IA_TW_TERMINAL:-auto}"
 
 # Topic hash: $topic if set, else "local:$feature".
 hash_key="${topic:-local:$feature}"
@@ -52,7 +69,8 @@ mkdir -p "$state_dir"
 # /worktree init (see skills/worktree/scripts/init.sh). The wrapper
 # never touches consumer repo state.
 
-env_args=(
+# ─── Build env pair list (shared by both hosts) ────────────────────────────
+env_pairs=(
   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
   "CLAUDE_CODE_DISABLE_AGENT_VIEW=1"
   "IA_TW_FEATURE=$feature"
@@ -64,38 +82,183 @@ env_args=(
   "IA_TW_TOPIC_WORKER_AGENT=$topic_worker_agent"
   "IA_TW_PROVISION=$provision"
 )
-[ -n "$topic" ]                      && env_args+=("SLACK_TOPICS=$topic")
-[ -n "$repo_url" ]                   && env_args+=("IA_TW_REPO_URL=$repo_url")
-[ -n "$repo_urls" ]                  && env_args+=("IA_TW_REPO_URLS=$repo_urls")
-[ -n "${IA_TW_REPO_CACHE_DIR:-}" ]   && env_args+=("IA_TW_REPO_CACHE_DIR=$IA_TW_REPO_CACHE_DIR")
-[ -n "${ALLOWED_USERS_DM:-}" ]       && env_args+=("ALLOWED_USERS_DM=$ALLOWED_USERS_DM")
-[ -n "${ALLOWED_USERS_MENTIONS:-}" ] && env_args+=("ALLOWED_USERS_MENTIONS=$ALLOWED_USERS_MENTIONS")
-[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_args+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
+[ -n "$topic" ]                       && env_pairs+=("SLACK_TOPICS=$topic")
+[ -n "$repo_url" ]                    && env_pairs+=("IA_TW_REPO_URL=$repo_url")
+[ -n "$repo_urls" ]                   && env_pairs+=("IA_TW_REPO_URLS=$repo_urls")
+[ -n "${IA_TW_REPO_CACHE_DIR:-}" ]    && env_pairs+=("IA_TW_REPO_CACHE_DIR=$IA_TW_REPO_CACHE_DIR")
+[ -n "${ALLOWED_USERS_DM:-}" ]        && env_pairs+=("ALLOWED_USERS_DM=$ALLOWED_USERS_DM")
+[ -n "${ALLOWED_USERS_MENTIONS:-}" ]  && env_pairs+=("ALLOWED_USERS_MENTIONS=$ALLOWED_USERS_MENTIONS")
+[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_pairs+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
 
-tmux new-session -d -s "$feature" -c "$PWD" -- \
-  env "${env_args[@]}" \
-  claude --agent "$agent" \
-         --dangerously-load-development-channels plugin:slack-bridge@ia-tools \
-         --dangerously-skip-permissions \
-         "$request"
+# ─── Detect terminals ───────────────────────────────────────────────────────
+have_tmux() { command -v tmux >/dev/null 2>&1; }
 
-# Boot-prompt poller: dismisses the two one-time prompts (dev-channels
-# warning + trust-folder) by sending Enter when their patterns appear.
-# Runs at most 30s in background, then exits — does NOT touch later
-# prompts like ExitPlanMode.
+have_iterm() {
+  command -v osascript >/dev/null 2>&1 || return 1
+  # `osascript -e 'id of application "iTerm"'` returns the bundle id when
+  # iTerm.app is installed; non-zero exit if missing.
+  osascript -e 'id of application "iTerm"' >/dev/null 2>&1
+}
+
+install_hint() {
+  cat >&2 <<EOF
+✗ No usable terminal host for the lead sub-session.
+
+start-lead.sh needs one of:
+  • tmux    — install with: brew install tmux            (default)
+  • iTerm2  — install from https://iterm2.com            (alternative)
+
+Install one, then re-run /session. To force a specific host set
+IA_TW_TERMINAL=tmux or IA_TW_TERMINAL=iterm.
+EOF
+}
+
+case "$terminal_pref" in
+  tmux)
+    if ! have_tmux; then
+      echo "✗ IA_TW_TERMINAL=tmux but tmux is not on PATH." >&2
+      echo "  Install with: brew install tmux" >&2
+      exit 2
+    fi
+    chosen="tmux"
+    ;;
+  iterm)
+    if ! have_iterm; then
+      echo "✗ IA_TW_TERMINAL=iterm but iTerm2 is not installed (osascript can't find 'iTerm')." >&2
+      echo "  Install from https://iterm2.com or unset IA_TW_TERMINAL to fall back to tmux." >&2
+      exit 2
+    fi
+    chosen="iterm"
+    ;;
+  auto|"")
+    # Default: tmux first (keeps tmux-based relays working), iTerm2 fallback.
+    if have_tmux; then
+      chosen="tmux"
+    elif have_iterm; then
+      chosen="iterm"
+    else
+      install_hint
+      exit 2
+    fi
+    ;;
+  *)
+    echo "✗ IA_TW_TERMINAL='$terminal_pref' invalid. Use 'tmux', 'iterm', or 'auto'." >&2
+    exit 1
+    ;;
+esac
+
+# ─── Spawn: tmux ───────────────────────────────────────────────────────────
+if [ "$chosen" = "tmux" ]; then
+  tmux new-session -d -s "$feature" -c "$PWD" -- \
+    env "${env_pairs[@]}" \
+    claude --agent "$agent" \
+           --dangerously-load-development-channels plugin:slack-bridge@ia-tools \
+           --dangerously-skip-permissions \
+           "$request"
+
+  # Boot-prompt poller: dismisses the two one-time prompts (dev-channels
+  # warning + trust-folder) by sending Enter when their patterns appear.
+  # Runs at most 30s in background, then exits — does NOT touch later
+  # prompts like ExitPlanMode.
+  (
+    for _ in $(seq 1 15); do
+      sleep 2
+      out=$(tmux capture-pane -p -t "$feature" 2>/dev/null | tail -15) || break
+      case "$out" in
+        *"local development"*|*"Trust the files"*|*"trust the files"*|*"Do you trust"*)
+          tmux send-keys -t "$feature" Enter
+          ;;
+      esac
+    done
+  ) >/dev/null 2>&1 &
+
+  echo "✓ $agent spawned (tmux: $feature, provision: $provision, state: $state_dir)"
+  echo "  topic-worker: $topic_worker_agent"
+  [ -n "$repo_url$repo_urls" ] && echo "  repo(s): ${repo_urls:-$repo_url}"
+  echo "  attach: tmux attach -t $feature"
+  exit 0
+fi
+
+# ─── Spawn: iTerm2 ─────────────────────────────────────────────────────────
+# iTerm2 path: write a single-use launcher script to a temp file, then ask
+# iTerm2 (via AppleScript) to open a new window running it. The launcher
+# exports env vars and execs claude — this avoids the AppleScript quoting
+# nightmare of inlining env_args + request into a single command string.
+# The launcher self-deletes once claude exits.
+launcher="$(mktemp -t ia-tw-lead-XXXXXX.sh)"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -e'
+  for kv in "${env_pairs[@]}"; do
+    # printf %q quotes safely for bash eval.
+    printf 'export %q\n' "$kv"
+  done
+  printf 'cd %q\n' "$PWD"
+  printf 'exec claude --agent %q \\\n' "$agent"
+  printf '  --dangerously-load-development-channels plugin:slack-bridge@ia-tools \\\n'
+  printf '  --dangerously-skip-permissions \\\n'
+  printf '  %q\n' "$request"
+} > "$launcher"
+chmod +x "$launcher"
+
+# Wrap in a tiny shell that runs the launcher then removes it. Single-quote
+# the path because mktemp output has no shell-special chars.
+runner="bash -c '\"$launcher\"; rm -f \"$launcher\"; exec \$SHELL'"
+
+# Tab/session name = feature, so /send-session-message can find it.
+osascript >/dev/null <<APPLESCRIPT
+tell application "iTerm"
+  activate
+  set newWindow to (create window with default profile)
+  tell current session of newWindow
+    set name to "$feature"
+    write text "$runner"
+  end tell
+end tell
+APPLESCRIPT
+
+# Boot-prompt poller (iTerm2 mirror of the tmux poller above): read the
+# visible contents of the session by name, and if Claude's dev-channels
+# warning or the trust-folder prompt is on screen, fire an Enter via
+# `write text "" newline YES`. Runs at most 30s; harmless after boot.
 (
   for _ in $(seq 1 15); do
     sleep 2
-    out=$(tmux capture-pane -p -t "$feature" 2>/dev/null | tail -15) || break
+    out=$(osascript <<APPLESCRIPT 2>/dev/null
+tell application "iTerm"
+  repeat with w in windows
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        if name of s is "$feature" then return contents of s
+      end repeat
+    end repeat
+  end repeat
+  return ""
+end tell
+APPLESCRIPT
+)
     case "$out" in
       *"local development"*|*"Trust the files"*|*"trust the files"*|*"Do you trust"*)
-        tmux send-keys -t "$feature" Enter
+        osascript >/dev/null 2>&1 <<APPLESCRIPT
+tell application "iTerm"
+  repeat with w in windows
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        if name of s is "$feature" then
+          tell s to write text "" newline YES
+          return
+        end if
+      end repeat
+    end repeat
+  end repeat
+end tell
+APPLESCRIPT
         ;;
     esac
   done
 ) >/dev/null 2>&1 &
 
-echo "✓ $agent spawned (tmux: $feature, provision: $provision, state: $state_dir)"
+echo "✓ $agent spawned (iTerm2 window: $feature, provision: $provision, state: $state_dir)"
 echo "  topic-worker: $topic_worker_agent"
 [ -n "$repo_url$repo_urls" ] && echo "  repo(s): ${repo_urls:-$repo_url}"
-echo "  attach: tmux attach -t $feature"
+echo "  relay: /send-session-message auto-detects iTerm2 sessions by name."
