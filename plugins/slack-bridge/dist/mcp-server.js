@@ -41084,47 +41084,23 @@ async function clearThinkingAck(web, args) {
 
 // src/handlers/messaging.ts
 async function handleClaimMessage(args, deps) {
-  const { message_ts, channel_id, thread_ts } = args;
-  if (!message_ts) {
-    return {
-      content: [{ type: "text", text: "Error: message_ts is required." }],
-      isError: true
-    };
-  }
-  if (!deps.daemonClient) {
-    if (channel_id) {
-      await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
-    }
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Claimed (no daemon \u2014 single-session mode). Work the message and call reply() when done."
-        }
-      ]
-    };
-  }
   try {
-    const result = await deps.daemonClient.claim(message_ts);
-    if (!result.claimed) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Already claimed by another session (:${result.claimed_by}). Exit this turn \u2014 do not work the message.`
-          }
-        ],
-        isError: true
-      };
+    if (!deps.daemonClient) {
+      throw new Error("DAEMON_URL is not set \u2014 cannot claim messages");
     }
-    if (channel_id) {
-      await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    const { message_ts, channel_id, thread_ts } = args;
+    const result = await deps.daemonClient.claim(message_ts);
+    if (result.claimed) {
+      if (channel_id) {
+        await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+      }
+      return { content: [{ type: "text", text: "Claimed \u2014 you may reply." }] };
     }
     return {
       content: [
         {
           type: "text",
-          text: "Claimed \u2014 work the message. The thinking indicator is visible until reply() clears it."
+          text: `Already claimed by another session (:${result.claimed_by}). Do NOT reply.`
         }
       ]
     };
@@ -41134,57 +41110,11 @@ async function handleClaimMessage(args, deps) {
 }
 async function handleReply(args, deps) {
   const { channel_id, text, message_ts, thread_ts } = args;
-  if (!channel_id || !text) {
-    return {
-      content: [{ type: "text", text: "Error: channel_id and text are required." }],
-      isError: true
-    };
-  }
-  if (!message_ts) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Error: message_ts is required. reply() claims the message before posting; pass the inbound notification message_ts."
-        }
-      ],
-      isError: true
-    };
-  }
-  if (!deps.daemonClient) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Error: DAEMON_URL is not set \u2014 reply() requires the daemon to claim before posting."
-        }
-      ],
-      isError: true
-    };
-  }
-  try {
-    const claim = await deps.daemonClient.claim(message_ts);
-    if (!claim.claimed) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Already claimed by another session (:${claim.claimed_by}). Reply skipped.`
-          }
-        ],
-        isError: true
-      };
-    }
-    await addThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
-  } catch (err) {
-    return {
-      content: [{ type: "text", text: `Claim error: ${err}` }],
-      isError: true
-    };
-  }
   try {
     const result = await deps.web.chat.postMessage({ channel: channel_id, text, thread_ts });
-    await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    if (message_ts) {
+      await clearThinkingAck(deps.web, { channel_id, message_ts, thread_ts });
+    }
     return { content: [{ type: "text", text: `Sent (ts: ${result.ts})` }] };
   } catch (err) {
     return { content: [{ type: "text", text: `Error: ${err}` }], isError: true };
@@ -41650,24 +41580,14 @@ var McpBridgeServer = class {
     const instructions = [
       "slack-bridge \u2014 Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,",
       "list_subscriptions, claim_message, reply, reply_update, read_thread, read_channel, list_channels.",
-      "Contention model: multiple Claude sessions may subscribe to the same Slack topic (DM, channel,",
-      "thread). The daemon serializes work by message_ts via a claim lock.",
       "Lifecycle for an incoming Slack message:",
-      "(1) Read the message, classify intent (cheap \u2014 a quick text scan, no Reads of project files yet).",
-      "(2) Decide whether you will work it. If yes, call claim_message(message_ts, channel_id, thread_ts?)",
-      "BEFORE any Read / Grep / Glob / Bash / Agent call or drafting. First session to claim wins;",
-      'losers receive isError "Already claimed" and must exit the turn without doing any work \u2014',
-      "that is how the system protects against wasted work in parallel sessions.",
-      "(3) On a successful claim the thinking indicator (\u{1F440} + assistant.threads.setStatus) is set",
-      "immediately, so the operator sees someone is on it while you work.",
-      "(4) Do the work \u2014 Reads, Greps, exploration, drafting.",
-      "(5) Call reply(channel_id, message_ts, text, thread_ts?). reply re-checks the claim (idempotent",
-      "for the holder), posts via chat.postMessage, then clears the thinking indicator. If a different",
-      "session somehow won the claim while you were working, reply returns isError and posts nothing.",
-      "For channel messages reply in a thread: pass thread_ts when known, or rely on message_ts as the",
-      "thread anchor (the server falls back when thread_ts is omitted and is_dm is not true).",
-      "For DMs reply at the DM root unless the source had an explicit thread_ts.",
-      "(6) Optionally call reply_update(ts, more_text) with growing text to stream.",
+      "(1) call claim_message(message_ts) first; if claimed=false, another session won \u2014 stop.",
+      '(2) Compose your full response. The thinking indicator (set on claim) stays visible until reply() is called \u2014 do NOT send a placeholder "..." message.',
+      "(3) call reply(full_text_or_first_chunk). For channel messages always reply in a thread:",
+      "pass thread_ts when known, or pass message_ts (the server uses message_ts as the thread",
+      "anchor when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root",
+      "unless the source had an explicit thread_ts.",
+      "(4) Optionally call reply_update(ts, more_text) one or more times with growing text to stream.",
       "Use read_thread / read_channel to inspect history before replying.",
       "Use subscribe_slack / unsubscribe_slack to change which topics this session listens to."
     ].join(" ");
@@ -41745,13 +41665,13 @@ var McpBridgeServer = class {
         },
         {
           name: "claim_message",
-          description: 'Claim a Slack inbound BEFORE doing any work on it (Read/Grep/Glob/Bash/Agent/drafting). Multiple sessions may receive the same notification; first to claim wins. On isError "Already claimed", exit the turn without working the message \u2014 another session owns it. On success the thinking indicator (\u{1F440} + assistant.threads.setStatus) is set so the operator sees someone is on it. Same-session re-claim is idempotent, so reply() later works without an extra explicit re-claim.',
+          description: "Claim a Slack message before replying. First session to claim wins. ALWAYS call this before reply. If claimed=false, do NOT reply. Pass channel_id (and thread_ts if available) to activate the thinking indicator immediately on successful claim.",
           inputSchema: {
             type: "object",
             properties: {
               message_ts: {
                 type: "string",
-                description: "Timestamp of the inbound message you intend to work on."
+                description: "The message_ts from the channel notification"
               },
               channel_id: {
                 type: "string",
@@ -41767,7 +41687,7 @@ var McpBridgeServer = class {
         },
         {
           name: "reply",
-          description: "Post a reply to a Slack message and clear the thinking indicator. Call claim_message BEFORE doing any work on the inbound (Reads, Greps, drafting); reply re-checks the claim (idempotent for the holder) and refuses to post when another session won the claim, so double-posting is impossible. Threading rules: (a) DM (is_dm=true) \u2192 reply at the DM root unless thread_ts is set; (b) channel (is_dm=false or omitted) \u2192 reply MUST be in a thread. Pass thread_ts when known; if you omit it the server uses message_ts as the thread anchor.",
+          description: "Reply to a Slack message. Only call after a successful claim. Threading rules: (a) DM (is_dm=true) \u2192 reply at the DM root unless thread_ts is set; (b) channel (is_dm=false or omitted) \u2192 reply MUST be in a thread. Pass thread_ts when known; if you omit it but pass message_ts, the server uses message_ts as thread_ts to anchor the thread on the original message.",
           inputSchema: {
             type: "object",
             properties: {
@@ -41775,7 +41695,7 @@ var McpBridgeServer = class {
               text: { type: "string", description: "Message text (Slack mrkdwn)" },
               message_ts: {
                 type: "string",
-                description: "Timestamp of the original message being replied to. Required \u2014 used to claim the message before posting and to anchor the thread when thread_ts is omitted."
+                description: "Timestamp of the original message (optional). Used to clear the thinking ack and, in channels, as the thread anchor when thread_ts is not provided."
               },
               thread_ts: {
                 type: "string",
@@ -41786,7 +41706,7 @@ var McpBridgeServer = class {
                 description: "True if the source message was a DM. Forwarded from the channel notification. When false/omitted, the server enforces in-thread replies for channel messages."
               }
             },
-            required: ["channel_id", "text", "message_ts"]
+            required: ["channel_id", "text"]
           }
         },
         {

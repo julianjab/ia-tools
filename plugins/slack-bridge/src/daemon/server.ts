@@ -145,14 +145,6 @@ export function createApiServer(
         const existing = claims.get(messageTs);
 
         if (existing !== undefined) {
-          if (existing === body.subscriber_port) {
-            // Same session re-claiming — idempotent so reply() can verify the
-            // caller still holds the claim without racing itself.
-            const resp: ClaimResponse = { claimed: true };
-            log(`[claim] ${messageTs} re-claim by holder :${existing} (idempotent)`);
-            json(res, 200, resp);
-            return;
-          }
           const resp: ClaimResponse = { claimed: false, claimed_by: existing };
           log(
             `[claim] ${messageTs} already claimed by :${existing}, rejected :${body.subscriber_port}`,
