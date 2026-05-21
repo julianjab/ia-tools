@@ -159,6 +159,31 @@ case "$terminal_pref" in
     ;;
 esac
 
+# ─── Session env manifest (for /worktree rehydrate discovery) ──────────────
+# Write a sidecar YAML next to state.md so any operator session can list
+# every running feature, see the env it was launched with, and pick which
+# state_dir to rehydrate. Secrets (OAuth tokens) are deliberately excluded
+# — state_dir lives under $HOME and is not git-tracked, but we still keep
+# manifests free of bearer credentials so they can be pasted into bug
+# reports or shared between machines safely.
+{
+  printf 'feature: %s\n'        "$feature"
+  printf 'topic: %s\n'          "${topic:-local}"
+  printf 'state_dir: %s\n'      "$state_dir"
+  printf 'root_dir: %s\n'       "$PWD"
+  printf 'agent: %s\n'          "$agent"
+  printf 'provision: %s\n'      "$provision"
+  printf 'terminal: %s\n'       "$chosen"
+  printf 'started_at: %s\n'     "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'boot_host: %s\n'      "$(hostname -s 2>/dev/null || echo unknown)"
+  printf 'boot_pid: %s\n'       "$$"
+  [ -n "${topic_worker_agent:-}" ] && printf 'topic_worker_agent: %s\n' "$topic_worker_agent"
+  [ -n "${repo_url:-}" ]           && printf 'repo_url: %s\n'           "$repo_url"
+  [ -n "${repo_urls:-}" ]          && printf 'repo_urls: %s\n'          "$repo_urls"
+  # Request can be multiline — store on a single line with literal '\n'.
+  printf 'request: %s\n' "$(printf '%s' "$request" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')"
+} > "$state_dir/session-env.yaml" 2>/dev/null || true
+
 # ─── Spawn: tmux ───────────────────────────────────────────────────────────
 if [ "$chosen" = "tmux" ]; then
   tmux new-session -d -s "$feature" -c "$PWD" -- \
