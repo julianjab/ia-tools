@@ -46,26 +46,24 @@ esac
 output=$(printf '%s' "$payload" | jq -r '.tool_response.output // empty' 2>/dev/null)
 [ -n "$output" ] || exit 0
 
-# ── Detect coverage failure signal ────────────────────────────────────────────
+# ── Detect coverage failure signal (Haiku-only) ──────────────────────────────
 # Pre-push hook output is NOT controlled by ia-tools — every consumer repo
-# can emit a different shape (lahaus backend uses "[pre-push] FAIL …", an
-# Astro repo might say "Coverage 71% below 80% threshold", a Cargo project
-# something else entirely). Two-stage detection:
+# emits a different shape (lahaus backend uses "[pre-push] FAIL …", an Astro
+# repo might say "Coverage 71% below 80% threshold", a Cargo project something
+# else entirely). Haiku reads the output and decides whether the failure was
+# a coverage threshold. No regex floor: when `claude` is missing or the call
+# fails, the hook exits 0 with no event written.
 #
-#   Stage 1 — Haiku classification (preferred). One short call asks
-#             "did this push fail because of coverage?". Output is parsed
-#             as {"coverage_failure": true|false}.
-#
-#   Stage 2 — Regex fallback for common phrasings. Used when claude is
-#             unavailable or the response doesn't parse.
+# Operators who need offline coverage configure CLAUDE_CODE_OAUTH_TOKEN
+# (subscription auth) or ANTHROPIC_API_KEY (API auth); see _fast_claude.sh.
+command -v claude >/dev/null 2>&1 || exit 0
 
 # Truncate input so the prompt stays small (output can be megabytes).
 # Coverage messages typically appear in the first ~3 KB of pre-push output.
 output_for_prompt=$(printf '%s' "$output" | head -c 3072)
+[ -n "$output_for_prompt" ] || exit 0
 
-is_coverage_failure=0
-if command -v claude >/dev/null 2>&1 && [ -n "$output_for_prompt" ]; then
-  classifier_prompt="The following text is the output of a 'git push' attempt that may have been rejected by a pre-push hook. Determine if the failure was caused by a CODE COVERAGE threshold (e.g. coverage gate, coverage below N%, --cov-fail-under, jest --coverage threshold, tarpaulin minimum) — and NOT by some other reason (lint, type-check, test failures unrelated to coverage, network error, branch protection).
+classifier_prompt="The following text is the output of a 'git push' attempt that may have been rejected by a pre-push hook. Determine if the failure was caused by a CODE COVERAGE threshold (e.g. coverage gate, coverage below N%, --cov-fail-under, jest --coverage threshold, tarpaulin minimum) — and NOT by some other reason (lint, type-check, test failures unrelated to coverage, network error, branch protection).
 
   ---
   ${output_for_prompt}
@@ -76,27 +74,16 @@ if command -v claude >/dev/null 2>&1 && [ -n "$output_for_prompt" ]; then
     {\"coverage_failure\": false}
   No prose, no markdown, no code fence."
 
-  . "$(dirname "$0")/_fast_claude.sh"
-  classifier_response=$(printf '%s' "$classifier_prompt" \
-    | fast_claude --model claude-haiku-4-5-20251001) || classifier_response=""
+. "$(dirname "$0")/_fast_claude.sh"
+classifier_response=$(printf '%s' "$classifier_prompt" \
+  | fast_claude --model claude-haiku-4-5-20251001) || classifier_response=""
 
-  case "$classifier_response" in
-    *'"coverage_failure"'*':'*'true'*)  is_coverage_failure=1 ;;
-    *'"coverage_failure"'*':'*'false'*) is_coverage_failure=0 ;;
-    *) is_coverage_failure=-1 ;;  # unparseable → drop to fallback
-  esac
-fi
+case "$classifier_response" in
+  *'"coverage_failure"'*':'*'true'*) ;;            # ok — proceed to write event
+  *) exit 0 ;;                                      # false, unparseable, empty → no event
+esac
 
-# Stage 2 fallback (also runs when Haiku unavailable / unparseable).
-if [ "$is_coverage_failure" = "-1" ] || [ "$is_coverage_failure" = "0" -a ! -x "$(command -v claude 2>/dev/null)" ]; then
-  if printf '%s' "$output" | grep -qiE 'pre-push.*FAIL|coverage.*below|FAIL.*coverage|coverage.*FAIL|--cov-fail-under|coverage threshold' 2>/dev/null; then
-    is_coverage_failure=1
-  else
-    is_coverage_failure=0
-  fi
-fi
-
-[ "$is_coverage_failure" = "1" ] || exit 0
+# Haiku confirmed this is a coverage failure — fall through to event emission.
 
 # Try to extract the wt_prefix from the command (look for .worktrees/<feature>
 # in -C / cwd; map to wt_prefix via state.md if possible).
