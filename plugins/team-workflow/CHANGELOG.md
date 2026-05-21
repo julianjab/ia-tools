@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.8.0...team-workflow-v0.9.0) (2026-05-21)
+
+
+### Features
+
+* **team-workflow:** declarative pod config + persona overlays + bridge wildcard ACL ([#78](https://github.com/julianjab/ia-tools/issues/78)) ([3d85e10](https://github.com/julianjab/ia-tools/commit/3d85e10519658b3049f7bafa1e0e963761180f01))
+* **team-workflow:** deterministic router dispatch + per-topic worker ([#75](https://github.com/julianjab/ia-tools/issues/75)) ([636a720](https://github.com/julianjab/ia-tools/commit/636a7207106264bbc793bec6779f1574c6c3c56b))
+* **team-workflow:** make /pr CI watch context-aware ([#76](https://github.com/julianjab/ia-tools/issues/76)) ([4a2ecac](https://github.com/julianjab/ia-tools/commit/4a2ecac29d2d233db61c2ea1d10956f47d5a7ac7))
+* **team-workflow:** package as configurable Docker image with repo-worker ([#77](https://github.com/julianjab/ia-tools/issues/77)) ([0172193](https://github.com/julianjab/ia-tools/commit/0172193bd4a899b0c73b0cefcd586d4a8fdbb5c0))
+* **team-workflow:** send-session-message skill + local-mode Slack fallback ([#79](https://github.com/julianjab/ia-tools/issues/79)) ([dbc6b2a](https://github.com/julianjab/ia-tools/commit/dbc6b2a2cd15e3f948d3fe0f71607b47ad8b1b1b))
+
+
+### Bug Fixes
+
+* **team-workflow:** deterministic state.md bookkeeping + session-end fixes ([#81](https://github.com/julianjab/ia-tools/issues/81)) ([cbeedd0](https://github.com/julianjab/ia-tools/commit/cbeedd0fac61b84a31612df715967968ba01bb88))
+
 ## [0.8.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v0.7.0...team-workflow-v0.8.0) (2026-05-14)
 
 
