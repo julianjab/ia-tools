@@ -1,6 +1,6 @@
 {
   "name": "team-workflow",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Triage + orchestrator agents, pipeline skills (/task, /worktree, /commit, /review, /pr, /ship, /sync-docs) and enforcement hooks.",
   "author": {
     "name": "Julian Buitrago",
