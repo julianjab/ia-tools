@@ -367,28 +367,28 @@ graph in one pass. For each worktree (let `P` be its `wt_prefix`):
 | `P:pr`                    | `agents.impl`| `pr_url for P`                    | `P:security`        |
 | `P:team-review`           | `lead`| `team-review requested for P`       | `P:pr`              |
 
-**Staging contract (closes the security/commit-set gap).** Each
-`:impl:green` task is not complete until the implementer has:
+**Commit cadence.** `:impl:green` produces N commits — one per
+architectural layer touched (migration, model, adapter, service,
+endpoint, wiring, tests). Rules:
 
-1. Run tests and confirmed GREEN.
-2. Run `git add <explicit file list>` from inside the worktree — only
-   the files that belong in the commit. NEVER `git add .` (that
-   stages stray edits, untracked tooling artifacts, lockfile bumps,
-   etc. that security never audited).
-3. Confirmed the staged set with `git -C <wt> diff --cached --name-only`.
-4. Marked the worktree entry in `state.md` with the literal marker
-   `green for <P> (staged)` plus a `staged_files:` list of the
-   exact paths.
+- TDD per slice: `test(<scope>):` (RED) → `feat(<scope>):` (GREEN).
+- Each commit is independently valid (lint, typecheck, tests pass).
+- Explicit `git add <files>` per slice. Never `git add .` / `-A`.
+- Follow-up changes are always NEW commits (`fix(<scope>): ...`,
+  `test(<scope>): add coverage`, ...). SHAs are stable once written.
+- Append each SHA to `commit_shas:` in `state.md` as it lands.
+- Single-layer change → one commit is fine.
 
-`:security` then audits `git -C <wt> diff --cached` — the bytes that
-will become the commit. It refuses to run if nothing is staged. Its
-verdict line is `security: APPROVED for <P> (staged-diff)`.
+Final marker: `green for <P> (<N> commits)`.
 
-`:pr` MUST commit exactly the already-staged set. The `/pr` skill is
-configured to refuse `git add .` and abort if nothing is staged at
-invocation time. Any change to the working tree between security
-APPROVED and `/pr` that the operator wants in the commit requires
-re-staging AND a re-run of `:security`.
+`:security` audits `<base>..HEAD`, not the working tree. Verdict:
+`security: APPROVED for <P> (<N> commits, base..HEAD)`. Re-runs if
+the implementer adds commits after approval.
+
+`:pr` only pushes + opens the PR; no further `git commit`. PR body
+includes a **commit map** (one line per commit). `/pr` runs
+`check-commit-cadence.sh` before push and aborts if multi-layer +
+single-commit — the implementer must `git rebase -i` and split.
 
 The `P:qa:red` task is **optional**. Omit it (and drop `P:qa:red` from
 `P:impl:green`'s `blockedBy`) when the change for that worktree has no

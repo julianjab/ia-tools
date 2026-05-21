@@ -73,9 +73,9 @@ workflow rules:
    `HIGH`/`MEDIUM` findings escalate to the user; `LOW`-only findings pass
    through as PR comments.
 4. **`/pr` is the only path to main — per repo.** No `git push origin main`,
-   no local merges, no amended commits on a remote-tracked branch. In
-   multi-repo tasks: N PRs (one per touched consumer repo). Each PR goes
-   through its own security gate. Single-repo tasks still produce one PR.
+   no local merges. In multi-repo tasks: N PRs (one per touched consumer
+   repo). Each PR goes through its own security gate. Single-repo tasks
+   still produce one PR.
 
 Outside these four rules — which teammates to spawn, whether to parallelize,
 whether `architect` is needed, whether `security` runs as a teammate or a

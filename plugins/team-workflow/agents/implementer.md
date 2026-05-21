@@ -94,17 +94,27 @@ Before editing anything:
 
 ### If `task_subject` is an `impl:green` task (make tests pass)
 
-1. Read the failing test(s). Understand what shape of code makes
-   them pass.
-2. Write the minimum implementation that turns RED into GREEN. Don't
-   add features beyond the test's coverage.
-3. Run the test runner. If still RED, iterate; never modify the
-   test to make it pass (that's a violation of the qa contract).
-4. When GREEN, run the lint/format commands. Fix any issues
-   introduced by your changes (do not touch unrelated lint warnings
-   that pre-existed).
-5. Output the `expected_marker` (e.g. "green for <wt_prefix>") and
-   a brief summary.
+Land the work as **one commit per architectural layer** touched
+(migration / model / adapter / service / endpoint / wiring). For each
+slice, in dependency order:
+
+1. Write/read the RED test for this slice. Never modify a test to make
+   it pass.
+2. Implement the minimum that turns RED → GREEN for THIS slice.
+3. Run lint + typecheck + tests. They must pass before commit.
+4. `git -C <wt> add <explicit files>` — never `git add .` / `-A`.
+5. Commit: `test(<scope>): ...` (RED) then `feat(<scope>): ...`
+   (GREEN), or `chore(<scope>): ...` for wiring. Capture the SHA.
+
+Rules:
+- Every commit is independently valid (no "broken in the middle").
+- Follow-up changes are always NEW commits (`fix(<scope>): ...`,
+  `test(<scope>): add coverage`, ...). See `commit/SKILL.md`.
+- Single-layer change → one commit is fine.
+
+Final marker: emit `expected_marker` (e.g.
+`green for <wt_prefix> (<N> commits)`) plus the list of
+`<short-sha> <subject>` lines.
 
 ### If `task_subject` is a free-form code task
 
@@ -128,6 +138,10 @@ Before editing anything:
   to approve and may escalate to the user.
 - **Don't touch unrelated lint warnings.** Only fix what your
   changes introduced.
+- **One commit per layer; never `git add .`.** See `lead.md` →
+  "Commit cadence contract" and `commit/SKILL.md` for the full rules.
+  Multi-layer features land as N commits, not one mega-commit.
+  Follow-ups are always new commits.
 - **Never open a PR.** That is the lead's responsibility (and
   the explicit `:pr` task assigned to a different agent in many
   workflows).
@@ -140,8 +154,17 @@ End every turn with a compact block:
 RESULT: <success|escalate>
 MARKER: <expected_marker emitted, if any>
 SUMMARY: <one or two lines: what changed, files touched>
+COMMITS:                                   ← only when impl:green produced commits
+  - <short-sha> <type>(<scope>): <subject>
+  - <short-sha> <type>(<scope>): <subject>
 NEXT: <empty | "lead: <what you need from them>">
 ```
+
+The `COMMITS:` block lets `lead` populate the worktree's `commit_shas:`
+list in `state.md` without re-running `git log`. Omit the block on
+escalate turns and on tasks that did not produce commits (e.g. a
+`qa:red` task that only added a failing test — that's also a commit
+worth listing, but a free-form question turn is not).
 
 When you escalate (ambiguous spec, missing infra, unknown stack,
 test demands behavior outside the api-contract, etc.), set
