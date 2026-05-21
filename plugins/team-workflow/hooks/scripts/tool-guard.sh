@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Generic tool guard — ia-tools plugin.
 #
+# Bucket:      enforcement
+# Listens to:  PreToolUse  (matcher: Bash|Edit|Write|MultiEdit|WebFetch)
+# Blocking:    yes (emits permissionDecision=deny in hookSpecificOutput)
+# Input  (stdin JSON): { "tool_name": "<name>", "tool_input": { ... }, ... }
+# Output: empty `{}` on allow, or PreToolUse-shaped deny JSON on block.
+#
 # Philosophy: block ONLY commands that cause irreversible damage or push
 # state to a place that requires non-trivial undo (e.g. merging a PR).
 # Anything else (creating PRs, publishing packages, pushing containers,

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # TaskCompleted hook — enforces plugin invariants 2 and 3.
 #
+# Bucket:      enforcement
+# Listens to:  TaskCompleted
+# Blocking:    yes (exit 2 with stderr feedback)
+# Input  (stdin JSON): { "task": { "id", "subject", "status" }, "cwd" }
+# Output: empty `{}` + exit 0 (allow) or stderr message + exit 2 (block).
+#
 # State location resolution order (first match wins):
 #   1. $IA_TW_STATE_DIR             — team-lead (v2) at $HOME/.claude/team-workflow/state/<topic-hash>/
 #   2. $cwd/.sessions/<first-label> — v1 orchestrator layout (transition support)
@@ -13,9 +19,6 @@
 #      audit log.
 #
 # Without a state dir to consult, we allow (no false negatives).
-#
-# Input  (stdin JSON): { "task": { "id", "subject", "status" }, "cwd" }
-# Output: exit 0 (allow) or exit 2 (block, with stderr feedback).
 set -u
 
 payload=$(cat)
