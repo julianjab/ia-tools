@@ -41912,10 +41912,17 @@ var McpBridgeServer = class {
         return;
       }
     }
+    const claimReminder = buildClaimReminder({
+      message_ts: message.message_ts,
+      channel_id: message.channel_id,
+      thread_ts: message.thread_ts
+    });
     await this.mcp.notification({
       method: "notifications/claude/channel",
       params: {
-        content: message.text,
+        content: `${claimReminder}
+
+${message.text}`,
         meta: {
           source: "slack-bridge",
           channel_id: message.channel_id,
@@ -41932,12 +41939,25 @@ var McpBridgeServer = class {
           // message based on WHY it was subscribed, not just the topic string.
           matched_topics: JSON.stringify(matched_topics),
           matched_labels: matched_topics.map((t) => t.label).filter((l) => Boolean(l)).join(","),
-          subscribed_topics: JSON.stringify(this.subscribedTopics)
+          subscribed_topics: JSON.stringify(this.subscribedTopics),
+          // Hint to agents and tooling that this inbound expects an
+          // upfront claim. Machine-readable mirror of claimReminder above.
+          pre_action_required: "claim_message"
         }
       }
     });
   }
 };
+function buildClaimReminder(args) {
+  const threadArg = args.thread_ts ? `, thread_ts: "${args.thread_ts}"` : "";
+  return [
+    "[slack-bridge] Multiple sessions may receive this inbound. If you decide to work it,",
+    `call claim_message({ message_ts: "${args.message_ts}", channel_id: "${args.channel_id}"${threadArg} })`,
+    'BEFORE any Read / Grep / Glob / Bash / Agent / drafting. On isError "Already claimed",',
+    "another session owns this message \u2014 exit the turn without working. The thinking indicator",
+    "appears on a successful claim and is cleared by reply() when you post the response."
+  ].join(" ");
+}
 async function main() {
   process.on("unhandledRejection", (reason) => {
     process.stderr.write(`[mcp] unhandledRejection: ${String(reason)}
