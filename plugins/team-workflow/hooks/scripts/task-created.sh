@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # TaskCreated hook — audit + soft enforcement of ia-tools task conventions.
 #
+# Bucket:      bookkeeping
+# Listens to:  TaskCreated
+# Blocking:    no (always exit 0; soft warnings on stderr only)
+# Input  (stdin JSON): { "task": { "id", "subject", "description" }, "cwd", ... }
+# Output: exit 0 always; warnings on stderr.
+#
 # State location resolution order (first match wins):
 #   1. $IA_TW_STATE_DIR             — set by team-lead (v2) at boot. Points to
 #                                      $HOME/.claude/team-workflow/state/<topic-hash>/
@@ -10,9 +16,6 @@
 # This hook is intentionally audit-only — TaskCreated payload does NOT
 # include blockedBy yet, so it never blocks creation. Cross-task enforcement
 # happens in task-completed.sh and teammate-idle.sh.
-#
-# Input  (stdin JSON): { "task": { "id", "subject", "description" }, "cwd", ... }
-# Output: exit 0 always.
 set -u
 
 payload=$(cat)

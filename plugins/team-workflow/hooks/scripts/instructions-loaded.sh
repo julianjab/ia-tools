@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # InstructionsLoaded hook — validates CLAUDE.md config for team-workflow.
 #
+# Bucket:      bookkeeping
+# Listens to:  InstructionsLoaded
+# Blocking:    no (always exit 0)
+# Input  (stdin JSON): { "path": "/abs/CLAUDE.md", "reason": "session_start|nested_traversal|...", ... }
+# Output: exit 0 always; warnings on stderr.
+#
 # Fires when a CLAUDE.md (or .claude/rules/*.md) file is loaded. Checks that
 # repos involved in a lead session declare the config /team-review needs.
 # Warns early — before reaching the dispatch loop — so the operator can fix
 # missing config before wasting a full feature cycle.
-#
-# Never blocks (exit 0 always). Warnings go to stderr (shown to user).
-#
-# Input  (stdin JSON): { "path": "/abs/CLAUDE.md", "reason": "session_start|nested_traversal|...", ... }
-# Output: exit 0 always; warnings on stderr.
 
 set -u
 

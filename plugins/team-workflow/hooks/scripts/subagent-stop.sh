@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # SubagentStop hook — appends structured agent-run metadata to state.md events block.
 #
+# Bucket:      bookkeeping
+# Listens to:  SubagentStop
+# Blocking:    no (always exit 0)
+# Input  (stdin JSON): { "agent_name", "exit_code", "output", "task": { "subject" }, ... }
+# Output: exit 0 always; writes an events: entry to state.md when applicable.
+#
 # Fires when a one-shot Agent() subagent finishes. Captures agent name, task,
 # exit code, and a short output excerpt into state.md as a structured events: list.
 # This gives session-end a curated pre-memory instead of raw transcript parsing.
 #
 # No LLM call — fast, cheap, and safe to run on every subagent stop.
-#
-# Input  (stdin JSON): { "agent_name", "exit_code", "output", "task": { "subject" }, ... }
-# Output: always exit 0 (non-blocking).
 
 set -u
 
