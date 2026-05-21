@@ -208,12 +208,11 @@ For every worktree provisioned, lead:
 1. `/worktree init <branch> --repo <repo>` — provisions the worktree
    AND runs `/add-dir <worktree-abs>` (registered with the active
    session).
-2. Writes a **minimal** worktree entry to `state.md`:
-   `repo`, `worktree`, `branch`, `wt_prefix`, `local_phase: planning`,
-   empty `markers`, empty `pr_url`. **No `stack:`, no `agents:`, no
-   `capabilities:`** — those are filled by the hook.
-3. Reads the entry back; the hook has spliced `stack:`, `agents:`,
-   and `capabilities:` in place.
+2. Writes a worktree entry to `state.md` with fields: `repo`,
+   `worktree`, `branch`, `wt_prefix`, `local_phase: planning`, empty
+   `markers`, empty `pr_url`. The hook fires on this Edit and
+   splices `stack:`, `agents:`, and `capabilities:` in place.
+3. Reads the entry back to consume the resolved `agents:` map.
 
 The hook pipeline (see `plugins/team-workflow/hooks/scripts/intelligence/detect-repo-capabilities.sh`):
 

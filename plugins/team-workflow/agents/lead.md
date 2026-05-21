@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Per-feature orchestrator. Boots inside the consumer repo (single or multi), discovers repo-local agents in each touched worktree, builds the full task list with `owner` resolved at planning time, then dispatches the graph until every PR is opened. Stays alive for follow-up. Replaces the v1 orchestrator + qa + security stack of agents.
+description: Per-feature orchestrator. Boots inside the consumer repo (single or multi), provisions a worktree per touched repo, reads the discovery results spliced into state.md by the detect-repo-capabilities hook, builds the full task list with `owner` resolved at planning time, then dispatches the graph until every PR is opened. Stays alive for follow-up. Replaces the v1 orchestrator + qa + security stack of agents.
 model: opus
 color: purple
 effort: high
@@ -268,8 +268,7 @@ not found" and waste a turn.
 
    Either way: confirm the printed working-copy path so you can
    reference it as `<worktree-abs>` in later steps.
-2. **Append a minimal worktree entry to `state.md`** — exactly these
-   fields, nothing else:
+2. **Append a worktree entry to `state.md`** with these fields:
    ```yaml
      - repo: <repo-abs>
        worktree: <worktree-abs>
@@ -279,27 +278,23 @@ not found" and waste a turn.
        markers: []
        pr_url: ""
    ```
-   Do **NOT** glob `.claude/agents/`, classify, infer `stack:`, or
-   write `agents:`/`capabilities:` here. The
-   `intelligence/detect-repo-capabilities.sh` hook fires on this exact
-   Edit/Write and splices `stack:`, `agents:`, and `capabilities:`
-   into the entry before the next time you read `state.md`. Discovery
-   logic (regex-based bucket classification + Haiku reasoning for the
-   `impl` bucket given the detected stack and agent descriptions +
-   manifest-based stack detection + capability probe) lives entirely
-   in that hook.
-3. **Read the entry back** (the hook ran synchronously inside the
-   Edit; the splice is already there). Note the resolved `agents:`
-   map for the dispatch loop. Fallback chain encoded by the hook:
-   - `impl`: first repo-local match (description aligns with stack
-     per Haiku) → `impl-<wt_prefix>` (plugin `implementer` fallback)
-   - `qa`:   first repo-local qa-named match → `IA_TW_TOPIC_WORKER_AGENT`
+   The `intelligence/detect-repo-capabilities.sh` hook fires on this
+   Edit and synchronously splices `stack:`, `agents:`, and
+   `capabilities:` into the entry. The hook owns all discovery —
+   manifest-based stack detection, regex name classification for
+   qa/sec/arch, Haiku reasoning for `impl` (description + detected
+   stack), and the capability probe.
+3. **Read the entry back** to consume the resolved `agents:` map for
+   the dispatch loop. Bucket resolution lives in the hook with this
+   fallback chain:
+   - `impl`: repo-local match (description aligns with stack per
+     Haiku) → `impl-<wt_prefix>` (plugin `implementer` fallback)
+   - `qa`:   repo-local qa-named match → `IA_TW_TOPIC_WORKER_AGENT`
      → `lead` (inline)
-   - `sec`:  first repo-local sec-named match → `IA_TW_TOPIC_WORKER_AGENT`
+   - `sec`:  repo-local sec-named match → `IA_TW_TOPIC_WORKER_AGENT`
      → `lead`
-   - `arch`: first repo-local arch-named match → Haiku's arch pick →
+   - `arch`: repo-local arch-named match → Haiku's arch pick →
      `IA_TW_TOPIC_WORKER_AGENT` → `implementer`
-   See the hook source for the exact regex + Haiku contract.
 
 ### Spawn rule for repo-local agents
 
