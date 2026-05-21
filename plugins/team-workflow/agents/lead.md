@@ -151,7 +151,7 @@ Schema (YAML frontmatter + markdown body):
 ```yaml
 topic: <IA_TW_TOPIC>
 feature: <IA_TW_FEATURE>
-phase: planning | implementing | reviewing | merged | closed | stopped
+phase: planning | implementing | prs-open | reviewing | merged | closed | stopped
 root_dir: <IA_TW_ROOT_DIR>
 created_at: <iso8601>
 last_event_at: <iso8601>
@@ -169,10 +169,43 @@ worktrees:
     local_phase: planning | red-confirmed | green | security-approved | pr-open | merged
     markers: ["<literal>", ...]
     pr_url: <url or empty>
+events:
+  - ts: <iso8601>
+    kind: plan_approved | worktrees_provisioned | contract_written | task_completed | marker | pr_opened | coverage_gate_iteration | retract | task_added | shutdown | phase_change
+    wt_prefix: <wt_prefix or omitted for feature-wide events>
+    subject: <task subject when applicable>
+    note: <one-line context, optional>
+    url:  <pr/commit url, optional>
 ```
 
+**Phase transitions (deterministic):**
+
+| From → To              | Trigger                                                                |
+|------------------------|------------------------------------------------------------------------|
+| `-` → `planning`        | initial `state.md` write at boot                                       |
+| `planning` → `implementing` | user approval of the plan                                          |
+| `implementing` → `prs-open` | all worktrees have `local_phase: pr-open`                          |
+| `prs-open` → `merged`   | every worktree's PR is merged (Cleanup)                                |
+| anytime → `closed`      | any PR closed without merge during Cleanup                             |
+| anytime → `stopped`     | user `cancelar` at the approval gate or explicit abort                 |
+
+**`local_phase` transitions are written automatically by `task-completed.sh`**
+based on the subject suffix (`qa:red` → `red-confirmed`, `impl:green` /
+`green` → `green`, `security` → `security-approved`, `pr` → `pr-open`). The
+lead does NOT have to update `local_phase` manually; it must still write the
+literal `markers:` entry before `TaskUpdate(status=completed)` because the
+same hook validates that first.
+
+**`events:` is also written automatically by `task-completed.sh`** on every
+successful task completion (one entry with `kind: task_completed`, `ts`,
+`subject`, `wt_prefix`). The lead MAY append additional events of other
+`kind`s (e.g. `coverage_gate_iteration`, `retract`, `task_added`) for
+out-of-band activity that does not flow through `TaskUpdate`. Treat
+`events:` as the structured timeline — the `## Audit log` body section is
+now an optional human-readable summary, not the source of truth.
+
 Body sections (markdown): `## Plan aprobado`, `## Discovered agents (raw)`,
-`## Audit log`.
+`## Audit log` (optional summary).
 
 `wt_prefix` is the stable id for every task subject targeting that
 worktree, every marker, and every task's `metadata.worktree_prefix`.
