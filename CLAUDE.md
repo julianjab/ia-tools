@@ -110,9 +110,14 @@ not teammate).
 - `plugins/team-workflow/skills/` — Reusable Claude Code skills:
   `router`, `session`, `worktree`, `commit`, `review`, `pr`,
   `team-review`, `sync-docs`, `pr-review`, `security-audit`.
-- `plugins/team-workflow/hooks/` — `enforce-worktree.sh` (PreToolUse,
-  gitignore-aware), `task-created.sh` / `task-completed.sh` /
-  `teammate-idle.sh` (agent-teams quality gates).
+- `plugins/team-workflow/hooks/scripts/{enforcement,bookkeeping,intelligence}/`
+  — bucketed hooks. `enforcement/` may exit 2 (enforce-worktree,
+  enforce-task-invariants, teammate-idle, tool-guard, ci-poller);
+  `bookkeeping/` always exit 0 (task-created, record-state-event,
+  subagent-stop, session-start, instructions-loaded, pre-compact);
+  `intelligence/` may call `claude -p` (session-end, plus correction
+  detectors: detect-task-replaced, detect-retract, detect-user-correction,
+  detect-coverage-gate, extract-memory-signal).
 - `plugins/slack-bridge/` — Self-contained Slack bridge MCP plugin.
 - `plugins/scaffold/` — Scaffolding/audit/edit skills for agents, skills, MCPs.
 - `.claude-plugin/marketplace.json` — Marketplace manifest.

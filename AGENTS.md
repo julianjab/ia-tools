@@ -257,7 +257,7 @@ resolve the state dir via `$IA_TW_STATE_DIR` (or fall back to a v1
 | Hook            | Script                                | Effect                                                                                                          |
 |-----------------|---------------------------------------|-----------------------------------------------------------------------------------------------------------------|
 | `TaskCreated`   | `bookkeeping/task-created.sh`         | Audit-only — logs each task subject; warns when a stack/pr task is created without a clear `blockedBy` prefix. |
-| `TaskCompleted` | `enforcement/task-completed.sh`       | Blocks (exit 2) `*:pr*` completion when `state.md` lacks `security: APPROVED for <wt_prefix>`; blocks `*:green*` without `RED confirmed for <wt_prefix>`. |
+| `TaskCompleted` | `enforcement/enforce-task-invariants.sh` + `bookkeeping/record-state-event.sh` | Enforcement blocks (exit 2) `*:pr*` completion when `state.md` lacks `security: APPROVED for <wt_prefix>`; blocks `*:green*` without `RED confirmed for <wt_prefix>`. Bookkeeping (runs after) appends to hook-audit.log + state.md events: + transitions local_phase. |
 | `TeammateIdle`  | `enforcement/teammate-idle.sh`        | Blocks `qa` teammates from idling until the transcript contains `RED confirmed`; blocks `security` teammates until verdict.                              |
 
 The hooks scan transcripts and `state.md`; when they cannot reach those

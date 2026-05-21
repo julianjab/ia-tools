@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TaskCompleted hook — enforces plugin invariants 2 and 3.
+# enforce-task-invariants.sh — blocks task completions that violate plugin invariants.
 #
 # Bucket:      enforcement
 # Listens to:  TaskCompleted
@@ -17,8 +17,16 @@
 #   B) A `:green` / `:impl:` task is marked completed but no
 #      `qa:red completed <worktree_prefix>` marker exists in state.md /
 #      audit log.
+#   C) A `:green` / `:impl:` task is marked completed but the worktree
+#      entry does not declare `staged_files:` — the staging contract.
 #
 # Without a state dir to consult, we allow (no false negatives).
+#
+# Sibling: bookkeeping/record-state-event.sh runs AFTER this hook in the
+# hooks.json chain. That file owns the audit log + events: append +
+# local_phase transitions. Keep that responsibility OUT of this file
+# (bucket discipline: enforcement may exit 2, bookkeeping must not).
+
 set -u
 
 payload=$(cat)
@@ -84,74 +92,6 @@ case "$subject" in
     fi
     ;;
 esac
-
-# Audit the completion regardless.
-if [ -n "$state_dir" ]; then
-  printf '%s TaskCompleted subject=%q status=%s\n' \
-    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$subject" "$status" \
-    >> "${state_dir}/hook-audit.log" 2>/dev/null || true
-fi
-
-# Structured bookkeeping into state.md: append an `events:` entry and
-# transition the worktree's `local_phase`. Best-effort — only runs when v2
-# state.md exists and the subject matches a known role. Idempotency is not
-# guaranteed at the hook layer; SessionEnd downstream can dedupe by ts+subject.
-if [ -n "${state_dir:-}" ] && [ -f "${state_dir}/state.md" ] && [ -n "$worktree_prefix" ]; then
-  state_md="${state_dir}/state.md"
-  ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-
-  # Marker→phase mapping for this subject.
-  new_phase=""
-  case "$subject" in
-    *":qa:red"|*":qa:red:"*)        new_phase="red-confirmed" ;;
-    *":impl:green"|*":impl:"*|*":green"|*":green:"*) new_phase="green" ;;
-    *":security"|*":security:"*|*":sec"|*":sec:"*)    new_phase="security-approved" ;;
-    *":pr"|*":pr:open"|*":pr:"*)    new_phase="pr-open" ;;
-  esac
-
-  tmp=$(mktemp 2>/dev/null) || tmp=""
-  if [ -n "$tmp" ]; then
-    awk -v prefix="$worktree_prefix" \
-        -v new_phase="$new_phase" \
-        -v ts="$ts" \
-        -v subject="$subject" '
-      BEGIN { state = "pre"; has_events_header = 0; matched = 0; inserted = 0 }
-
-      state == "pre" && /^---$/ { state = "front"; print; next }
-
-      state == "front" && /^---$/ {
-        if (has_events_header == 0) print "events:"
-        print "  - ts: " ts
-        print "    kind: task_completed"
-        print "    subject: \"" subject "\""
-        print "    wt_prefix: " prefix
-        state = "body"
-        print
-        inserted = 1
-        next
-      }
-
-      state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
-      state == "front" && /^last_event_at:[[:space:]]/ {
-        sub(/last_event_at:[[:space:]]*.*/, "last_event_at: " ts)
-      }
-      state == "front" && /^  - repo:/ { matched = 0 }
-      state == "front" && matched == 0 && $0 ~ ("wt_prefix:[[:space:]]*" prefix "([^[:alnum:]_-]|$)") { matched = 1 }
-      state == "front" && matched == 1 && new_phase != "" && /^[[:space:]]*local_phase:[[:space:]]/ {
-        sub(/local_phase:[[:space:]]*[^[:space:]]+.*/, "local_phase: " new_phase)
-        matched = 2
-      }
-
-      { print }
-    ' "$state_md" > "$tmp" 2>/dev/null
-
-    # Only swap if awk produced non-empty output (guard against truncation).
-    if [ -s "$tmp" ]; then
-      cat "$tmp" > "$state_md" 2>/dev/null || true
-    fi
-    rm -f "$tmp" 2>/dev/null || true
-  fi
-fi
 
 printf '{}'
 exit 0
