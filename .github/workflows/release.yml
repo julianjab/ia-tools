@@ -20,6 +20,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history + tags so the backfill step can fall back to
+          # `git log <prev-tag>..HEAD -- <plugin_path>` when a plugin's
+          # CHANGELOG section is missing (e.g. first-ever release of a
+          # newly-added plugin, or a manually-truncated changelog).
+          fetch-depth: 0
+          fetch-tags: true
 
       # release-please-action v4 (CLI v17.x) intermittently fails the final
       # "Creating releases for pull #N" step with `Resource not accessible by
@@ -81,12 +88,42 @@ jobs:
             echo "→ Creating missing release $tag at $release_pr_commit"
 
             notes_file=$(mktemp)
-            awk -v ver="$version" '
-              $0 ~ ("^## \\[" ver "\\]") { capture=1; next }
-              capture && /^## \[/ { exit }
-              capture { print }
-            ' "$plugin_path/CHANGELOG.md" > "$notes_file"
 
+            # Plan A: slice the matching `## [<version>]` section out of
+            # the plugin's CHANGELOG.md (normal release-please flow).
+            if [ -f "$plugin_path/CHANGELOG.md" ]; then
+              awk -v ver="$version" '
+                $0 ~ ("^## \\[" ver "\\]") { capture=1; next }
+                capture && /^## \[/ { exit }
+                capture { print }
+              ' "$plugin_path/CHANGELOG.md" > "$notes_file"
+            fi
+
+            # Plan B: no CHANGELOG section (first-ever release of a new
+            # plugin, or a truncated changelog). Synthesise notes from
+            # the git log of commits touching the plugin path, since the
+            # previous tag if any, else since the beginning of history.
+            if [ ! -s "$notes_file" ]; then
+              prev_tag=$(git tag -l "${name}-v*" --sort=-version:refname | head -n1)
+              {
+                echo "### Changes"
+                echo
+                if [ -n "$prev_tag" ]; then
+                  git log "${prev_tag}..HEAD" \
+                    --pretty=format:"* %s (%h)" \
+                    -- "$plugin_path"
+                else
+                  echo "_First release. All commits touching \`$plugin_path\`:_"
+                  echo
+                  git log --pretty=format:"* %s (%h)" -- "$plugin_path"
+                fi
+                echo
+              } > "$notes_file"
+            fi
+
+            # Plan C: even the git log came back empty (e.g. plugin moved
+            # paths). Last-resort placeholder so gh release create has
+            # something to publish.
             if [ ! -s "$notes_file" ]; then
               echo "Release ${name} v${version}." > "$notes_file"
             fi
