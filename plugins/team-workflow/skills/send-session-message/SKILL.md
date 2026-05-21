@@ -1,12 +1,14 @@
 ---
 name: send-session-message
 description: >
-  Forward a message to a running tmux session (typically a `lead`) and
-  submit it. Pastes the text literally with `tmux send-keys -l`, then
-  fires a SEPARATE `tmux send-keys Enter` so Claude Code's TUI actually
-  processes the message. Combining the content and Enter into one
-  send-keys call leaves the text pasted but unsubmitted — this skill
-  exists to make the two-step protocol the only path.
+  Forward a message to a running lead session (tmux or iTerm2) and
+  submit it. Auto-detects the host: tmux first (`tmux has-session`), then
+  iTerm2 (osascript lookup by session name). Pastes the text literally,
+  then fires a SEPARATE submit keystroke so Claude Code's TUI actually
+  processes the message. Combining content + Enter into one call leaves
+  the text pasted but unsubmitted — this skill exists to make the
+  two-step protocol the only path on both hosts. Override the auto
+  selection with `IA_TW_TERMINAL=tmux` or `IA_TW_TERMINAL=iterm`.
 
   Examples:
     /send-session-message feat-payment-tracking "status?"
@@ -15,13 +17,26 @@ argument-hint: "<tmux-session-name> <message>"
 disable-model-invocation: false
 ---
 
-## /send-session-message — Forward + submit into a tmux session
+## /send-session-message — Forward + submit into a lead session
 
 `/send-session-message` is the only sanctioned way to push a message
-into another Claude Code session running inside tmux. The receiving
-session sees the text in its prompt and then receives an Enter as a
-separate keystroke, which is what Claude Code's TUI needs in order to
-treat the message as submitted.
+into another Claude Code session, regardless of whether it lives in
+tmux or in an iTerm2 window. The receiving session sees the text in
+its prompt and then receives Enter as a separate keystroke, which is
+what Claude Code's TUI needs in order to treat the message as
+submitted.
+
+### Host detection
+
+| `IA_TW_TERMINAL` | Behavior |
+|---|---|
+| unset / `auto` (default) | Probe tmux (`tmux has-session`); if not found, probe iTerm2 (osascript). Send to the first match. |
+| `tmux` | Only look in tmux. Exit 2 if the session is not there. |
+| `iterm` | Only look in iTerm2. Exit 2 if no session of that name. |
+
+The probe is name-based on both hosts. `/session` sets the tmux session
+name and the iTerm2 session/window name to `<feature>`, so the lookup
+is symmetric.
 
 ### When to use it
 
@@ -42,13 +57,13 @@ treat the message as submitted.
 ## Contract
 
 ```
-/send-session-message <tmux-session-name> <message>
+/send-session-message <session-name> <message>
 ```
 
 | Arg | Required | Purpose |
 |---|---|---|
-| `<tmux-session-name>` | ✅ | Target tmux session. Must NOT contain `.` or `:` (tmux target syntax). |
-| `<message>` | ✅ | Free-form text. Pasted literally — no key-name interpretation. Newlines inside the message are preserved as Shift+Enter equivalents at the receiving TUI's discretion; the submit Enter is fired AFTER the paste, as a separate call. |
+| `<session-name>` | ✅ | Target session. Must NOT contain `.` or `:` (tmux target syntax — also enforced for iTerm2 to keep the contract uniform). |
+| `<message>` | ✅ | Free-form text. Pasted literally — no key-name interpretation. The submit Enter is fired AFTER the paste, as a separate call. |
 
 ### Argument parsing
 
@@ -65,29 +80,35 @@ Tokenize `$ARGUMENTS`:
 The skill is a thin wrapper around `scripts/send.sh`. The script:
 
 1. Validates the session name (no `.` / `:`).
-2. Verifies the tmux session exists (`tmux has-session -t`).
-3. Pastes the message: `tmux send-keys -t <session> -l -- "<message>"`.
-   `-l` disables key-name interpretation so words like `Enter`, `C-c`,
-   or `$` inside the message stay as text.
-4. Sleeps 150 ms so the TUI registers the buffered text.
-5. Fires Enter as a SEPARATE call: `tmux send-keys -t <session> Enter`.
-   This is the submit. The separation is the whole point of the skill.
+2. Resolves the host according to `IA_TW_TERMINAL` (auto / tmux / iterm).
+3. **tmux path**: `tmux has-session -t` → `tmux send-keys -l --` (paste,
+   `-l` keeps `Enter`/`C-c`/`$` literal) → 150 ms sleep → separate
+   `tmux send-keys Enter` (submit).
+4. **iTerm2 path**: locate the session by name via AppleScript →
+   `write text "<msg>" newline NO` (paste) → 150 ms delay →
+   `write text "" newline YES` (submit). The two `write text` calls
+   stay separate for the same reason tmux needs two `send-keys`.
 
 ## Delegate script
 
 ```bash
 !bash "${CLAUDE_PLUGIN_ROOT}/skills/send-session-message/scripts/send.sh" \
-  "<tmux-session-name>" "<message>"
+  "<session-name>" "<message>"
 ```
+
+Add an `IA_TW_TERMINAL=tmux|iterm` env prefix to force a specific host
+instead of using auto-detection.
 
 ## Errors and recovery
 
 | Situation | Action |
 |---|---|
-| `<tmux-session-name>` empty or contains `.` / `:` | Reject. |
+| `<session-name>` empty or contains `.` / `:` | Reject. |
 | `<message>` empty | Reject. |
-| tmux session does not exist | Report and stop; do not auto-create. |
-| `tmux` not on PATH | Abort with install hint. |
+| Session not found in any host (auto) | Report and stop; do not auto-create. |
+| `IA_TW_TERMINAL=tmux` and session missing in tmux | Exit 2. |
+| `IA_TW_TERMINAL=iterm` and session missing in iTerm2 | Exit 2. |
+| Neither tmux nor `osascript` available | Abort with install hint. |
 
 ## Why a separate Enter
 
