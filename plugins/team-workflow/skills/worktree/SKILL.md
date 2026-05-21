@@ -14,6 +14,7 @@ description: >
   `/worktree rehydrate`, `/worktree rehydrate --feature feat-notif`.
 argument-hint: "[init|list|switch|cleanup|status|rehydrate] [branch-name] [--base main] [--review <pr>] [--repo <path>] [--feature <name>] [--state-dir <path>]"
 disable-model-invocation: false
+allowed-tools: Read, Grep, Glob, SlashCommand, Bash(bash *), Bash(git *), Bash(gh *), Bash(find *), Bash(ls *), Bash(awk *), Bash(sed *), Bash(grep *), Bash(cat *), Bash(printf *), Bash(test *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(chmod *)
 ---
 
 ## Worktree Manager
