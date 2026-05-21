@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # SessionEnd hook — extracts and consolidates feature learnings into agent memory.
 #
+# Bucket:      intelligence (invokes `claude -p` for memory synthesis)
+# Listens to:  SessionEnd
+# Blocking:    no (always exit 0; SessionEnd is non-blocking by design)
+# Input  (stdin JSON): { "end_reason": "...", "transcript_path": "...", "cwd", ... }
+# Output: always exit 0; side effects only (writes MEMORY.md files, optional PRs).
+#
 # When a lead session ends with phase=merged:
 #   1. Writes lead memory (decisions, friction, next-time hints).
 #   2. For each worktree in state.md, writes role-specific memories to each
@@ -20,9 +26,6 @@
 #
 # Falls back to basic metadata if claude CLI is unavailable.
 # Always append-only. Idempotent (skips if feature already recorded today).
-#
-# Input  (stdin JSON): { "end_reason": "...", "transcript_path": "...", "cwd", ... }
-# Output: always exit 0 (SessionEnd is non-blocking).
 
 set -u
 

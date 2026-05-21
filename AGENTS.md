@@ -249,18 +249,31 @@ $HOME/.claude/team-workflow/state/<topic_hash>/
 ## Hook-enforced quality gates
 
 Three plugin hooks turn the invariants from convention into enforced rules.
-They live under `plugins/team-workflow/hooks/scripts/` and resolve the
-state dir via `$IA_TW_STATE_DIR` (or fall back to a v1 `.sessions/<label>/`
-layout during a transition window).
+They live under `plugins/team-workflow/hooks/scripts/<bucket>/` (see the
+bucket conventions in `plugins/scaffold/references/script-style.md`) and
+resolve the state dir via `$IA_TW_STATE_DIR` (or fall back to a v1
+`.sessions/<label>/` layout during a transition window).
 
-| Hook            | Script                  | Effect                                                                                                          |
-|-----------------|-------------------------|-----------------------------------------------------------------------------------------------------------------|
-| `TaskCreated`   | `task-created.sh`       | Audit-only — logs each task subject; warns when a stack/pr task is created without a clear `blockedBy` prefix. |
-| `TaskCompleted` | `task-completed.sh`     | Blocks (exit 2) `*:pr*` completion when `state.md` lacks `security: APPROVED for <wt_prefix>`; blocks `*:green*` without `RED confirmed for <wt_prefix>`. |
-| `TeammateIdle`  | `teammate-idle.sh`      | Blocks `qa` teammates from idling until the transcript contains `RED confirmed`; blocks `security` teammates until verdict.                              |
+| Hook            | Script                                | Effect                                                                                                          |
+|-----------------|---------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `TaskCreated`   | `bookkeeping/task-created.sh`         | Audit-only — logs each task subject; warns when a stack/pr task is created without a clear `blockedBy` prefix. |
+| `TaskCompleted` | `enforcement/task-completed.sh`       | Blocks (exit 2) `*:pr*` completion when `state.md` lacks `security: APPROVED for <wt_prefix>`; blocks `*:green*` without `RED confirmed for <wt_prefix>`. |
+| `TeammateIdle`  | `enforcement/teammate-idle.sh`        | Blocks `qa` teammates from idling until the transcript contains `RED confirmed`; blocks `security` teammates until verdict.                              |
 
 The hooks scan transcripts and `state.md`; when they cannot reach those
 (no state dir), they fall back to allow.
+
+The full hook layout is:
+
+```
+plugins/team-workflow/hooks/scripts/
+├── enforcement/   (may exit 2 — enforce-worktree, task-completed,
+│                   teammate-idle, tool-guard, ci-poller)
+├── bookkeeping/   (always exit 0, deterministic state writes —
+│                   task-created, subagent-stop, session-start,
+│                   instructions-loaded, pre-compact)
+└── intelligence/  (may call claude -p — session-end)
+```
 
 ## Plugin frontmatter limitations
 

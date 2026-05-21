@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # enforce-worktree.sh — gitignore-aware worktree enforcement.
 #
+# Bucket:      enforcement
+# Listens to:  PreToolUse  (matcher: Edit|Write|MultiEdit)
+# Blocking:    yes (emits permissionDecision=deny in hookSpecificOutput)
+# Input  (stdin JSON): { "tool_input": { "file_path": "<abs path>" }, ... }
+# Output: empty `{}` on allow, or PreToolUse-shaped deny JSON on block.
+#
 # Rules applied per file edit (Edit/Write/MultiEdit):
 #
 #   1. File outside any git repo                 → ALLOW (no protection model)

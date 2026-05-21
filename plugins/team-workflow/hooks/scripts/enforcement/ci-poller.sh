@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Async CI poller — triggered by TaskCompleted on :pr tasks.
 #
-# Runs in the background (async: true, asyncRewake: true in hooks.json).
-# Polls gh pr checks until all checks pass or any fail, then exits 2 to
-# wake the lead session with the result via asyncRewake.
+# Bucket:      enforcement (uses exit 2 to deliver async wake signal)
+# Listens to:  TaskCompleted  (async: true, asyncRewake: true in hooks.json)
+# Blocking:    yes (exit 2 wakes the lead session via asyncRewake)
+# Input  (stdin JSON): { "task": { "id", "subject", "status" }, "cwd", ... }
+# Output: exit 0 = not relevant; exit 2 = wakes Claude with stderr message.
+#
+# Runs in the background (asyncRewake). Polls gh pr checks until all checks
+# pass or any fail, then exits 2 to wake the lead session with the result.
 #
 # This replaces the blocking `gh pr checks --watch` approach: lead can
 # continue dispatching other unblocked tasks while CI runs.
-#
-# Input  (stdin JSON): { "task": { "id", "subject", "status" }, "cwd", ... }
-# Output: exit 0 = not relevant; exit 2 = wakes Claude with stderr message.
 
 set -u
 

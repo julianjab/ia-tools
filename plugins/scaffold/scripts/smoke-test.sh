@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # E2E smoke test for /new-mcp's scaffold.sh.
 #
+# Usage:      plugins/scaffold/scripts/smoke-test.sh
+# Exit codes: 0 = all assertions pass; non-zero = any check failed.
+#
 # Verifies that the deterministic scaffold flow produces a valid MCP plugin
 # structure: all expected files, no leftover {{NAME}} placeholders, valid JSON
 # manifests, and correct behavior on invalid inputs.

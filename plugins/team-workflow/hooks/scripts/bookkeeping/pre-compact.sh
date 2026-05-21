@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # PreCompact hook — injects state context into the compaction summary.
 #
+# Bucket:      bookkeeping
+# Listens to:  PreCompact
+# Blocking:    no (always exit 0; only injects additionalContext)
+# Input  (stdin JSON): { "trigger": "auto|manual", "cwd", ... }
+# Output: JSON with hookSpecificOutput.additionalContext, or {} if no state.
+#
 # When lead compacts mid-dispatch, the resulting summary must include enough
 # context to resume without re-running pre-analysis. This hook reads state.md
 # and the audit log and emits additionalContext so the compactor includes
 # phase, worktrees, and recent task events in the summary.
-#
-# Does NOT block compaction (never exits 2). Only injects context.
-#
-# Input  (stdin JSON): { "trigger": "auto|manual", "cwd", ... }
-# Output: JSON with hookSpecificOutput.additionalContext, or {} if no state.
 
 set -u
 

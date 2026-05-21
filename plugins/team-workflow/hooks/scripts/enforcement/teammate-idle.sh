@@ -2,6 +2,14 @@
 # TeammateIdle hook — keeps `qa` and `security` working until they publish
 # their workflow verdict.
 #
+# Bucket:      enforcement
+# Listens to:  TeammateIdle
+# Blocking:    yes (exit 2 forces the teammate to keep working)
+# Input  (stdin JSON, per https://code.claude.com/docs/en/hooks#teammateidle):
+#   { "teammate": { "name", "agent_type", "blockedBy" },
+#     "transcript_path", "cwd", ... }
+# Output: exit 0 (allow idle) or exit 2 (force teammate to keep working).
+#
 # This is the strongest enforcement of plugin invariants 2 and 3 because
 # the hook payload provides the teammate name + agent_type, and Claude Code
 # also surfaces `transcript_path` (common input field). We scan the
@@ -13,11 +21,6 @@
 #   security → either "APPROVED" or "REJECTED" (uppercase, on a verdict line)
 #
 # Other teammates idle freely.
-#
-# Input  (stdin JSON, per https://code.claude.com/docs/en/hooks#teammateidle):
-#   { "teammate": { "name", "agent_type", "blockedBy" },
-#     "transcript_path", "cwd", ... }
-# Output: exit 0 (allow idle) or exit 2 (force teammate to keep working).
 set -u
 
 payload=$(cat)

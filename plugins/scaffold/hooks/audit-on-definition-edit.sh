@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# PostToolUse hook (scaffold plugin): triggers /audit-agent or /audit-skill when
-# an agents/*.md or skills/*/SKILL.md file is saved.
-# Fires on Edit, Write, and MultiEdit.
+# PostToolUse hook (scaffold plugin) — nudges /audit-* on definition file edits.
 #
-# Exit 0 → file is not an agent/skill definition, no-op.
-# Exit 2 → sends feedback to Claude instructing it to run the appropriate audit.
+# Bucket:      enforcement (uses exit 2 to surface the nudge to Claude)
+# Listens to:  PostToolUse  (matcher: Edit|Write|MultiEdit)
+# Blocking:    yes (exit 2 with stderr feedback; the edit itself is NOT reverted)
+# Input  (stdin JSON): { "tool_input": { "file_path": "<abs path>" }, ... }
+# Output: exit 0 on non-definition paths; exit 2 with stderr nudge otherwise.
+#
+# Triggers /audit-agent, /audit-skill, or /audit-script depending on which
+# scaffold artifact was modified:
+#
+#   agents/*.md             → /audit-agent  (A1–A14)
+#   skills/*/SKILL.md       → /audit-skill  (S1–S18 for skills)
+#   hooks/scripts/*.sh      → /audit-script (S1–S20 for bash)
+#   plugins/*/hooks/.../*.sh→ /audit-script (S1–S20 for bash)
+#   scripts/*.sh            → /audit-script (S1–S20 for bash)
 
 set -u
 
@@ -23,6 +33,11 @@ case "$file_path" in
     ;;
   */skills/*/SKILL.md)
     printf 'Skill file updated: %s\nRun /audit-skill %s to validate it against the skill rules (S1–S18).\n' \
+      "$file_path" "$file_path" >&2
+    exit 2
+    ;;
+  */hooks/scripts/*.sh|*/hooks/*.sh|*/scripts/*.sh)
+    printf 'Script file updated: %s\nRun /audit-script %s to validate it against the structured-bash rules (S1–S20).\n' \
       "$file_path" "$file_path" >&2
     exit 2
     ;;
