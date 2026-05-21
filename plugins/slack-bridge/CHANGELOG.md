@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.7.0...slack-bridge-v0.7.1) (2026-05-21)
+
+
+### Bug Fixes
+
+* **slack-bridge:** use biome-ignore pragma + reformat marketplace.json ([#87](https://github.com/julianjab/ia-tools/issues/87)) ([06a1d33](https://github.com/julianjab/ia-tools/commit/06a1d33254920742a63cbe989b9fe07aabbd0bba))
+
 ## [0.7.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.6.0...slack-bridge-v0.7.0) (2026-05-21)
 
 
