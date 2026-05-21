@@ -8,19 +8,23 @@
 # Output: exit 0 always; appends `kind: user_correction` to state.md events:
 #         when a deterministic correction signal is detected.
 #
-# Signals (regex-based, V1 — no LLM call). Each signal kind is matched in
-# both Spanish and English to cover bilingual operators:
+# Two-stage classification (prompt-first, regex-fallback):
 #
-#   cancel       — "cancelar" / "cancel"
-#   pushback     — "no, eso no" / "eso no es lo que" /
-#                  "no, that's not" / "not what I"
-#   redirection  — "deberías" / "debias" / "you should" / "you ought to"
-#   rebuttal     — "asumiste mal" / "no debió" / "no debio" /
-#                  "you assumed" / "you got it wrong" / "wrong assumption"
-#   retract      — "retract" (universal)
-#   pause        — "espera," / "para," / "wait," / "hold on" / "hang on"
-#   stop         — "stop"  (universal, whole-word)
-#   undo         — "deshaz" / "revierte" / "undo" / "revert"
+#   Stage 1 — Haiku classification (preferred when `claude` CLI is available).
+#             A short prompt asks the model to label the message as one of:
+#             cancel|pushback|redirection|rebuttal|pause|undo|stop|retract|none.
+#             Free-text, multi-language, tone-aware. Cost: ~one Haiku call
+#             per user prompt in a lead session. We only fire when phase
+#             is past planning, so volume is bounded.
+#
+#   Stage 2 — Regex fallback (deterministic). Used when `claude` is missing,
+#             the call fails, or the response is unparseable. Keeps us
+#             functional in CI / offline and provides a floor of coverage.
+#             Bilingual patterns for cancel / pushback / redirection /
+#             rebuttal / pause / undo / retract / stop.
+#
+# The script ALWAYS exits 0. Intelligence-bucket contract: best-effort,
+# never blocks the user.
 #
 # Only fires in active lead sessions (IA_TW_FEATURE set), and only when phase
 # is NOT "planning" (planning-phase edits go through the approval gate, which
@@ -47,10 +51,51 @@ phase=$(grep '^phase:' "$state_file" 2>/dev/null | head -1 | sed 's/phase:[[:spa
 prompt=$(printf '%s' "$payload" | jq -r '.prompt // empty' 2>/dev/null)
 [ -n "$prompt" ] || exit 0
 
-# Detect signals (case-insensitive). Each kind has Spanish + English patterns.
+# ── Stage 1: Haiku classification (preferred) ────────────────────────────────
+signal=""
+if command -v claude >/dev/null 2>&1; then
+  classifier_prompt="Classify this user message from a software-engineering chat:
+
+  ---
+  ${prompt}
+  ---
+
+  Pick ONE label that best matches:
+
+    cancel       — the user explicitly wants to abort the current work
+    pushback     — the user rejects something just done ('no, that's not it')
+    redirection  — the user steers toward a different approach ('you should X')
+    rebuttal     — the user corrects a wrong assumption you held
+    pause        — the user wants to stop momentarily (not abort)
+    undo         — the user wants the last action reverted
+    stop         — the user wants execution halted entirely
+    retract      — the user explicitly invokes 'retract' / 'unretract'
+    none         — the message is neither a correction nor a steer
+
+  Output ONLY a JSON object on one line: {\"signal\":\"<label>\"}
+  No prose, no markdown, no code fence."
+
+  classifier_response=$(printf '%s' "$classifier_prompt" \
+    | claude -p --model claude-haiku-4-5-20251001 2>/dev/null) || classifier_response=""
+
+  # Extract the signal field. Tolerant of leading/trailing whitespace; rejects
+  # 'none' so we don't write spurious events.
+  signal=$(printf '%s' "$classifier_response" \
+    | grep -oE '"signal"[[:space:]]*:[[:space:]]*"[a-z_]+"' \
+    | head -1 \
+    | sed 's/.*"\([a-z_]*\)"$/\1/' 2>/dev/null)
+
+  case "$signal" in
+    none|"") signal="" ;;
+    cancel|pushback|redirection|rebuttal|pause|undo|stop|retract) ;;  # ok
+    *) signal="" ;;  # unknown label — drop to fallback
+  esac
+fi
+
+# ── Stage 2: regex fallback (when classifier was unavailable or returned empty) ──
 # Order matters: more-specific patterns (rebuttal, pushback) come BEFORE the
 # generic ones (redirection, cancel) so a longer match wins.
-signal=""
+if [ -z "$signal" ]; then
 prompt_lc=$(printf '%s' "$prompt" | tr '[:upper:]' '[:lower:]')
 case "$prompt_lc" in
   # Cancel — explicit abort.
@@ -93,6 +138,7 @@ case "$prompt_lc" in
     fi
     ;;
 esac
+fi  # end Stage 2 fallback
 
 [ -n "$signal" ] || exit 0
 
