@@ -21,16 +21,37 @@
 #                       this for scripted / SDK calls.
 #        --max-turns 1  single classification turn, no loops.
 #      Baseline → bare:  ~12 s → ~0.7 s  (~17× faster).
-#      Bare mode requires API-key auth; OAuth from /login is NOT picked up.
+#      Bare mode auth is strictly ANTHROPIC_API_KEY or an apiKeyHelper passed
+#      via --settings; OAuth and keychain are never read by --bare. Billing
+#      goes through the API key's account.
 #
 #   2. Tuned-flags path (used when ANTHROPIC_API_KEY is missing — typical
-#      on a developer machine that authed via /login):
+#      on a developer machine that authed via /login, or on CI / pod with
+#      CLAUDE_CODE_OAUTH_TOKEN exported as an alternative to /login):
 #        --max-turns 1
 #        --strict-mcp-config --mcp-config <empty-json>   skip slack-bridge etc.
 #        --setting-sources user                          skip project CLAUDE.md
 #        --disallowedTools …                             drop tool defs
 #        --permission-mode bypassPermissions
-#      Baseline → tuned: ~12 s → ~3 s  (~4× faster). Keeps OAuth auth.
+#      Baseline → tuned: ~12 s → ~3 s  (~4× faster). Keeps OAuth auth, so
+#      Pro / Max / Team / Enterprise subscriptions bill normally.
+#
+# Setup matrix for the operator:
+#   Developer laptop (default /login)
+#     → nothing to do. fast_claude takes path 2, ~3 s per call, subscription
+#       billing. The OAuth token lives in the keychain.
+#   CI / Docker / pod without keychain
+#     → run `claude setup-token` once on a host you control, export the result
+#       as CLAUDE_CODE_OAUTH_TOKEN. fast_claude still takes path 2, ~3 s,
+#       subscription billing. No /login flow needed.
+#   Speed-critical (you accept API-key billing instead of subscription)
+#     → export ANTHROPIC_API_KEY (Console-generated). fast_claude takes
+#       path 1, ~0.7 s per call.
+#
+# Why CLAUDE_CODE_OAUTH_TOKEN does NOT take path 1: --bare's own --help reads
+#   "Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via
+#    --settings (OAuth and keychain are never read)."
+# The OAuth token is still an OAuth-flavour credential, so --bare ignores it.
 #
 # See https://code.claude.com/docs/en/headless#start-faster-with-bare-mode
 # and https://code.claude.com/docs/en/cli-reference for the per-flag docs.
