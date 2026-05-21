@@ -25,9 +25,18 @@ agent_name=$(printf '%s' "$payload" | jq -r '.agent_name // empty'    2>/dev/nul
 exit_code=$(printf '%s'  "$payload" | jq -r '.exit_code  // "0"'      2>/dev/null)
 task_subj=$(printf '%s'  "$payload" | jq -r '.task.subject // empty'   2>/dev/null)
 raw_output=$(printf '%s' "$payload" | jq -r '.output // empty'         2>/dev/null)
-ts=$(date -u '+%Y-%m-%dT%H:%MZ')
+ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 [ -n "$agent_name" ] || exit 0
+
+# Idempotency (S8): skip if this exact ts+agent+task combo is already recorded.
+# SubagentStop can refire on transient hook retries; dedupe by composite key.
+dedupe_key="ts: ${ts}"
+if grep -qF "$dedupe_key" "$state_file" 2>/dev/null \
+   && grep -A 4 -F "$dedupe_key" "$state_file" 2>/dev/null \
+      | grep -qF "agent: ${agent_name}" 2>/dev/null; then
+  exit 0
+fi
 
 # One-line summary: last 400 chars of output, collapsed to single line.
 note=""
@@ -41,16 +50,38 @@ if [ -n "$raw_output" ]; then
     | sed 's/"/\\"/g')
 fi
 
-# Ensure events: block exists in state.md.
-grep -q '^events:' "$state_file" 2>/dev/null || printf '\nevents:\n' >> "$state_file" 2>/dev/null || true
+# Insert the event entry inside the YAML frontmatter, before the closing `---`.
+# Previously this appended to EOF, which placed events after the frontmatter
+# in the markdown body — incompatible with the lead/session-end YAML parser
+# (S14: structured output must land in the right place). awk single-pass:
+#   - Track frontmatter state (between the two `---` lines).
+#   - On the closing `---`, emit `events:` header if missing, then the entry,
+#     then the dash itself.
+tmp=$(mktemp 2>/dev/null) || tmp=""
+if [ -n "$tmp" ]; then
+  awk -v ts="$ts" -v agent="$agent_name" -v task="$task_subj" \
+      -v exitc="$exit_code" -v note="$note" '
+    BEGIN { state = "pre"; has_events_header = 0 }
+    state == "pre" && /^---$/ { state = "front"; print; next }
+    state == "front" && /^---$/ {
+      if (has_events_header == 0) print "events:"
+      printf "  - ts: %s\n",     ts
+      printf "    agent: %s\n",  agent
+      if (task != "")  printf "    task: %s\n", task
+      printf "    exit_code: %s\n", exitc
+      if (note != "")  printf "    note: \"%s\"\n", note
+      state = "body"
+      print
+      next
+    }
+    state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
+    { print }
+  ' "$state_file" > "$tmp" 2>/dev/null
 
-# Append the event entry.
-{
-  printf '  - ts: %s\n'       "$ts"
-  printf '    agent: %s\n'    "$agent_name"
-  [ -n "$task_subj" ] && printf '    task: %s\n' "$task_subj"
-  printf '    exit_code: %s\n' "$exit_code"
-  [ -n "$note" ] && printf '    note: "%s"\n' "$note"
-} >> "$state_file" 2>/dev/null || true
+  if [ -s "$tmp" ]; then
+    cat "$tmp" > "$state_file" 2>/dev/null || true
+  fi
+  rm -f "$tmp" 2>/dev/null || true
+fi
 
 exit 0
