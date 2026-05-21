@@ -29,6 +29,7 @@ Parse `$ARGUMENTS` to determine which sub-command to execute:
 | `switch` | Print the path of an existing worktree (context guidance) |
 | `cleanup` | Remove worktree(s) that are merged or no longer needed |
 | `status` | Comprehensive overview: all worktrees, uncommitted changes, unpushed commits |
+| `rehydrate` | Re-register every active worktree from `state.md` via `/add-dir`. Use after `/compact`, `/clear`, or a fresh `/resume` when repo-local agent spawns start failing with "agent type not found". |
 | _(empty)_ | Run `status` by default |
 
 ---
@@ -272,6 +273,63 @@ current CWD's repo root.
 ```
 
 ---
+
+## Sub-command: `rehydrate`
+
+**Purpose**: re-register every active worktree from `state.md` via
+`/add-dir`. Use after `/compact`, `/clear`, or a fresh `/resume` when
+repo-local agent spawns start failing with "agent type not found".
+
+After context loss, the worktrees still exist on disk and `state.md`
+still records them, but the Claude Code session forgot the `/add-dir`
+registrations that `init` set up. `rehydrate` reads `state.md`,
+discards entries whose `local_phase` is terminal (`merged` / `closed`
+/ `stopped`) or whose path no longer exists, and runs `/add-dir` on
+the rest.
+
+### Preconditions
+
+| Condition | Action |
+|-----------|--------|
+| `$IA_TW_STATE_DIR` unset or directory missing | STOP — "Not inside a lead session; cannot rehydrate." |
+| `$IA_TW_STATE_DIR/state.md` missing | STOP — "state.md not found at $IA_TW_STATE_DIR." |
+| Helper script `scripts/active-worktrees.sh` missing | STOP — installation issue. |
+
+### Steps
+
+1. **List active worktrees**:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/worktree/scripts/active-worktrees.sh"
+   ```
+   The script reads `$IA_TW_STATE_DIR/state.md`, returns one absolute
+   worktree path per line, and pre-filters terminal phases + missing
+   paths. Empty output → report "No worktrees to rehydrate" and exit.
+
+2. **Re-register each path**. For each line in the script's output,
+   invoke `/add-dir <path>` via the SlashCommand tool. Run them
+   sequentially; order matches `state.md` declaration order.
+
+3. **Verify by sampling**. Read the `.claude/agents/` listing of the
+   first rehydrated worktree to confirm registration took effect.
+
+### Output
+
+```
+/worktree rehydrate complete:
+  state_dir:       <abs path>
+  rehydrated:      <N>     (paths now registered via /add-dir)
+  skipped:         <list>  (terminal phases or paths that no longer exist)
+
+Repo-local agents under each rehydrated worktree are now callable via
+Agent(subagent_type=<name>).
+```
+
+### Error handling
+
+| Condition | Action |
+|-----------|--------|
+| `active-worktrees.sh` prints nothing | Report "No worktrees to rehydrate" and exit 0 |
+| `/add-dir` invocation fails for one path | Continue with remaining paths; include failures in the final report |
 
 ## Sub-command: `status`
 

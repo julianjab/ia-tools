@@ -31,6 +31,15 @@ topic=$(grep '^topic:' "$state_file" 2>/dev/null | head -1 | sed 's/topic:[[:spa
 worktree_summary=$(grep -E 'wt_prefix:|local_phase:' "$state_file" 2>/dev/null | paste - - | \
   sed 's/[[:space:]]*wt_prefix:[[:space:]]*/prefix=/; s/[[:space:]]*local_phase:[[:space:]]*/  phase=/' || true)
 
+# Active worktree paths (terminal-phase / missing-on-disk entries are filtered
+# out by the shared helper). Used by `/worktree rehydrate` on resume to
+# re-register /add-dir.
+active_worktrees=""
+helper="${CLAUDE_PLUGIN_ROOT:-}/skills/worktree/scripts/active-worktrees.sh"
+if [ -x "$helper" ]; then
+  active_worktrees=$(bash "$helper" "$state_file" 2>/dev/null || true)
+fi
+
 # Last 15 audit events.
 recent_events=""
 if [ -f "$audit_log" ]; then
@@ -46,10 +55,13 @@ state_dir:   ${IA_TW_STATE_DIR}
 Worktrees:
 ${worktree_summary}
 
+Active worktree paths (one per line):
+${active_worktrees:-(none)}
+
 Recent task events (last 15):
 ${recent_events}
 
-On resume: read ${state_file} to reconstruct worktrees + agent map, then continue dispatch loop from phase=${phase}. Do NOT re-run pre-analysis."
+On resume: read ${state_file} to reconstruct worktrees + agent map, then run /worktree rehydrate to re-register the paths above via /add-dir, then continue the dispatch loop from phase=${phase}. The hook already filled in stack/agents/capabilities; pre-analysis stays cached."
 
 # JSON-encode the context string.
 if command -v python3 >/dev/null 2>&1; then
