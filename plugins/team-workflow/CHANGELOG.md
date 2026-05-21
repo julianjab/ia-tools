@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.1.0...team-workflow-v1.2.0) (2026-05-21)
+
+
+### Features
+
+* **team-workflow:** /worktree rehydrate + SessionStart nudge after context loss ([#98](https://github.com/julianjab/ia-tools/issues/98)) ([4f1142f](https://github.com/julianjab/ia-tools/commit/4f1142fe0a199616667fbfe6bb0249c6b45d9798))
+
 ## [1.1.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.0.0...team-workflow-v1.1.0) (2026-05-21)
 
 
