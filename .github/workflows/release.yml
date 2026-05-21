@@ -21,13 +21,88 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # release-please-action v4 (CLI v17.x) intermittently fails the final
+      # "Creating releases for pull #N" step with `Resource not accessible by
+      # integration` even when the GITHUB_TOKEN has `contents: write` and no
+      # tag/branch ruleset blocks creation. The action's PR + manifest +
+      # CHANGELOG work has already succeeded by that point; only the
+      # `POST /releases` call inside the action fails. The "Backfill missing
+      # releases" step below recreates any missing tag/release pair using
+      # `gh release create` (same token, different code path — known to work).
+      # `continue-on-error` keeps the workflow running so the backfill fires.
       - name: Run release-please
         id: release
+        continue-on-error: true
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
+
+      # Fallback: read the manifest, find any <name>-v<version> release
+      # missing from the repo, and create the tag + GitHub Release using the
+      # merge commit of the latest merged "chore: release main" PR as the
+      # target. On a normal feature-merge push this is a no-op (all tags
+      # exist). Notes are sliced from the plugin's CHANGELOG.md.
+      - name: Backfill missing releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          manifest=".github/.release-please-manifest.json"
+          repo="${{ github.repository }}"
+
+          release_pr_commit=$(gh pr list \
+            --repo "$repo" \
+            --state merged \
+            --search 'chore: release main in:title' \
+            --json mergeCommit \
+            --jq '.[0].mergeCommit.oid' \
+            --limit 1)
+
+          if [ -z "$release_pr_commit" ] || [ "$release_pr_commit" = "null" ]; then
+            echo "No merged 'chore: release main' PR found; nothing to backfill."
+            exit 0
+          fi
+          echo "Latest merged release PR commit: $release_pr_commit"
+
+          missing=0
+          for plugin_path in $(jq -r 'keys[]' "$manifest"); do
+            name=$(basename "$plugin_path")
+            version=$(jq -r --arg p "$plugin_path" '.[$p]' "$manifest")
+            tag="${name}-v${version}"
+
+            if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+              echo "✓ $tag already exists"
+              continue
+            fi
+
+            missing=$((missing + 1))
+            echo "→ Creating missing release $tag at $release_pr_commit"
+
+            notes_file=$(mktemp)
+            awk -v ver="$version" '
+              $0 ~ ("^## \\[" ver "\\]") { capture=1; next }
+              capture && /^## \[/ { exit }
+              capture { print }
+            ' "$plugin_path/CHANGELOG.md" > "$notes_file"
+
+            if [ ! -s "$notes_file" ]; then
+              echo "Release ${name} v${version}." > "$notes_file"
+            fi
+
+            gh release create "$tag" \
+              --repo "$repo" \
+              --target "$release_pr_commit" \
+              --title "${name}: v${version}" \
+              --notes-file "$notes_file"
+
+            rm -f "$notes_file"
+          done
+
+          if [ "$missing" -eq 0 ]; then
+            echo "All manifest versions already have releases."
+          fi
 
       # Resolve the open release PR: prefer release-please output (new/updated PR),
       # fall back to gh pr list (existing unchanged PR). This handles the case where
