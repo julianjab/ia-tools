@@ -101,7 +101,7 @@ function makeLogger(): Logger {
 type HandlerMap = Map<string, (req: unknown, extra: unknown) => Promise<unknown>>;
 
 function getHandlers(bridge: McpBridgeServer): HandlerMap {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: reaching into the SDK's private _requestHandlers map
   return (bridge.server as any)._requestHandlers as HandlerMap;
 }
 
@@ -842,7 +842,7 @@ describe('McpBridgeServer — allowedUsers wildcard "*"', () => {
   /** Spy on the underlying MCP notification call (the bridge's only outbound). */
   function trackNotifications(bridge: McpBridgeServer): ReturnType<typeof vi.fn> {
     const spy = vi.fn().mockResolvedValue(undefined);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: overwriting the SDK Server's notification method for spy assertions
     (bridge.server as any).notification = spy;
     return spy;
   }
