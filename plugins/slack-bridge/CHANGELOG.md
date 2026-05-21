@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.6.0...slack-bridge-v0.7.0) (2026-05-21)
+
+
+### Features
+
+* **team-workflow:** declarative pod config + persona overlays + bridge wildcard ACL ([#78](https://github.com/julianjab/ia-tools/issues/78)) ([3d85e10](https://github.com/julianjab/ia-tools/commit/3d85e10519658b3049f7bafa1e0e963761180f01))
+
 ## [0.6.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.5.3...slack-bridge-v0.6.0) (2026-05-14)
 
 
