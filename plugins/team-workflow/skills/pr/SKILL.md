@@ -291,12 +291,25 @@ gh pr view --json url,state,title,number,body 2>/dev/null
 
 ##### If NO PR exists: Create it
 
-**ALWAYS use `--body-file` with a temp file — NEVER inline `--body`.**
+**ALWAYS use `--body-file` with a per-session temp file — NEVER inline `--body`.**
 Inline `--body` with escaped backticks (`\`\`\``) breaks mermaid rendering in GitHub.
 
+> **Why `mktemp` and not a fixed path?** Multiple Claude sessions on the
+> same machine (e.g. parallel leads in tmux) all invoke this skill. Using
+> a shared path like `/tmp/pr_body.md` race-conditions: session B
+> overwrites session A's draft between the Write and the `gh pr create`
+> call. `mktemp` gives each invocation its own file. Always capture the
+> path into a shell variable and reference that variable from `Write` AND
+> `--body-file`.
+
 ```bash
-# 1. Write the PR body to a temp file (triple backticks render correctly this way)
-cat > /tmp/pr_body.md << 'PREOF'
+# 0. Allocate a per-session body file. The variable is referenced by BOTH
+#    the Write tool call (next step) and the `gh pr create` invocation.
+PR_BODY=$(mktemp -t ia-tools-pr-body.XXXXXX.md)
+# (Persist $PR_BODY for the rest of this skill — use it below.)
+
+# 1. Write the PR body to that file (triple backticks render correctly this way)
+cat > "$PR_BODY" << 'PREOF'
 ## Summary
 - <bullet 1: what changed and why>
 - <bullet 2: key implementation detail>
@@ -345,10 +358,13 @@ Generated with [Claude Code](https://claude.com/claude-code)
 PREOF
 
 # 2. Create PR using the file
-gh pr create --title "<type>(<scope>): <description>" --body-file /tmp/pr_body.md
+gh pr create --title "<type>(<scope>): <description>" --body-file "$PR_BODY"
+
+# 3. Clean up.
+rm -f "$PR_BODY"
 ```
 
-> **CRITICAL**: Write the body to `/tmp/pr_body.md` using the `Write` tool (not shell redirection), then pass `--body-file /tmp/pr_body.md` to `gh pr create`. This is the only reliable way to get mermaid blocks rendered in GitHub.
+> **CRITICAL**: Allocate `$PR_BODY` with `mktemp` ONCE at the start, write the body to that path using the `Write` tool (not shell redirection), then pass `--body-file "$PR_BODY"` to `gh pr create`. This is the only reliable way to get mermaid blocks rendered in GitHub AND to avoid race conditions when multiple Claude sessions invoke this skill in parallel.
 
 ##### If PR ALREADY exists: Update it
 
@@ -357,10 +373,12 @@ gh pr create --title "<type>(<scope>): <description>" --body-file /tmp/pr_body.m
    gh pr edit <pr-number> --title "<type>(<scope>): <updated description>"
    ```
 
-2. **Write the updated body to a temp file, then update**:
+2. **Write the updated body to a per-session temp file, then update**:
    ```bash
-   # Write body with Write tool → /tmp/pr_body.md
-   gh pr edit <pr-number> --body-file /tmp/pr_body.md
+   PR_BODY=$(mktemp -t ia-tools-pr-body.XXXXXX.md)
+   # Write body with Write tool → "$PR_BODY"
+   gh pr edit <pr-number> --body-file "$PR_BODY"
+   rm -f "$PR_BODY"
    ```
 
 3. Report the update:
