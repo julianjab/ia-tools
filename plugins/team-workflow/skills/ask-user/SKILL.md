@@ -8,7 +8,7 @@ when_to_use: |
   lead, topic-worker, or any custom worker that needs a single point of contact.
 argument-hint: <message text> [--ask] [--in-reply-to <message_ts>] [--channel <channel_id>] [--thread <thread_ts>]
 arguments: [text, mode, message_ts, channel_id, thread_ts]
-allowed-tools: Bash(echo *), Read, AskUserQuestion
+allowed-tools: Bash(echo *), Bash(node *), Read, AskUserQuestion
 ---
 
 # /ask-user — route a message or question to the user
@@ -31,7 +31,8 @@ The skill never branches on transport in the calling prompt — it reads the env
 | Condition | Destination |
 |-----------|-------------|
 | `$IA_TW_TOPIC` is set and not the literal `local` | Slack via `slack-bridge.reply()` to that topic. |
-| `$IA_TW_TOPIC == "local"` and slack-bridge tools are available AND `$LEAD_LOCAL_FALLBACK_DM` resolves to a DM | Slack DM fallback (the same path the lead uses for local mode tier 1). |
+| `$IA_TW_TOPIC == "local"` AND `$IA_TW_PARENT_SOCK` points at a live Unix socket | Parent-IPC: forward the question to the router-Claude that spawned this lead. The router's `/ipc-answer` skill delivers the response back through the same socket. |
+| `$IA_TW_TOPIC == "local"` AND slack-bridge tools are available AND `$LEAD_LOCAL_FALLBACK_DM` resolves to a DM | Slack DM fallback (the same path the lead uses for local mode tier 1). |
 | Otherwise | Local terminal: assistant message (one-way) or `AskUserQuestion` (blocking). |
 
 The destination is decided **per invocation** from the environment — the caller does not have to remember its own mode. The Slack path always passes `message_ts` so the claim contract documented in slack-bridge instructions runs.
@@ -50,13 +51,31 @@ The destination is decided **per invocation** from the environment — the calle
 
 ### 1. Resolve destination
 
-Read `$IA_TW_TOPIC`. Three cases:
+Read `$IA_TW_TOPIC`. Four cases, evaluated in order:
 
 1. **Slack topic** (not `local`, not empty): parse `<channel>:<user>:<thread_ts>` segments. The channel from the topic is the default `channel_id`; the thread segment is the default `thread_ts`. The skill resolves to `slack` mode.
-2. **Local + DM fallback**: when `$IA_TW_TOPIC == "local"` and the slack-bridge tools are visible (probe with `list_subscriptions`) and `$LEAD_LOCAL_FALLBACK_DM` is set, resolve to `slack` mode targeting the DM channel. Subscribe to it if the session has not subscribed already (label `ask-user:<IA_TW_FEATURE>`).
-3. **Pure local**: resolve to `local` mode.
+2. **Parent IPC** (`$IA_TW_TOPIC == "local"` and `$IA_TW_PARENT_SOCK` points at an existing socket file): resolve to `ipc` mode. The question is forwarded over the Unix socket to the router that spawned this lead; the router's `/ipc-answer` skill delivers the response back through the same socket. Only the `--ask` form is supported in this mode — one-way notifications fall through to the next case.
+3. **DM fallback** (`$IA_TW_TOPIC == "local"` and slack-bridge tools are visible and `$LEAD_LOCAL_FALLBACK_DM` is set): resolve to `slack` mode targeting the DM channel. Subscribe to it if the session has not subscribed already (label `ask-user:<IA_TW_FEATURE>`).
+4. **Pure local**: resolve to `local` mode.
 
 ### 2. Dispatch
+
+**Parent-IPC mode (`--ask` only)**
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-…}/skills/router/scripts/ipc-client.mjs" ask "<text>"
+```
+
+The client connects to `$IA_TW_PARENT_SOCK`, posts the question with a generated UUID, blocks reading the socket until the router's `/ipc-answer` delivers the response (or `$IA_TW_IPC_TIMEOUT_MS` elapses — default 30 min). On stdout: the answer text verbatim. Exit codes:
+
+| Code | Meaning | Action |
+|------|---------|--------|
+| 0 | answer received | return the stdout text to the caller |
+| 3 | socket unavailable (env unset or path missing) | fall through to DM fallback / pure local |
+| 4 | timeout | return `{kind: timeout, response: null}` |
+| 5 | server error / unknown id | fall through and warn |
+
+Parent-IPC does not support one-way (`--notify`-equivalent) calls: there is no useful destination for a fire-and-forget status on the parent side that the operator would actually see. Drop to DM fallback or pure local in that case.
 
 **Slack mode, one-way**
 

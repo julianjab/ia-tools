@@ -90,6 +90,18 @@ env_pairs=(
 [ -n "${ALLOWED_USERS_MENTIONS:-}" ]  && env_pairs+=("ALLOWED_USERS_MENTIONS=$ALLOWED_USERS_MENTIONS")
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_pairs+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
 
+# Parent-IPC: forward the router's socket so /ask-user in local mode can
+# escalate questions to the router-Claude when this lead runs detached.
+# Prefer the env value (direct spawn); fall back to the pointer file the
+# router wrapper writes at boot (covers indirect spawns from skills that
+# don't inherit env).
+if [ -n "${IA_TW_PARENT_SOCK:-}" ]; then
+  env_pairs+=("IA_TW_PARENT_SOCK=$IA_TW_PARENT_SOCK")
+elif [ -r "${HOME}/.claude/team-workflow/ipc/current.sock" ]; then
+  resolved_sock="$(cat "${HOME}/.claude/team-workflow/ipc/current.sock" 2>/dev/null || true)"
+  [ -n "$resolved_sock" ] && env_pairs+=("IA_TW_PARENT_SOCK=$resolved_sock")
+fi
+
 # ─── Detect terminals ───────────────────────────────────────────────────────
 have_tmux() { command -v tmux >/dev/null 2>&1; }
 

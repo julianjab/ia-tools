@@ -37,6 +37,16 @@ it to the worker instead.
 
 ## Per-message procedure
 
+0. **Parent-IPC inbounds (handle inline, no worker).** When the inbound
+   text starts with `[ipc id=<uuid> from=<session>]`, it is a question
+   forwarded by the parent-IPC server from a child lead booted in local
+   mode. Handle it inline:
+   1. Compose the answer the child needs.
+   2. Invoke the `/ipc-answer <uuid> "<answer text>"` skill — that
+      writes back through the same Unix socket and unblocks the child.
+   3. STOP. Do not resolve a topic, do not spawn a worker. IPC
+      inbounds bypass the topic→worker registry entirely.
+
 1. **Resolve the topic** from the inbound message metadata
    (deterministic):
    - `<channel_id>:*:<thread_ts>` — whenever the inbound carries a
