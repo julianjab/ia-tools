@@ -28,6 +28,18 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # pnpm + node are needed by the "Sync marketplace into release PR"
+      # step so it can run `biome format` on marketplace.json before
+      # committing (jq expands arrays multi-line; Biome demands inline).
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
       # release-please-action v4 (CLI v17.x) intermittently fails the final
       # "Creating releases for pull #N" step with `Resource not accessible by
       # integration` even when the GITHUB_TOKEN has `contents: write` and no
@@ -190,6 +202,15 @@ jobs:
           if [ "$latest" = "$current" ]; then echo "already at $current, skipping."; exit 0; fi
           jq --arg v "$latest" '.metadata.version = $v' .claude-plugin/marketplace.json > /tmp/mp.json
           mv /tmp/mp.json .claude-plugin/marketplace.json
+
+          # jq re-serialises every JSON array as multi-line, which conflicts
+          # with Biome's "collapse short arrays to one line" formatter and
+          # turns `verify` red. Re-format the file before committing so the
+          # release PR stays mergeable. Needs pnpm install first because the
+          # release job does not run install (only the verify job does).
+          pnpm install --frozen-lockfile --silent
+          pnpm exec biome format --write .claude-plugin/marketplace.json
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .claude-plugin/marketplace.json
