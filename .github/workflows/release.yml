@@ -3,6 +3,12 @@ name: release
 on:
   push:
     branches: [main]
+  # Manual re-trigger: GitHub does NOT fire push-triggered workflows when
+  # the commit was authored/pushed by GITHUB_TOKEN (anti-loop protection),
+  # so a release-please PR squashed by github-actions[bot] can leave main
+  # with a bumped manifest but no tag/release. workflow_dispatch lets an
+  # operator re-run the release job against the current main HEAD.
+  workflow_dispatch:
 
 # Single in-flight release run per branch. release-please reconciles state
 # against tags + the manifest file, so cancelling intermediate runs is safe.
