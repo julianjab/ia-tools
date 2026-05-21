@@ -94,55 +94,27 @@ Before editing anything:
 
 ### If `task_subject` is an `impl:green` task (make tests pass)
 
-A `:impl:green` task that touches multiple architectural layers
-(migration / model / adapter / service / endpoint / wiring) must land
-as **multiple commits, one per slice**, not one big commit. See
-`lead.md` → "Commit cadence contract" for the full rule. The cadence
-inside the task:
+Land the work as **one commit per architectural layer** touched
+(migration / model / adapter / service / endpoint / wiring). For each
+slice, in dependency order:
 
-1. **Decompose the work into slices** before editing anything. List
-   the layers you will touch, in dependency order (data layer first,
-   wiring last). One commit per layer is the default; collapse only
-   when a layer is a trivial one-line change.
-2. **For each slice, run a tight TDD loop:**
-   1. Read the existing RED test (or, when `:qa:red` was skipped,
-      write a RED test scoped to this slice). Never modify a test
-      to make it pass — that's a qa-contract violation.
-   2. Write the minimum implementation that turns RED into GREEN
-      for THIS slice only. Don't pull in code that belongs to
-      later slices.
-   3. Run the slice's test, then the full repo lint/typecheck/test
-      command. The slice must pass cleanly before you commit.
-   4. Stage **only this slice's files** with explicit paths
-      (`git -C <wt> add <file1> <file2> …`) — never `git add .`,
-      never `git add -A`. Lockfile bumps and tooling artifacts go
-      in their own `chore(...)` commit.
-   5. Commit with a Conventional Commits subject naming the layer:
-      `test(<scope>): add <layer> RED` and then
-      `feat(<scope>): add <layer>` (or `chore(<scope>): ...` for
-      wiring). Use the worktree's `/commit` skill when available so
-      pre-commit hooks run.
-   6. Capture the resulting SHA — you'll list them in your final
-      output for `lead` to record in `state.md`.
-3. **Every commit must be independently valid.** If running
-   lint/typecheck/test on a single commit fails, do not push past
-   it — fix in place before moving to the next slice.
-4. **No `--amend` on a branch that has been pushed.** If you already
-   pushed and need to add tests / fix a coverage gate, the fix is a
-   NEW commit (`test(<scope>): add coverage`,
-   `fix(<scope>): handle <case>`), not an amend. The one local-only
-   exception (you just made the previous commit seconds ago, the
-   addition has identical intent, no push has happened) is described
-   in `commit/SKILL.md`; prefer a new commit even there.
-5. **Final marker** combines all slices:
-   - Emit `expected_marker` from the spawn prompt
-     (e.g. `green for <wt_prefix> (<N> commits)`).
-   - Include the list of `<short-sha> <subject>` lines so `lead` can
-     write `commit_shas:` into `state.md`.
+1. Write/read the RED test for this slice. Never modify a test to make
+   it pass.
+2. Implement the minimum that turns RED → GREEN for THIS slice.
+3. Run lint + typecheck + tests. They must pass before commit.
+4. `git -C <wt> add <explicit files>` — never `git add .` / `-A`.
+5. Commit: `test(<scope>): ...` (RED) then `feat(<scope>): ...`
+   (GREEN), or `chore(<scope>): ...` for wiring. Capture the SHA.
 
-A feature that genuinely touches only one layer (a one-file refactor,
-a doc fix, a single-line config change) stays one commit. The rule is
-"one commit per layer touched", not "minimum N commits".
+Rules:
+- Every commit is independently valid (no "broken in the middle").
+- No `--amend` after push — follow-up changes are new commits. See
+  `commit/SKILL.md` for the single local-only exception.
+- Single-layer change → one commit is fine.
+
+Final marker: emit `expected_marker` (e.g.
+`green for <wt_prefix> (<N> commits)`) plus the list of
+`<short-sha> <subject>` lines.
 
 ### If `task_subject` is a free-form code task
 

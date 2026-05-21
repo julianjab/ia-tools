@@ -334,82 +334,27 @@ graph in one pass. For each worktree (let `P` be its `wt_prefix`):
 | `P:pr`                    | `agents.impl`| `pr_url for P`                    | `P:security`        |
 | `P:team-review`           | `lead`| `team-review requested for P`       | `P:pr`              |
 
-**Commit cadence contract (atomic commits per layer).** A feature that
-touches more than one architectural layer (migration, model, adapter,
-service, endpoint, wiring, tests) MUST land as **N commits, one per
-slice**, not as a single mega-commit. Atomic-per-layer commits keep
-`git log` informative ("Review per commit"), keep `git bisect` useful,
-and let a coverage or lint gate that fails on one layer fail one
-commit instead of the whole branch.
+**Commit cadence.** `:impl:green` produces N commits — one per
+architectural layer touched (migration, model, adapter, service,
+endpoint, wiring, tests). Rules:
 
-Each `:impl:green` task is not complete until the implementer has
-produced a series of commits on the feature branch where:
+- TDD per slice: `test(<scope>):` (RED) → `feat(<scope>):` (GREEN).
+- Each commit is independently valid (lint, typecheck, tests pass).
+- Explicit `git add <files>` per slice. Never `git add .` / `-A`.
+- No `--amend` after push. Follow-up changes are new commits.
+- Append each SHA to `commit_shas:` in `state.md` as it lands.
+- Single-layer change → one commit is fine.
 
-1. **TDD interleaved per slice.** Per layer/slice, the cadence is
-   `test(<scope>): add <layer> RED` → `feat(<scope>): add <layer>`
-   (GREEN). The implementer can group RED commits if the test runner
-   makes incremental RED expensive, but the order RED-before-GREEN
-   per slice is mandatory when invariant 2 (QA-first) applies to this
-   worktree.
-2. **Stage-commit-stage-commit loop.** For each slice: stage the
-   explicit file list for that slice, run lint+typecheck+tests, commit.
-   Never stage the entire feature and commit once.
-3. **Every commit is independently valid.** Lint passes, typecheck
-   passes, tests at that point pass. No "broken in the middle" commits
-   that depend on a later commit to compile.
-4. **No `git add .` ever.** Each `git add` lists the files explicitly.
-   Lockfile bumps, tooling artifacts, and stray edits are committed
-   separately (typically as `chore(<scope>): regenerate lockfile`) or
-   not at all.
-5. **No `--amend` on a branch that has been pushed.** Once `git push`
-   runs for the feature branch, every subsequent change is a NEW commit
-   (`fix(<scope>): ...`, `test(<scope>): add coverage`, etc.). Amending
-   after push rewrites history other tools may already have observed;
-   see `commit/SKILL.md` for the full rule and the one local-only
-   exception.
-6. **Marker accumulates as commits land.** When each slice's commit
-   lands, append its SHA to `state.md` under the worktree's
-   `commit_shas:` list. The literal marker recorded after the final
-   slice is `green for <P> (<N> commits)`.
+Final marker: `green for <P> (<N> commits)`.
 
-Concrete template — a backend feature that touches 6 layers + tests:
+`:security` audits `<base>..HEAD`, not the working tree. Verdict:
+`security: APPROVED for <P> (<N> commits, base..HEAD)`. Re-runs if
+the implementer adds commits after approval.
 
-```
-test(<scope>): add migration test                  ← RED
-feat(<scope>): add <table> migration + sql         ← GREEN
-test(<scope>): add <Model> + repo port tests       ← RED
-feat(<scope>): add <Model> + repo port             ← GREEN
-test(<scope>): add <Adapter> tests                 ← RED
-feat(<scope>): add <Adapter> implementation        ← GREEN
-test(<scope>): add <Service> tests                 ← RED
-feat(<scope>): add <Service> orchestration         ← GREEN
-test(<scope>): add <Endpoint> tests                ← RED
-feat(<scope>): expose <Endpoint> via <Router>      ← GREEN
-chore(<scope>): wire DI + register router
-```
-
-Smaller features collapse — a one-file refactor stays one commit. The
-rule is "one commit per layer touched", not "minimum 6 commits".
-
-`:security` audits the range `<base>..HEAD` of the feature branch
-(every commit produced by `:impl:green` together), not just the working
-tree. It refuses to run when `git -C <wt> log --oneline <base>..HEAD`
-is empty. Its verdict line is
-`security: APPROVED for <P> (<N> commits, base..HEAD)`. If the
-implementer adds commits AFTER `:security` approved (e.g. to fix a
-coverage gate), `:security` re-runs on the extended range.
-
-`:pr` MUST push and open the PR without any further `git commit` of
-its own. The `/pr` skill is configured to refuse if the working tree
-has uncommitted changes — everything the PR carries must already be
-in commits produced during `:impl:green`. The PR body's description
-includes a **commit map**: one line per commit
-(`<short-sha> <type>(<scope>): <subject>`) so the reviewer can use
-GitHub's "Review per commit" flow naturally. The `/pr` skill also runs
-a pre-push check (`check-commit-cadence.sh`) that aborts when the
-feature branch touches more than one layer but carries only one
-commit; the implementer must `git rebase -i` and split before
-retrying.
+`:pr` only pushes + opens the PR; no further `git commit`. PR body
+includes a **commit map** (one line per commit). `/pr` runs
+`check-commit-cadence.sh` before push and aborts if multi-layer +
+single-commit — the implementer must `git rebase -i` and split.
 
 The `P:qa:red` task is **optional**. Omit it (and drop `P:qa:red` from
 `P:impl:green`'s `blockedBy`) when the change for that worktree has no
