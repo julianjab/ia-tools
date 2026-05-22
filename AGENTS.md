@@ -245,15 +245,31 @@ The mode is fixed at boot. lead must not silently downgrade.
 
 ## State and persistence
 
-Per-feature state lives outside any repo:
+Each feature owns a self-contained session workspace outside every
+consumer repo:
 
 ```
-$HOME/.claude/team-workflow/state/<topic_hash>/
-  state.md          ← YAML frontmatter + plan + worktrees + audit log
-  hook-audit.log    ← TaskCreated / TaskCompleted log
-  api-contract.md   ← (optional) when api_contract != none
+$IA_TW_STATE_ROOT/<topic_hash>/            ← session workspace ($IA_TW_STATE_DIR)
+  state.md                                 YAML frontmatter + plan + worktrees + audit log
+  hook-audit.log                           TaskCreated / TaskCompleted log
+  session-env.yaml                         Capa A/B env snapshot (no tokens)
+  api-contract.md                          (optional) when api_contract != none
+  .claude/
+    settings.local.json                    envs + MCPs + additionalDirectories
+    agents/                                ← $IA_TW_AGENT_LINK_DIR
+      <repo>-<agent>.md                    materialized by sync-agents.sh
+  worktrees/                               ← $IA_TW_WORKTREE_ROOT
+    <basename(repoA)>/                     git worktree on the feature branch
+    <basename(repoB)>/
+    ...
+
+$HOME/.claude/team-workflow/archive/<topic_hash>/   ← $IA_TW_ARCHIVE_DIR
+  state.md, hook-audit.log, ARCHIVED sentinel       (written by archive-on-merge
+                                                      when phase ∈ merged/closed)
 ```
 
+- `IA_TW_STATE_ROOT` defaults to `~/.claude/team-workflow/state`. Set
+  to `/tmp/claude/team-workflow` for ephemeral pods.
 - `<topic_hash>` = `sha1(IA_TW_TOPIC)[:12]` or `sha1("local:<feature>")[:12]`.
 - Resume: a lead boot that sees an existing `state.md` reads it,
   reconstructs the worktree map, and continues from the recorded phase —
@@ -311,27 +327,30 @@ Fields that DO work: `name`, `description`, `tools`, `disallowedTools`,
 Each lead provisions one worktree per touched consumer repo via
 `/worktree init <feature> --repo <repo>`. The worktree:
 
-- lives at `<repo>/.worktrees/<feature-as-dirname>/`
-- has `.worktrees/` added to the repo's `.gitignore` if missing
-- gets registered with the active Claude Code session via `/add-dir`
-  (the `/worktree` skill runs this automatically — repo-local agents
-  inside the worktree are then callable via `Agent(...)`).
+- lives at `$IA_TW_WORKTREE_ROOT/<basename($repo)>/` — under the
+  per-feature session workspace, NOT inside the consumer repo.
+- is registered as a Claude Code root via `additionalDirectories` in
+  `$IA_TW_STATE_DIR/.claude/settings.local.json` (written atomically
+  by `/worktree init` → `generate-session-settings.sh`).
+- has its repo-local agents materialized into
+  `$IA_TW_AGENT_LINK_DIR` as `<basename>-<agent>.md` by the
+  `sync-agents` hook, so the lead can spawn them with
+  `Agent(subagent_type="<basename>-<agent>", ...)` without ever
+  invoking `/add-dir` at runtime.
 
-The `enforce-worktree.sh` PreToolUse hook is **gitignore-aware**: it
-blocks Edit/Write/MultiEdit on any tracked file outside a
-`.worktrees/*` path when the session has `IA_TW_FEATURE` set, and
-blocks tracked-file edits on `main`/`master` in any session.
+The `enforce-worktree.sh` PreToolUse hook is now **universal**: it
+blocks Edit/Write/MultiEdit on tracked files when the file's repo is
+checked out on `main`/`master`, regardless of session env or
+worktree location. Feature-branch worktrees (wherever they live)
+pass freely.
 
 ## Consumer `.gitignore` guidance
 
-Consumer repos need:
+None required. Worktrees + per-session state both live outside the
+consumer repo:
 
-```
-.worktrees/
-```
-
-The `/worktree init` skill auto-adds this on first use. No `.sessions/`
-entry needed in v2 — state lives outside the repo.
+- worktrees: `$IA_TW_WORKTREE_ROOT/<basename>/`
+- state:     `$IA_TW_STATE_ROOT/<topic_hash>/` (default `~/.claude/team-workflow/state/`)
 
 ## Rules — all agents
 
