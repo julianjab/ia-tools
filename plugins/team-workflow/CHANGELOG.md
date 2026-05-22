@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.4.0...team-workflow-v1.5.0) (2026-05-22)
+
+
+### Features
+
+* **team-workflow:** per-session workspace + Capa B env contract ([#105](https://github.com/julianjab/ia-tools/issues/105)) ([d5149e0](https://github.com/julianjab/ia-tools/commit/d5149e042d046347f5912239fa10a26b0a5ec8ea))
+
 ## [1.4.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.3.0...team-workflow-v1.4.0) (2026-05-22)
 
 
