@@ -158,7 +158,7 @@ router: resolve topic `<channel>:*:<thread_ts>` (new topic)
     ↓
 lead booted in tmux 'feat/demo-api-client-api'
     - $IA_TW_TOPIC = D0AMP0P0UKY:*:1778681006...
-    - $IA_TW_STATE_DIR = ~/.claude/team-workflow/state/<hash>
+    - $IA_TW_STATE_DIR = ~/.claude/team-workflow/state/feat-demo-api-client-api_<hash>
     - Boot guard: list_subscriptions → OK
     - state.md created with phase: planning
     - Pre-analysis via general-purpose: 3 repos touched
@@ -256,7 +256,7 @@ inherit it via env (`start-lead.sh` propagates `$IA_TW_STATE_DIR` to
 the lead, the lead's spawn prompts to its sub-agents).
 
 ```
-$IA_TW_STATE_ROOT/<topic_hash>/            ← session workspace ($IA_TW_STATE_DIR)
+$IA_TW_STATE_ROOT/<feature-slug>_<topic_hash>/   ← session workspace ($IA_TW_STATE_DIR)
   state.md                                 YAML frontmatter + plan + worktrees + audit log;
                                            trailing `@include messages.md` marker
   messages.md                              Append-only rolling conversation log; one entry
@@ -274,7 +274,7 @@ $IA_TW_STATE_ROOT/<topic_hash>/            ← session workspace ($IA_TW_STATE_D
     <basename(repoB)>/
     ...
 
-$HOME/.claude/team-workflow/archive/<topic_hash>/   ← $IA_TW_ARCHIVE_DIR
+$HOME/.claude/team-workflow/archive/<feature-slug>_<topic_hash>/   ← $IA_TW_ARCHIVE_DIR
   state.md, messages.md, hook-audit.log, ARCHIVED sentinel
                                                   (written by archive-on-merge when
                                                    phase ∈ merged/closed)
@@ -282,6 +282,7 @@ $HOME/.claude/team-workflow/archive/<topic_hash>/   ← $IA_TW_ARCHIVE_DIR
 
 - `IA_TW_STATE_ROOT` defaults to `~/.claude/team-workflow/state`. Set
   to `/tmp/claude/team-workflow` for ephemeral pods.
+- `<feature-slug>` = `IA_TW_FEATURE` with `/` → `-`, spaces → `-`, non-alphanumeric (except `_-`) stripped.
 - `<topic_hash>` = `sha1(IA_TW_TOPIC)[:12]` or `sha1("local:<feature>")[:12]`.
 - **Boot rule (every agent).** When `$IA_TW_STATE_DIR/state.md`
   exists, the agent's first action is to read it AND `messages.md`.
@@ -368,7 +369,7 @@ None required. Worktrees + per-session state both live outside the
 consumer repo:
 
 - worktrees: `$IA_TW_WORKTREE_ROOT/<basename>/`
-- state:     `$IA_TW_STATE_ROOT/<topic_hash>/` (default `~/.claude/team-workflow/state/`)
+- state:     `$IA_TW_STATE_ROOT/<feature-slug>_<topic_hash>/` (default `~/.claude/team-workflow/state/`)
 
 ## Rules — all agents
 

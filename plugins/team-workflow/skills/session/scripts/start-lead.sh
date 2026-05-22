@@ -100,7 +100,8 @@ if [ -n "${IA_TW_STATE_DIR:-}" ]; then
 else
   hash_key="${topic:-local:$feature}"
   topic_hash=$(printf '%s' "$hash_key" | shasum | head -c 12)
-  state_dir="$state_root/$topic_hash"
+  feature_slug=$(printf '%s' "$feature" | tr '/' '-' | tr ' ' '-' | tr -cd 'a-zA-Z0-9_-')
+  state_dir="$state_root/${feature_slug}_${topic_hash}"
 fi
 
 worktree_root="$state_dir/worktrees"
