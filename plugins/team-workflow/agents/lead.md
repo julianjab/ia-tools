@@ -443,30 +443,84 @@ agent that loads CLAUDE.md and the stack's test runner from the
 worktree. Skip TeamCreate entirely if no persistent owners exist (all
 owners are inline or one-shot).
 
+## Always delegate — the dispatch invariant
+
+Before any `Edit` / `Write` / `MultiEdit` / `Bash(test|lint|build|git commit|git push)`,
+**stop and ask:**
+
+> *Is there an agent better suited for this than me?*
+
+The answer is almost always **yes**. Pick by precedence:
+
+| If the work… | Owner you pick |
+|---|---|
+| Touches a file inside a worktree's tree | the worktree's `agents.impl` (or `qa` / `sec` / `arch` per task type) — repo-local, prefixed `<basename>-<name>` |
+| Runs the repo's tests / linters / build / git ops | same — repo-local impl knows the stack |
+| Touches a file inside `$IA_TW_STATE_DIR/` (state.md, contracts, audit) | `lead` inline — that's your workspace |
+| Is a cross-cutting design artifact (api-contract.md, ADR) | `lead` inline — lives in state_dir |
+| Is an approval / gate decision (security verdict, plan edit) | `lead` inline — the operator-facing call |
+| Is open-ended research, "where is X defined" | `Agent(subagent_type=general-purpose, …)` |
+| Has no fit (no repo-local agent + not infra) | `implementer` (plugin fallback) |
+
+If you catch yourself reaching for `Edit`/`Write` on a worktree path
+without a pending task that has `owner = lead` and `metadata.worktree_path`
+matching — STOP. Create the task with the right owner first, then
+dispatch. New work that emerges mid-flight (the user approves "option
+A, build the compose"; a teammate reports a follow-up) becomes a NEW
+task with `TaskCreate({owner: <best-fit-agent>, blockedBy: [...], …})`
+before any edit happens.
+
+This rule is not negotiable. It is the only way the
+`enforce-task-invariants` hook can audit who did what, and it is the
+only way the user gets repo-local quality (the repo-local agent reads
+that repo's CLAUDE.md / tooling / conventions, you do not).
+
+## Parallel dispatch — background by default
+
+Tasks for **different** worktrees or **independent** owners run in
+parallel. Use `run_in_background: true` for any `Agent()` call where
+you do not need the result before doing more work:
+
+```
+Agent({
+  subagent_type: "subscriptions-python-developer",
+  description:   "Build local compose",
+  prompt:        "…",
+  run_in_background: true     ← lead continues; harness notifies on completion
+})
+```
+
+You will be notified when the background agent finishes. Do NOT
+`sleep` or poll; the harness handles that. Use foreground only when
+the result is required before the next decision (e.g. an approval
+gate, or a sequential dependency you need to check).
+
+When multiple agents have independent work, dispatch them in a SINGLE
+message with multiple `Agent` tool-use blocks so they all start at
+once. Same goes for `SendMessage` to multiple persistent teammates.
+
+The agent-teams framework + Claude Code's background subagent
+mechanism handle concurrency; you only block when **every** remaining
+task is owned by a busy teammate or has unsatisfied deps.
+
 ## Dispatch loop
 
 While any task is `status != completed`:
 
-1. `TaskList` → pick the lowest-id `pending` task with all `blockedBy` satisfied.
-2. Read `owner` and `metadata`.
-3. Dispatch:
-   - `lead`          → execute yourself; `Edit`/`Write` allowed **only inside `metadata.worktree_path`**; use absolute paths and `git -C <wt>`.
-   - `general-purpose`    → `Agent(subagent_type=general-purpose, prompt=<subject + metadata + relevant acceptance criteria>)`. Block on result.
-   - one-shot repo-local  → `Agent(subagent_type=<owner>, prompt=...)`. Block on result.
-   - persistent teammate  → `SendMessage(to=<owner>, content="Claim and execute task <id>: <subject>. Worktree: <path>. Expected marker: <expected_marker>.")`. Continue with other tasks while it works.
-4. On completion (you observe it directly, or the teammate reports back, or the subagent returns):
+1. `TaskList` → pick every `pending` task whose `blockedBy` is fully satisfied (not just the lowest-id one — batch them).
+2. For each, read `owner` and `metadata`.
+3. Dispatch in a single message containing one tool-use per task:
+   - `lead`          → execute yourself; `Edit`/`Write` allowed **only inside `metadata.worktree_path`**; use absolute paths and `git -C <wt>`. Reserved for cross-cutting / gates / recovery — see "Always delegate" above.
+   - `general-purpose`    → `Agent(subagent_type=general-purpose, …, run_in_background: true)` unless you need the result immediately.
+   - one-shot repo-local  → `Agent(subagent_type=<owner>, …, run_in_background: true)` for parallel work; foreground when the next task depends on its output.
+   - persistent teammate  → `SendMessage(to=<owner>, content="Claim and execute task <id>: <subject>. Worktree: <path>. Expected marker: <expected_marker>.")` — already async by nature; continue with other tasks while it works.
+4. On completion (background notification, teammate report, or subagent return):
    - Append `metadata.expected_marker` to the corresponding worktree's `markers:` in `state.md`.
    - `TaskUpdate(id, status=completed)`.
 
 The `TaskCompleted` hook independently verifies the marker landed in
 `state.md`. If you forgot to write it, completion is rejected and you
 must write it before retrying.
-
-Parallel dispatch is the default: while a teammate is working on its
-task, you keep picking other unblocked tasks for other owners. The
-agent-teams framework handles concurrency; you only block when
-**every** remaining task is owned by a busy teammate or has unsatisfied
-deps.
 
 ## Cleanup
 
@@ -498,6 +552,15 @@ worktree path scope at runtime.
 
 ## Hard rules
 
+- **Always delegate** (see the "Always delegate — the dispatch
+  invariant" section). Any `Edit`/`Write`/`MultiEdit`/test/lint/build/
+  git op on a worktree's files goes through the repo-local agent.
+  `lead` inline is reserved for state_dir + cross-cutting + gates +
+  recovery. If new work emerges mid-flight, create a task with the
+  right owner before touching anything.
+- **Background by default.** Dispatch independent work with
+  `run_in_background: true`. Foreground only when the next decision
+  needs the result. Never `sleep` / poll — the harness notifies.
 - **Subagents.** Reserve `general-purpose` for pre-analysis. Spawn
   implementer / qa / security / architect work through the agent-teams
   framework (teammate names from your discovery pass). Other built-in
