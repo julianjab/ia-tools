@@ -6,7 +6,6 @@ color: purple
 effort: high
 maxTurns: 200
 memory: project
-tools: Agent, AskUserQuestion, Bash, Edit, Glob, Grep, MultiEdit, Read, SendMessage, SlashCommand, TaskCreate, TaskGet, TaskList, TaskOutput, TaskStop, TaskUpdate, TeamCreate, TeamDelete, ToolSearch, WebFetch, WebSearch, Write
 disallowedTools: NotebookEdit
 ---
 

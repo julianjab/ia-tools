@@ -36,7 +36,20 @@ mode="${1:-}"
 payload=$(cat 2>/dev/null || true)
 
 # State dir gate ─────────────────────────────────────────────────────────────
+# Precedence:
+#   1. $IA_TW_STATE_DIR inherited from the launching process (lead sessions
+#      always have it via start-lead.sh).
+#   2. Sentinel file written by bootstrap-topic-state.sh
+#      (~/.claude/team-workflow/state/.current). Used by router-side hooks
+#      where the agent cannot export envs up to the parent Claude Code
+#      process — the sentinel is refreshed each turn the router invokes
+#      the helper.
+# In either case, messages.md must already exist (only the helper creates it).
 sd="${IA_TW_STATE_DIR:-}"
+if [ -z "$sd" ]; then
+  sentinel="${IA_TW_STATE_ROOT:-$HOME/.claude/team-workflow/state}/.current"
+  [ -f "$sentinel" ] && sd="$(cat "$sentinel" 2>/dev/null || true)"
+fi
 [ -n "$sd" ] || exit 0
 [ -d "$sd" ] || exit 0
 [ -f "$sd/messages.md" ] || exit 0

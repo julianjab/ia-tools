@@ -65,59 +65,65 @@ spawned on this topic (sub-agent via `Agent()`, lead via `/session` +
 and results into the SAME `state.md`; worktrees provisioned by `lead`
 register inside that file (`worktrees: []`).
 
-## State-dir bootstrap (first inbound per topic)
+## State-dir bootstrap (run on every inbound with a defined topic)
 
-When you resolve a topic and the state dir does **not** exist yet, you
-own the bootstrap. Run it before classifying:
+**Always** invoke the `bootstrap-topic-state.sh` helper as the very
+first action of every turn that resolves to a defined topic. The
+helper is idempotent: it creates the state dir + skeleton on the
+first call and is a no-op for the rest. Running it every turn keeps
+the sentinel file (see below) fresh, which is what the
+`append-message.sh` hook reads to find the active state dir.
 
-1. `mkdir -p "$state_dir"`.
-2. Create `state.md` (if absent) with this skeleton:
+```bash
+state_dir=$(bash \
+  "${CLAUDE_PLUGIN_ROOT}/plugins/team-workflow/skills/router/scripts/bootstrap-topic-state.sh" \
+  "<topic-string>")
+```
 
-   ```yaml
-   ---
-   topic: <topic-string>
-   session_id: <session_id>
-   first_message_ts: <inbound message_ts or "">
-   created_at: <iso8601>
-   phase: chatting
-   default_repo: ""        # filled later when the conversation pins one
-   pending_ask: ""         # filled by ask intent, cleared on resolution
-   worktrees: []
-   events: []
-   ---
+(You can `export IA_TW_STATE_DIR="$state_dir"` for any follow-up
+`Bash` calls in the same turn — but note that the export does NOT
+propagate to the parent Claude Code process, so hooks rely on the
+sentinel below, not on your in-turn env.)
 
-   ## Plan aprobado
+The helper also writes `$IA_TW_STATE_ROOT/.current` (single sentinel
+per machine) with the active state_dir path. `append-message.sh`
+falls back to that sentinel when its inherited `$IA_TW_STATE_DIR` is
+empty — which is the normal case for hooks running in the router's
+parent Claude Code process.
 
-   _(filled by `lead` after the approval gate.)_
+The helper:
 
-   ## Audit log
+- Derives `session_id = sha1(<topic-string>)[:12]`.
+- Creates `$IA_TW_STATE_ROOT/<session_id>/` (defaults to
+  `$HOME/.claude/team-workflow/state/<session_id>/`).
+- Writes the `state.md` skeleton (YAML frontmatter with `topic`,
+  `session_id`, `phase: chatting`, `created_at`, empty `default_repo`,
+  `pending_ask`, `worktrees`, `events`; body sections `## Plan
+  aprobado`, `## Audit log`; trailing HTML comment marker pointing to
+  `messages.md`).
+- Creates `messages.md` (empty) so the
+  `bookkeeping/append-message.sh` hook starts capturing from the very
+  next event (triggered by `UserPromptSubmit`, `Stop`, `SubagentStop`,
+  and `PostToolUse:reply|reply_update`).
 
-   _(append-only summary of phase transitions; structured events live
-   in `events:` above and in `messages.md`.)_
+Each turn the hook appends:
 
-   @include messages.md
-   ```
+```
+## <iso8601> · <actor>
 
-3. Create `messages.md` (empty file). From this moment on, the
-   `bookkeeping/append-message.sh` hook (triggered by
-   `UserPromptSubmit`, `Stop`, `SubagentStop`, and
-   `PostToolUse:reply|reply_update`) appends one entry per turn:
+<text>
+```
 
-   ```
-   ## <iso8601> · <actor>
+`actor` ∈ {`user`, `router`, `lead`, `implementer`, `qa`, `security`,
+`general-purpose`, `Explore`, …}. The hook resolves it from
+`$IA_TW_AGENT` (for `Stop`) or the `subagent_type` (for
+`SubagentStop`). The router never writes to `messages.md` directly —
+the hook owns that file.
 
-   <text>
-   ```
-
-   `actor` ∈ {`user`, `router`, `lead`, `implementer`, `qa`,
-   `security`, `general-purpose`, `Explore`, …}. The hook resolves it
-   from `$IA_TW_AGENT` (for `Stop`) or the `subagent_type` (for
-   `SubagentStop`). The router does NOT append manually — the hook is
-   the only writer of `messages.md`.
-
-`@include messages.md` at the end of `state.md` is a documentation
-marker. Agents read it as a signal: "also load `messages.md` from
-this directory for the rolling conversation history."
+The trailing `<!-- conversation history: read messages.md … -->`
+comment in `state.md` is a documentation marker for human and agent
+readers, not a Claude Code `@`-import. Any agent that reads `state.md`
+should also `Read messages.md` from the same directory.
 
 ## Boot rule (every agent, every spawn)
 
@@ -132,6 +138,17 @@ contains `state.md`:
 
 No agent — router on a resume boot, lead on `/session`, implementer
 on a teammate spawn, any one-shot `Agent(...)` — starts blind.
+
+### Router resume (state.md exists at first inbound after a restart)
+
+If the router boots and its first inbound resolves to a topic whose
+state dir already exists, treat it as a resume:
+
+| `phase` in state.md | Resume action |
+|---|---|
+| `chatting` | Hold the pending ask in your in-context registry from `pending_ask`; continue classifying the next inbound normally. |
+| `planning` / `implementing` / `prs-open` / `reviewing` | A `lead` is (or was) running on this topic. Do NOT re-dispatch. If the user message is a follow-up, forward it via `/send-session-message` to the lead's tmux session (the feature name is in state.md). If the user is asking status, read the recent `events:` and `messages.md` tail and reply inline. |
+| `merged` / `closed` / `stopped` | Topic is closed. New `dispatch` intent on the same topic is allowed and starts a fresh feature (lead will transition phase back to `planning` from `chatting` by re-dispatching). |
 
 ## IPC inbounds (handle inline, bypass everything)
 
