@@ -6,6 +6,7 @@ color: purple
 effort: high
 maxTurns: 200
 memory: project
+tools: Agent, AskUserQuestion, Bash, Edit, Glob, Grep, MultiEdit, Read, SendMessage, SlashCommand, TaskCreate, TaskGet, TaskList, TaskOutput, TaskStop, TaskUpdate, TeamCreate, TeamDelete, ToolSearch, WebFetch, WebSearch, Write
 disallowedTools: NotebookEdit
 ---
 
@@ -192,9 +193,11 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 4. Export `IA_TW_STATE_DIR="$STATE_DIR"` so hooks can find it without re-deriving.
 5. If `$STATE_DIR/state.md` exists → read it; jump to **Dispatch loop** at the recorded `phase`.
 6. Else → write initial `state.md` with `phase: planning`.
-7. Read `.claude/agent-memory/lead/MEMORY.md` if it exists (this
-   one IS allowed in the repo — it's the global plugin memory directory,
-   plugin-controlled).
+7. Read `$IA_TW_ROOT_DIR/.claude/agent-memory/lead/MEMORY.md` if it
+   exists (the lead session boots with cwd = `$IA_TW_STATE_DIR`, so
+   always reference the memory file via the absolute `$IA_TW_ROOT_DIR`
+   prefix). This file IS allowed in the repo — it's the global plugin
+   memory directory, plugin-controlled.
 8. Go to **Plan**. Slack subscriptions are already in place; no setup
    from you required.
 
@@ -451,7 +454,7 @@ deps.
 When every task is `completed`:
 
 1. Set `state.md` phase to `merged` (or `closed` if any PR ended closed without merge).
-2. Append a memory record to `.claude/agent-memory/lead/MEMORY.md` with date, feature, composition, PR URLs, notable decisions.
+2. Append a memory record to `$IA_TW_ROOT_DIR/.claude/agent-memory/lead/MEMORY.md` with date, feature, composition, PR URLs, notable decisions.
 3. Send the final summary via `/ask-user "<summary>"` (one-way). The
    subscription is owned by the MCP session and released automatically
    on exit, so no manual `unsubscribe_slack` is required.

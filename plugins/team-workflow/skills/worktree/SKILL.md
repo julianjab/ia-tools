@@ -5,14 +5,14 @@ description: >
   worktrees for features, reviews, and hotfixes without switching
   branches. Supports: `init` (create), `list` (show active),
   `switch` (change context), `cleanup` (remove merged/stale), `status`
-  (overview), `rehydrate` (re-register worktrees via `/add-dir` after
-  `/compact` or `/resume`). `init` accepts `--repo <path>` to create
-  worktrees in sibling repos (multi-repo mode).
+  (overview). `init` accepts `--repo <path>` to create worktrees in
+  sibling repos (multi-repo mode). For rehydration use
+  `/session rehydrate` — it covers worktrees AND the per-session
+  settings.local.json.
   Examples: `/worktree init feat/notification-service`,
   `/worktree init feat/payment-tracking --repo /path/to/repo`,
-  `/worktree list`, `/worktree cleanup --merged`, `/worktree status`,
-  `/worktree rehydrate`, `/worktree rehydrate --feature feat-notif`.
-argument-hint: "[init|list|switch|cleanup|status|rehydrate] [branch-name] [--base main] [--review <pr>] [--repo <path>] [--feature <name>] [--state-dir <path>]"
+  `/worktree list`, `/worktree cleanup --merged`, `/worktree status`.
+argument-hint: "[init|list|switch|cleanup|status] [branch-name] [--base main] [--review <pr>] [--repo <path>]"
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, SlashCommand, Bash(bash *), Bash(git *), Bash(gh *), Bash(find *), Bash(ls *), Bash(awk *), Bash(sed *), Bash(grep *), Bash(cat *), Bash(printf *), Bash(test *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(chmod *)
 ---
@@ -32,7 +32,7 @@ Parse `$ARGUMENTS` to determine which sub-command to execute:
 | `switch` | Print the path of an existing worktree (context guidance) |
 | `cleanup` | Remove worktree(s) that are merged or no longer needed |
 | `status` | Comprehensive overview: all worktrees, uncommitted changes, unpushed commits |
-| `rehydrate` | Re-register every active worktree from `state.md` via `/add-dir`. Use after `/compact`, `/clear`, or a fresh `/resume` when repo-local agent spawns start failing with "agent type not found". |
+| `rehydrate` | Forward to `/session rehydrate` (moved — covers the whole session, not just worktrees) |
 | _(empty)_ | Run `status` by default |
 
 ---
@@ -277,100 +277,26 @@ current CWD's repo root.
 
 ---
 
-## Sub-command: `rehydrate`
+## Sub-command: `rehydrate` (moved → `/session rehydrate`)
 
-**Purpose**: re-register every active worktree from `state.md` via
-`/add-dir`. Use after `/compact`, `/clear`, or a fresh `/resume` when
-repo-local agent spawns start failing with "agent type not found".
-Works inside a lead session (auto-resolves from `$IA_TW_STATE_DIR`) and
-outside one (lists every active session and asks which to rehydrate).
-
-After context loss, the worktrees still exist on disk and `state.md`
-still records them, but the Claude Code session forgot the `/add-dir`
-registrations that `init` set up. `rehydrate` resolves the target
-`state.md`, discards entries whose `local_phase` is terminal (`merged`
-/ `closed` / `stopped`) or whose path no longer exists, then runs
-`/add-dir` on the rest. When `SlashCommand` cannot reach `/add-dir`
-(some non-lead sessions), it prints the commands ready to paste.
-
-### Arguments
-
-| Form | Action |
-|------|--------|
-| `/worktree rehydrate` | Auto-resolve: use `$IA_TW_STATE_DIR` if set, else list every session via `list-sessions.sh` and prompt the operator to pick one. |
-| `/worktree rehydrate --feature <name>` | Find the session whose `feature:` field matches `<name>` (substring match allowed) and rehydrate it. Errors if zero or multiple match. |
-| `/worktree rehydrate --state-dir <abs path>` | Use the given state dir directly. Bypasses discovery and prompts. |
-
-### Preconditions
-
-| Condition | Action |
-|-----------|--------|
-| Helper script `scripts/active-worktrees.sh` missing | STOP — installation issue. |
-| Helper script `scripts/list-sessions.sh` missing | STOP — installation issue. |
-| Resolved state.md is missing | STOP — report the resolved path and ask the operator to check it. |
-
-### Steps
-
-1. **Resolve the target state dir**:
-   - If `--state-dir <path>` was passed → use it.
-   - Else if `--feature <name>` was passed → run
-     `bash "${CLAUDE_PLUGIN_ROOT}/skills/worktree/scripts/list-sessions.sh" --format tsv`
-     and filter rows where `feature:` contains `<name>` (case-insensitive).
-     One match → use its `state_dir`. Zero or multiple → report and exit.
-   - Else if `$IA_TW_STATE_DIR` is set and the dir exists → use it.
-   - Else → run `list-sessions.sh` (human format) and present the
-     numbered list to the operator. Ask which row to rehydrate (use
-     `AskUserQuestion` in local mode; in Slack mode the lead would
-     already have `$IA_TW_STATE_DIR`). Use the selected row's
-     `state_dir`.
-
-2. **List active worktree paths** from the resolved state.md:
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/worktree/scripts/active-worktrees.sh" \
-        "<resolved-state-dir>/state.md"
-   ```
-   Empty output → report "No worktrees to rehydrate for <feature>" and
-   exit.
-
-3. **Always print the `/add-dir` commands** to the user before running
-   anything. This is the operator's fallback when SlashCommand cannot
-   reach `/add-dir` in the current session — they can copy the block
-   and paste it manually. The output block looks like:
-   ```
-   /worktree rehydrate — N worktrees to register for <feature>:
-     /add-dir <path1>
-     /add-dir <path2>
-     /add-dir <path3>
-   ```
-
-4. **Re-register each path** by invoking `/add-dir <path>` via the
-   SlashCommand tool. On failure (tool not available, permission
-   denied), report which paths the operator must paste manually
-   (taken from step 3's output).
-
-5. **Verify by sampling**. Read the `.claude/agents/` listing of the
-   first rehydrated worktree to confirm registration took effect.
-
-### Output
+Rehydration now lives in the `/session` skill because a rehydrate
+covers the **whole session** (worktrees + the per-session
+`settings.local.json`), not just git-worktree state. Use:
 
 ```
-/worktree rehydrate complete:
-  feature:         <name>
-  state_dir:       <abs path>
-  rehydrated:      <N>     (auto-registered via SlashCommand)
-  printed-only:    <M>     (printed for manual paste — SlashCommand failed)
-  skipped:         <list>  (terminal phases or paths that no longer exist)
-
-Repo-local agents under each rehydrated worktree are now callable via
-Agent(subagent_type=<name>).
+/session rehydrate
+/session rehydrate --feature <name>
+/session rehydrate --state-dir <abs path>
+/session rehydrate --skip-settings        # worktrees only, leave settings alone
 ```
 
-### Error handling
+The behavior is the superset of what `/worktree rehydrate` used to do
+plus a regeneration of `<state-dir>/.claude/settings.local.json` via
+`generate-session-settings.sh`. See the `## Sub-command: rehydrate`
+section in `skills/session/SKILL.md` for the full contract.
 
-| Condition | Action |
-|-----------|--------|
-| `active-worktrees.sh` prints nothing | Report "No worktrees to rehydrate" and exit 0 |
-| `/add-dir` invocation fails for one path | Continue with remaining paths; include failures in the final report |
+If you invoke `/worktree rehydrate <args>` literally, forward the same
+arguments to `/session rehydrate <args>` and stop.
 
 ## Sub-command: `status`
 
