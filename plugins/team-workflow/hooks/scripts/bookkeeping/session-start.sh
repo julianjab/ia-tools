@@ -60,7 +60,8 @@ if [ -z "${IA_TW_STATE_DIR:-}" ]; then
   fi
 
   [ -n "${topic_hash:-}" ] || { printf '{}'; exit 0; }
-  state_dir="${HOME}/.claude/team-workflow/state/${topic_hash}"
+  feature_slug=$(printf '%s' "${IA_TW_FEATURE}" | tr '/' '-' | tr ' ' '-' | tr -cd 'a-zA-Z0-9_-')
+  state_dir="${HOME}/.claude/team-workflow/state/${feature_slug}_${topic_hash}"
   mkdir -p "$state_dir" 2>/dev/null || true
   if [ "$env_already_written" -eq 0 ]; then
     printf 'export IA_TW_STATE_DIR=%q\n' "$state_dir" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true
