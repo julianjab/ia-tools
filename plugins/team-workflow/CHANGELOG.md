@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.1.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.0.1...team-workflow-v2.1.0) (2026-05-22)
+
+
+### Features
+
+* **session:** include feature slug in state dir name for discoverability ([#115](https://github.com/julianjab/ia-tools/issues/115)) ([706ec4f](https://github.com/julianjab/ia-tools/commit/706ec4f32921d4db56189c1a641062a3592e012e))
+
+
+### Bug Fixes
+
+* **team-workflow:** strip slack-bridge channel envelope from messages.md user entries ([#113](https://github.com/julianjab/ia-tools/issues/113)) ([89e8bce](https://github.com/julianjab/ia-tools/commit/89e8bcee50b10f73ca33009724f46304db14e880))
+
+
+### Refactors
+
+* **team-workflow:** centralize state.md events writes in lib/write-event.sh ([#114](https://github.com/julianjab/ia-tools/issues/114)) ([aaabfb0](https://github.com/julianjab/ia-tools/commit/aaabfb062d84e0dbabb3de6ee44f767494624027))
+
 ## [2.0.1](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.0.0...team-workflow-v2.0.1) (2026-05-22)
 
 
