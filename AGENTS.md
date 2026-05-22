@@ -4,54 +4,55 @@ This file defines the agent roster and the invariants for the ia-tools
 ecosystem. It is read natively by Cursor, Windsurf, Copilot, Codex, Amp, and
 Devin. Claude Code imports it via `@AGENTS.md` in `CLAUDE.md`.
 
-## Session model — 3 roles
+## Session model — 2 roles
 
 The operator picks the persona at boot via `claude --agent <plugin>:<name>`.
 slack-bridge is pure I/O transport — it does NOT inject any role, does
 NOT inspect argv, does NOT classify or orchestrate. See
-`specs/deterministic-router-dispatch.md` for the rationale.
+`specs/deterministic-router-dispatch.md` for the original rationale (the
+2-role simplification superseded the 3-role split it described).
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│ MAIN SESSION — router  (claude --agent team-workflow:router)│
-│ - Always alive. Receives every inbound message.             │
-│ - Prompt: plugins/team-workflow/agents/router.md            │
-│ - State = a topic→worker registry (its only context growth).│
-│ - Per message (near-deterministic):                         │
-│     resolve topic → registry lookup                         │
-│       hit  → SendMessage(worker, raw message)               │
-│       miss → Agent(topic-worker) + register                 │
-│ - NEVER classifies, NEVER drafts replies, NEVER edits.      │
-└────────────────────────────────────────────────────────────┘
-                              │ Agent() / SendMessage
-                              ▼
-┌────────────────────────────────────────────────────────────┐
-│ PER-TOPIC WORKER — topic-worker  (spawned by router)        │
-│ - One per Slack thread / channel / DM. Long-lived.          │
-│ - Prompt: plugins/team-workflow/agents/topic-worker.md      │
-│ - Owns the conversation; holds topic context in-session.    │
-│ - Classifies each message into THREE intents:               │
-│     answer    → reply inline (Agent(Explore) if deep)       │
-│     ask       → reply proposing action; wait for OK         │
-│     dispatch  → /session → spawn lead sub-session           │
-│ - NEVER edits files; hands code work to lead.               │
-└────────────────────────────────────────────────────────────┘
-                              │ /session
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│ SUB-SESSION — lead  (claude --agent team-workflow:lead,      │
-│   booted by /session via start-lead.sh)                      │
-│ - One per Slack topic / feature                              │
-│ - Prompt: plugins/team-workflow/agents/lead.md               │
-│ - Dedicated tmux session, subscribed to the topic            │
-│ - Per-repo worktrees provisioned on the fly                  │
-│ - State persisted at $HOME/.claude/team-workflow/state/...   │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ MAIN SESSION — router  (claude --agent team-workflow:router)         │
+│ - Always alive. Receives every inbound message.                      │
+│ - Prompt: plugins/team-workflow/agents/router.md                     │
+│ - On first inbound per topic: bootstraps                             │
+│     $IA_TW_STATE_DIR/state.md          (frontmatter + audit log)     │
+│     $IA_TW_STATE_DIR/messages.md       (rolling conversation log)    │
+│ - Per message:                                                       │
+│     1. Resolve topic → session_id = sha1(topic)[:12].                │
+│     2. Read state.md + messages.md (recover pending_ask, phase, …).  │
+│     3. Classify inline into THREE intents:                           │
+│         answer   → reply via /ask-user (Agent(Explore) when deep;    │
+│                    Agent(general-purpose) + gh org list / gh repo    │
+│                    clone --depth 1 for repos not in cache)           │
+│         ask      → reply asking for confirmation; pending ask in     │
+│                    state.md frontmatter                              │
+│         dispatch → load /session skill + EXPLICIT Bash call to       │
+│                    start-lead.sh; the skill body documents the       │
+│                    contract but does NOT auto-execute                │
+│ - NEVER edits source files; code work flows through `lead`.          │
+└──────────────────────────────────────────────────────────────────────┘
+                              │ start-lead.sh (with IA_TW_STATE_DIR
+                              ▼  inherited from the router)
+┌──────────────────────────────────────────────────────────────────────┐
+│ SUB-SESSION — lead  (claude --agent team-workflow:lead)              │
+│ - One tmux session per topic/feature.                                │
+│ - Prompt: plugins/team-workflow/agents/lead.md                       │
+│ - Boot rule: Read $IA_TW_STATE_DIR/state.md AND messages.md BEFORE   │
+│   any other work. No agent boots blind on a topic that already has  │
+│   prior context.                                                     │
+│ - Per-repo worktrees / clones provisioned on the fly.                │
+│ - Spawns sub-agents (implementer / qa / security / one-shots) that  │
+│   ALL inherit the same $IA_TW_STATE_DIR.                             │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-No `IA_TOOLS_ROLE` env var, no `SessionStart` hook, no argv-sniffing. Personas
-come from `--agent` only. `topic-worker` is the exception — it is not
-boot-launched; the `router` spawns it via `Agent()`.
+No `IA_TOOLS_ROLE` env var, no `SessionStart` hook, no argv-sniffing.
+Personas come from `--agent` only. Every agent that ends up on the
+same topic shares `$IA_TW_STATE_DIR`; the per-topic state.md +
+messages.md is the single source of truth.
 
 ## Invariants — not negotiable
 
@@ -84,22 +85,24 @@ one-shot — lead decides at runtime based on the approved plan.
 ## Workflow shape
 
 ```
-Slack message arrives
+Slack message arrives (or terminal /session with a feature)
     ↓
-ROUTER (main session) — resolve topic, registry lookup
-    ├─ hit  → SendMessage(topic-worker, raw message)
-    └─ miss → Agent(topic-worker) + register
-    ↓
-TOPIC-WORKER classifies (one per topic, long-lived)
-    ├─ answer   → reply inline (Agent(Explore) when deep). DONE.
-    ├─ ask      → reply proposing action; wait for 'aprobar' / 'cancelar' / edit text.
-    │             on 'aprobar' → re-classify as dispatch.
-    └─ dispatch → /session → spawns lead in tmux
+ROUTER (main session)
+    1. Resolve topic → session_id; create $IA_TW_STATE_DIR on first inbound.
+    2. Read state.md + messages.md (recover pending_ask / phase / default_repo).
+    3. Classify inline:
+        ├─ answer   → reply via /ask-user (Agent(Explore) when deep). DONE.
+        ├─ ask      → reply asking for confirmation; pending ask written to
+        │             state.md frontmatter. On next inbound: 'aprobar' →
+        │             dispatch; 'cancelar' → drop; other text → re-classify.
+        └─ dispatch → load /session skill + EXPLICIT Bash call to
+                      start-lead.sh (passing $IA_TW_STATE_DIR so the lead
+                      inherits the topic's state dir, not a new one).
                  ↓
              lead boot:
-               - reads $IA_TW_TOPIC / $IA_TW_FEATURE / $IA_TW_REQUEST / $IA_TW_STATE_DIR
-               - if state.md exists → resumes from recorded phase
-               - else → boot guard (list_subscriptions probe), then Plan phase
+               - reads $IA_TW_STATE_DIR (inherited) + state.md + messages.md.
+               - state.md already exists with `phase: chatting`; lead
+                 transitions to `planning`.
                  ↓
              PLAN (lead)
                - Agent(general-purpose) for pre-analysis (multi-repo detection,
@@ -144,13 +147,14 @@ User DM (Slack): "agrega un endpoint mock GET /demo en client-api;
                   consúmelo desde mobile/ai-mobile-app en pantalla principal
                   y desde frontend/lh-seller-v2-frontend en un widget del dashboard"
     ↓
-router: resolve topic `<channel>:*:<thread_ts>` → registry miss
-    - Agent(topic-worker) for this topic; registers topic→worker.
-    ↓
-topic-worker: classify → dispatch (hard signal "agrega")
-    - Derives feature name: `feat/demo-api-client-api`
-    - Posts ack reply in the thread.
-    - /session → start-lead.sh "feat/demo-api-client-api" "<topic>" "<request>"
+router: resolve topic `<channel>:*:<thread_ts>` (new topic)
+    - Bootstrap $IA_TW_STATE_DIR/{state.md,messages.md}.
+    - append-message hook records the inbound in messages.md.
+    - Classify inline → dispatch (hard signal "agrega").
+    - Derive feature name: `feat/demo-api-client-api`.
+    - Post ack reply via /ask-user.
+    - Load /session skill, then Bash: start-lead.sh "feat/demo-api-client-api"
+        "<topic>" "<request>"   # IA_TW_STATE_DIR already exported
     ↓
 lead booted in tmux 'feat/demo-api-client-api'
     - $IA_TW_TOPIC = D0AMP0P0UKY:*:1778681006...
@@ -179,8 +183,7 @@ parallel where deps allow.
 
 | Agent          | File                                          | Role                                                            | Model  | Color  |
 |----------------|-----------------------------------------------|-----------------------------------------------------------------|--------|--------|
-| `router`       | `plugins/team-workflow/agents/router.md`      | Main-session dispatcher. Resolves topic, forwards; never classifies or edits. | sonnet | cyan   |
-| `topic-worker` | `plugins/team-workflow/agents/topic-worker.md`| Per-topic conversational agent. Classifies + acts; never edits. | sonnet | teal   |
+| `router`       | `plugins/team-workflow/agents/router.md`      | Main-session dispatcher AND inline conversational agent. Classifies (answer/ask/dispatch); never edits source. | sonnet | cyan   |
 | `lead`         | `plugins/team-workflow/agents/lead.md`        | Per-feature orchestrator. Plan, provision, dispatch.            | opus   | purple |
 | `implementer`  | `plugins/team-workflow/agents/implementer.md` | Stack-aware fallback subagent when a repo has no impl.          | sonnet | green  |
 
@@ -221,7 +224,7 @@ The hook pipeline (see `plugins/team-workflow/hooks/scripts/intelligence/detect-
 | Stack | Detects backend / frontend / mobile / infra | Manifest probe (pubspec, package.json+UI dep, pyproject, Cargo, go.mod, *.tf) |
 | Agents (qa/sec/arch) | First-pass classification | Name regex: `^(qa\|tester)…`, `^(security\|sec-review\|sec)…`, `^(architect\|api)…` |
 | Agents (impl + leftover arch) | LLM reasoning | Haiku via `_fast_claude.sh` — reads each unclassified agent's description and picks the implementer/architect given the detected stack |
-| Bucket assignment | Resolves with full fallback chain | repo-local match → `IA_TW_TOPIC_WORKER_AGENT` → plugin fallback (`impl-<wt_prefix>` / `lead` / `implementer`) |
+| Bucket assignment | Resolves with full fallback chain | Haiku pick (repo-local, prefixed via sync-agents) → plugin fallback (`impl-<wt_prefix>` for impl, `lead` for qa/sec, `implementer` for arch) |
 | Capabilities | Probes the repo | `pre_push_hook`, `agent_memory_dir`, `team_review_config`, `conventional_commits_enforced`, `base_branch` |
 
 Idempotent — entries that already declare `agents:` are skipped. The
@@ -243,14 +246,22 @@ session and gates all user-facing interaction:
 
 The mode is fixed at boot. lead must not silently downgrade.
 
-## State and persistence
+## State and persistence — single source of truth per topic
 
-Each feature owns a self-contained session workspace outside every
-consumer repo:
+Every topic owns a self-contained session workspace outside every
+consumer repo. **The same `$IA_TW_STATE_DIR` is shared by router,
+lead, implementer, and every sub-agent that ends up on this topic.**
+The router bootstraps it on the first inbound; subsequent agents
+inherit it via env (`start-lead.sh` propagates `$IA_TW_STATE_DIR` to
+the lead, the lead's spawn prompts to its sub-agents).
 
 ```
 $IA_TW_STATE_ROOT/<topic_hash>/            ← session workspace ($IA_TW_STATE_DIR)
-  state.md                                 YAML frontmatter + plan + worktrees + audit log
+  state.md                                 YAML frontmatter + plan + worktrees + audit log;
+                                           trailing `@include messages.md` marker
+  messages.md                              Append-only rolling conversation log; one entry
+                                           per turn (user / router / lead / implementer / …)
+                                           written by the append-message.sh hook
   hook-audit.log                           TaskCreated / TaskCompleted log
   session-env.yaml                         Capa A/B env snapshot (no tokens)
   api-contract.md                          (optional) when api_contract != none
@@ -264,13 +275,20 @@ $IA_TW_STATE_ROOT/<topic_hash>/            ← session workspace ($IA_TW_STATE_D
     ...
 
 $HOME/.claude/team-workflow/archive/<topic_hash>/   ← $IA_TW_ARCHIVE_DIR
-  state.md, hook-audit.log, ARCHIVED sentinel       (written by archive-on-merge
-                                                      when phase ∈ merged/closed)
+  state.md, messages.md, hook-audit.log, ARCHIVED sentinel
+                                                  (written by archive-on-merge when
+                                                   phase ∈ merged/closed)
 ```
 
 - `IA_TW_STATE_ROOT` defaults to `~/.claude/team-workflow/state`. Set
   to `/tmp/claude/team-workflow` for ephemeral pods.
 - `<topic_hash>` = `sha1(IA_TW_TOPIC)[:12]` or `sha1("local:<feature>")[:12]`.
+- **Boot rule (every agent).** When `$IA_TW_STATE_DIR/state.md`
+  exists, the agent's first action is to read it AND `messages.md`.
+  No agent boots blind on a topic that already has prior context.
+- The router writes `state.md` skeleton on first inbound (phase:
+  `chatting`). The lead transitions it to `phase: planning` on
+  `/session` dispatch. Subsequent phases follow lead.md's table.
 - Resume: a lead boot that sees an existing `state.md` reads it,
   reconstructs the worktree map, and continues from the recorded phase —
   it does NOT re-run pre-analysis.
@@ -355,10 +373,10 @@ consumer repo:
 ## Rules — all agents
 
 1. **router is the only main session.** It receives every inbound
-   message and forwards it to that topic's `topic-worker` — it never
-   classifies, never replies with content, never edits. Classification
-   happens only in `topic-worker`; no other agent edits code from a
-   main/dispatcher session.
+   message, classifies it inline into `answer` / `ask` / `dispatch`,
+   and acts. Source-file edits are NEVER done from the router —
+   real code changes flow to `lead` via `/session` + an explicit
+   `Bash` call to `start-lead.sh`.
 2. **Every change runs through approval.** Even a one-line doc fix goes
    through plan → approval → PR. Shortcuts are prohibited.
 3. **QA writes tests first.** No impl task GREEN completes until the
@@ -384,8 +402,9 @@ across:
 - Ambiguous merge conflicts. Always asks before force-push / discard.
 - Spec drift. If state.md and actual work diverge, stop and report.
 
-router is autonomous only on dispatch mechanics (topic resolution,
-registry lookup, spawning a worker) — never on classification or
-execution. topic-worker is autonomous on classification and the
-answer/ask path, never on code changes — it only replies, asks for
-confirmation, or calls `/session` to hand off to a `lead`.
+router is autonomous on the `answer` / `ask` path (inline replies,
+delegating deep reads to `Agent(Explore)`, discovering non-local
+repos via `gh org list` + `gh repo clone --depth 1` through
+`Agent(general-purpose)`) — never on source-file edits. On
+`dispatch`, the router loads `/session` and runs the explicit Bash
+call to `start-lead.sh`, handing the topic off to `lead`.

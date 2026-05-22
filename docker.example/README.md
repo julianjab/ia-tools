@@ -11,7 +11,7 @@ baking a different `<agent>.md` into a derived image.
 | Source of truth | Where it lives | Who owns it |
 |---|---|---|
 | Image (router + slack-bridge + Claude Code + yq) | this `Dockerfile` | ia-tools (generic) |
-| Pod profile (`router.topic_worker_agent`, repos whitelist, ACL, slack topics) | `team-workflow.yaml` mounted at `/opt/ia-tools/.claude/team-workflow.yaml` | the consumer (per pod) |
+| Pod profile (`router.dispatch.agent`, repos whitelist, ACL, slack topics) | `team-workflow.yaml` mounted at `/opt/ia-tools/.claude/team-workflow.yaml` | the consumer (per pod) |
 | Consumer agent (`<name>.md`) | `/root/.claude/agents/<name>.md` baked in a derived image (or mounted) | the consumer |
 | Secrets (`*_TOKEN`, OAuth) | `.env` (local) or k8s Secret (cluster) | the operator |
 
@@ -27,7 +27,8 @@ and writing their `team-workflow.yaml`:
 
 ```yaml
 router:
-  topic_worker_agent: <agent>
+  dispatch:
+    agent: <agent>          # only when overriding `team-workflow:lead`
 repos:
   - https://github.com/your-org/your-primary-repo.git
   - https://github.com/your-org/your-secondary-repo.git
@@ -41,22 +42,31 @@ access:
 ```
 Slack / terminal
      ↓
-router (always-on, PID 1 of the pod) — deterministic dispatcher
-     ↓ topic miss
-Agent("$IA_TW_TOPIC_WORKER_AGENT") spawned as topic-worker
-     ↓ classify
-   answer/ask → reply inline (grep cache when needed)
-   dispatch   → /session --agent team-workflow:lead
-                 ↓
-              lead (sub-tmux session)
-                 ↓ provision worktree / clone (lazy)
-                 ↓ /add-dir <repo>
-                 ↓ discover .claude/agents/*.md in the repo
-                 ↓ bucket fallback = $IA_TW_TOPIC_WORKER_AGENT
-                 ↓ task graph (qa:red → impl:green → security → /pr)
-                 ↓ PR opened
+router (always-on, PID 1 of the pod) — handles every inbound inline:
+  classify answer / ask / dispatch
+     ├─ answer  → reply inline (grep cache; Agent(Explore) for deep reads;
+     │            Agent(general-purpose) + gh org list / gh repo clone --depth 1
+     │            for repos not yet in the cache)
+     ├─ ask     → reply asking for confirmation; pending ask in state.md
+     └─ dispatch → /session + explicit Bash call to start-lead.sh
+                    ↓
+                 lead (sub-tmux session, IA_TW_STATE_DIR inherited from router)
+                    ↓ read state.md + messages.md (no agent boots blind)
+                    ↓ provision worktree / clone (lazy)
+                    ↓ sync-agents hook materializes <repo>-<name>.md
+                    ↓ discover .claude/agents/*.md in the repo
+                    ↓ task graph (qa:red → impl:green → security → /pr)
+                    ↓ PR opened
 router stays up for the next request; pod is never torn down per feature.
 ```
+
+On the first inbound of every new topic, the router bootstraps a
+per-topic state dir at `$IA_TW_STATE_ROOT/<topic_hash>/` containing
+`state.md` (YAML frontmatter + audit log) and `messages.md` (rolling
+conversation log written by the `append-message.sh` hook). Every
+downstream agent on that topic — `lead`, `implementer`, qa, security,
+one-shot sub-agents — receives the same `IA_TW_STATE_DIR` and reads
+both files at boot.
 
 The four invariants (approval gate, QA-first, security-APPROVED-per-PR,
 `/pr`-only-to-main) live in the framework prompts and apply to every
@@ -66,7 +76,7 @@ agent, including consumer ones.
 
 The `repos:` list in `team-workflow.yaml` is a **whitelist**, not a
 pre-clone instruction. The pod boots in seconds with an empty cache.
-The first time an agent (router-spawned topic-worker, or a `lead` task)
+The first time an agent (the router inline, or a `lead` task)
 references a repo, it clones it into
 `$IA_TW_STATE_ROOT/clone-cache/<slug>/`. Subsequent uses reuse the
 cache (`git fetch`). The PVC keeps clones across pod restarts.

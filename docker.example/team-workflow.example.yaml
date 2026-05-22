@@ -11,21 +11,20 @@
 #   plugins/team-workflow/skills/session/team-workflow.example.yaml
 # This file is just a deployment-shaped instance of that schema.
 
-# --- Which agent runs in this pod -------------------------------------------
-# Leave the whole `router` block out (or empty) for the generic
-# deterministic flow (router → topic-worker → lead). Set
-# `topic_worker_agent` when this pod hosts a single consumer-owned
-# persona that should handle answer/ask AND act as the bucket fallback
-# inside `lead`.
+# --- Orchestrator persona for this pod --------------------------------------
+# `router` handles every inbound inline (answer / ask / dispatch). On
+# `dispatch` it spawns `lead` via /session + start-lead.sh. Override
+# `router.dispatch.agent` only when this pod ships a consumer-owned
+# orchestrator persona that should replace `team-workflow:lead`.
 #
 # The name must resolve from the running session. Common shapes:
 #   - Baked in the image at /root/.claude/agents/<name>.md (recommended
 #     for production pods — see Dockerfile docstring for how a consumer
 #     extends this base image).
 #   - Provided by the plugin (`team-workflow:<name>`).
-#   - Discovered after `/add-dir <repo>` ran (dev-host).
 router:
-  topic_worker_agent: ${IA_TW_AGENT_NAME}
+  dispatch:
+    agent: ${IA_TW_AGENT_NAME:-team-workflow:lead}
 
 # --- Repos this pod is allowed to touch -------------------------------------
 # WHITELIST, not a pre-clone list. Agents clone on demand into
