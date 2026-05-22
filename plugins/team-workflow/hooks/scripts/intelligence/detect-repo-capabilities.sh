@@ -39,9 +39,9 @@
 #
 #   4. Final bucket assignment with fallback chain:
 #        impl  → Haiku pick → impl-${wt_prefix} (plugin implementer fallback)
-#        qa    → Haiku pick → ${IA_TW_TOPIC_WORKER_AGENT} → lead (inline)
-#        sec   → Haiku pick → ${IA_TW_TOPIC_WORKER_AGENT} → lead (inline)
-#        arch  → Haiku pick → ${IA_TW_TOPIC_WORKER_AGENT} → implementer
+#        qa    → Haiku pick → lead (inline)
+#        sec   → Haiku pick → lead (inline)
+#        arch  → Haiku pick → implementer
 #
 # Triggered by PostToolUse Edit/Write because worktree entries can only
 # enter state.md via Edit/Write. Idempotent via per-entry `agents:` presence
@@ -241,7 +241,7 @@ No prose, no markdown, no code fence."
 
 # ── Helper: resolve buckets with full fallback chain ─────────────────────────
 # Precedence per bucket:
-#   Haiku pick  >  IA_TW_TOPIC_WORKER_AGENT  >  plugin default
+#   Haiku pick  >  plugin default
 #
 # Discovery is Haiku-only by design — the model reads agent descriptions
 # and decides bucket fit based on intent, which generalises across naming
@@ -254,30 +254,25 @@ No prose, no markdown, no code fence."
 # form. We apply that prefix here so the `agents:` map written into
 # state.md is already session-ready.
 #
-# Plugin-level fallbacks (lead, implementer, impl-<wt_prefix>) and the
-# topic-worker passthrough are never prefixed — they don't go through
-# sync-agents.
+# Plugin-level fallbacks (lead, implementer, impl-<wt_prefix>) are
+# never prefixed — they don't go through sync-agents.
 resolve_buckets() {
   local wt_prefix="$1"
   local repo_slug="$2"
-  local twa="${IA_TW_TOPIC_WORKER_AGENT:-}"
 
   if   [ -n "$haiku_impl" ];   then bucket_impl="${repo_slug}-${haiku_impl}"
   else                              bucket_impl="impl-${wt_prefix}"
   fi
 
   if   [ -n "$haiku_qa" ];     then bucket_qa="${repo_slug}-${haiku_qa}"
-  elif [ -n "$twa" ];          then bucket_qa="$twa"
   else                              bucket_qa="lead"
   fi
 
   if   [ -n "$haiku_sec" ];    then bucket_sec="${repo_slug}-${haiku_sec}"
-  elif [ -n "$twa" ];          then bucket_sec="$twa"
   else                              bucket_sec="lead"
   fi
 
   if   [ -n "$haiku_arch" ];   then bucket_arch="${repo_slug}-${haiku_arch}"
-  elif [ -n "$twa" ];          then bucket_arch="$twa"
   else                              bucket_arch="implementer"
   fi
 }

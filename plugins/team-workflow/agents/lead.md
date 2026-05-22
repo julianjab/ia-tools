@@ -95,39 +95,41 @@ Use only the functional `list_subscriptions` probe for this decision
 — `/mcp` reports unrelated MCP servers and is unreliable as a channel
 signal.
 
-## State file (one per feature, OUTSIDE any repo)
+## State file (one per TOPIC, OUTSIDE any repo)
 
-Path: `${HOME}/.claude/team-workflow/state/<topic-hash>/state.md`.
+Path: `$IA_TW_STATE_DIR/state.md`. The state dir is the single source
+of truth per topic — shared by router, lead, implementer, qa,
+security, and any one-shot subagent on this topic. The router
+bootstraps it on first inbound; this lead receives it via
+`$IA_TW_STATE_DIR` from `start-lead.sh` and **must not** recompute
+the path or create a parallel state dir.
 
-This location is intentional and non-configurable:
+Layout under `$IA_TW_STATE_DIR/`:
 
-- Outside every consumer repo → safe from accidental commits, no
-  `.gitignore` discipline required.
-- Per-user, machine-local. Multi-machine work on the same Slack thread
-  creates separate states (acceptable — the source of truth is Slack
-  + the PRs, state.md is local audit + resume aid).
-- Global namespace by topic-hash. `topic-hash = sha1(IA_TW_TOPIC)[:12]`.
-  For `local` mode where there is no Slack topic, use the literal
-  string `local:<IA_TW_FEATURE>` as the topic before hashing, so each
-  local feature gets its own state dir.
-
-Companion files in the same directory:
-
-- `state.md`         — the feature state (this schema).
+- `state.md`         — the topic state (this schema). Pre-existing when
+                       the router bootstrapped it; lead amends it.
+- `messages.md`      — append-only conversation log written by the
+                       `bookkeeping/append-message.sh` hook (UserPromptSubmit,
+                       Stop, SubagentStop, PostToolUse:reply|reply_update).
+                       Never write to this file directly.
 - `hook-audit.log`   — append-only log of `TaskCreated` / `TaskCompleted`
-                        events (written by the plugin hooks).
-- `team-meta.json`   — runtime metadata the lead may persist
-                        between turns (cached env, last `last_event_at`).
+                       events (written by the plugin hooks).
+- `team-meta.json`   — runtime metadata the lead may persist between
+                       turns (cached env, last `last_event_at`).
 
 Schema (YAML frontmatter + markdown body):
 
 ```yaml
 topic: <IA_TW_TOPIC>
-feature: <IA_TW_FEATURE>
-phase: planning | implementing | prs-open | reviewing | merged | closed | stopped
+session_id: <sha1(topic)[:12]>
+feature: <IA_TW_FEATURE>           # filled by lead when /session fires
+phase: chatting | planning | implementing | prs-open | reviewing | merged | closed | stopped
 root_dir: <IA_TW_ROOT_DIR>
+first_message_ts: <inbound message_ts or "">  # set by router on bootstrap
 created_at: <iso8601>
 last_event_at: <iso8601>
+default_repo: <abs path or "">     # inferred from conversation
+pending_ask: <gist or "">          # set by router on ask intent
 worktrees:
   - repo: <abs repo path>
     worktree: <abs worktree path>
@@ -155,7 +157,8 @@ events:
 
 | From → To              | Trigger                                                                |
 |------------------------|------------------------------------------------------------------------|
-| `-` → `planning`        | initial `state.md` write at boot                                       |
+| `-` → `chatting`        | router bootstraps `state.md` on first inbound of the topic             |
+| `chatting` → `planning` | lead boots via `/session` and writes the plan                          |
 | `planning` → `implementing` | user approval of the plan                                          |
 | `implementing` → `prs-open` | all worktrees have `local_phase: pr-open`                          |
 | `prs-open` → `merged`   | every worktree's PR is merged (Cleanup)                                |
@@ -191,15 +194,29 @@ straight from env; do NOT recompute hashes or paths yourself.
 
 | Env (Capa B — derived, immutable for this session) | Meaning |
 |---|---|
-| `$IA_TW_STATE_DIR` | This feature's workspace. Your cwd at boot. Holds `state.md`, `hook-audit.log`, `session-env.yaml`, `.claude/settings.local.json`. |
+| `$IA_TW_STATE_DIR` | This topic's workspace. Your cwd at boot. Shared with the router and every sub-agent on this topic. Holds `state.md`, `messages.md`, `hook-audit.log`, `session-env.yaml`, `.claude/settings.local.json`. |
 | `$IA_TW_WORKTREE_ROOT` | `$IA_TW_STATE_DIR/worktrees`. Every worktree you provision lives here as `<basename($repo)>/`. |
 | `$IA_TW_AGENT_LINK_DIR` | `$IA_TW_STATE_DIR/.claude/agents`. Where the `sync-agents` hook materializes repo-local agents as `<basename>-<name>.md`. |
 | `$IA_TW_ARCHIVE_DIR` | Persistent archive path (under `$HOME`). The `archive-on-merge` hook copies state.md here on phase=merged. |
 | `$IA_TW_ROOT_DIR` | Consumer repo / multi-repo root the operator launched against. Use this prefix for reading repo files (CLAUDE.md, agent-memory, etc.). |
 
-1. Read env vars (Capa B above + `IA_TW_FEATURE`, `IA_TW_TOPIC`, `IA_TW_REQUEST`).
-2. If `$IA_TW_STATE_DIR/state.md` exists → read it; jump to **Dispatch loop** at the recorded `phase`.
-3. Else → write initial `state.md` with `phase: planning`.
+1. Read env vars (Capa B above + `IA_TW_FEATURE`, `IA_TW_TOPIC`,
+   `IA_TW_REQUEST`). **Do not recompute `$IA_TW_STATE_DIR`** — the
+   router already bootstrapped it for this topic.
+2. **Read existing state first — no agent boots blind.**
+   - `Read $IA_TW_STATE_DIR/state.md` — recover topic, prior phase,
+     `default_repo`, `pending_ask`, `worktrees`, `events`.
+   - `Read $IA_TW_STATE_DIR/messages.md` if present — that is the
+     rolling conversation history (router + user turns since the
+     topic started). Use it to understand the context that led to
+     `/session`.
+3. Branch on `phase`:
+   - `chatting` → router just dispatched. Transition to `planning`
+     (write the phase update) and continue to **Plan**.
+   - `planning`, `implementing`, `prs-open`, `reviewing` → this is a
+     resume. Jump to **Dispatch loop** at the recorded phase.
+   - `merged`, `closed`, `stopped` → log a no-op and exit; the topic
+     is closed.
 4. Read `$IA_TW_ROOT_DIR/.claude/agent-memory/lead/MEMORY.md` if it
    exists (the lead session boots with cwd = `$IA_TW_STATE_DIR`, so
    always reference the memory file via the absolute `$IA_TW_ROOT_DIR`
@@ -304,12 +321,10 @@ required (Claude Code resolves them through the session's own
    fallback chain:
    - `impl`: repo-local match (description aligns with stack per
      Haiku) → `impl-<wt_prefix>` (plugin `implementer` fallback)
-   - `qa`:   repo-local qa-named match → `IA_TW_TOPIC_WORKER_AGENT`
-     → `lead` (inline)
-   - `sec`:  repo-local sec-named match → `IA_TW_TOPIC_WORKER_AGENT`
-     → `lead`
+   - `qa`:   repo-local qa-named match → `lead` (inline)
+   - `sec`:  repo-local sec-named match → `lead` (inline)
    - `arch`: repo-local arch-named match → Haiku's arch pick →
-     `IA_TW_TOPIC_WORKER_AGENT` → `implementer`
+     `implementer`
 
 ### Spawn rule for repo-local agents
 

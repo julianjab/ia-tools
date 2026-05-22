@@ -5,7 +5,7 @@ when_to_use: |
   Trigger phrases: "tell the user", "notify the user", "ask the user",
   "send a status update", "publish the plan", "ask for approval", "post to Slack",
   "report progress". Invoke from any agent that talks to the human operator —
-  lead, topic-worker, or any custom worker that needs a single point of contact.
+  router, lead, or any custom worker that needs a single point of contact.
 argument-hint: <message text> [--ask] [--in-reply-to <message_ts>] [--channel <channel_id>] [--thread <thread_ts>]
 arguments: [text, mode, message_ts, channel_id, thread_ts]
 allowed-tools: Bash(echo *), Bash(node *), Read, AskUserQuestion

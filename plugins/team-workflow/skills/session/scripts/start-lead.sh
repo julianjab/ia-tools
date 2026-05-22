@@ -25,11 +25,11 @@
 # Parametrization (env-var overridable — this is what makes team-workflow
 # non-static; the spawner picks the persona and provisioning strategy):
 #   IA_TW_AGENT              Agent to boot. Default: team-workflow:lead.
-#                            e.g. team-workflow:repo-worker for single-repo,
-#                            clone-work-PR sessions inside a long-lived pod.
-#   IA_TW_TOPIC_WORKER_AGENT topic-worker persona the router spawns for
-#                            answer/ask intents. Default: team-workflow:topic-worker.
+#                            Override only when a consumer ships a custom
+#                            orchestrator persona.
 #   IA_TW_PROVISION          worktree-local (default) | clone | none.
+#                            `lead` reads this and shallow-clones the
+#                            target repos when set to `clone`.
 #   IA_TW_REPO_URL           Singular repo URL when IA_TW_PROVISION=clone.
 #   IA_TW_REPO_URLS          CSV of repo URLs for multi-repo pods. Pre-clone
 #                            iterates over this list when set.
@@ -72,15 +72,10 @@ while [ $# -gt 0 ]; do
 done
 
 agent="${IA_TW_AGENT:-team-workflow:lead}"
-topic_worker_agent="${IA_TW_TOPIC_WORKER_AGENT:-team-workflow:topic-worker}"
 provision="${IA_TW_PROVISION:-worktree-local}"
 repo_url="${IA_TW_REPO_URL:-}"
 repo_urls="${IA_TW_REPO_URLS:-}"
 terminal_pref="${IA_TW_TERMINAL:-auto}"
-
-# Topic hash: $topic if set, else "local:$feature".
-hash_key="${topic:-local:$feature}"
-topic_hash=$(printf '%s' "$hash_key" | shasum | head -c 12)
 
 # ─── Capa A → Capa B env resolution (single source of truth) ───────────────
 # Capa A — user-tunable (yaml / env): controls *strategy*.
@@ -93,7 +88,21 @@ state_root="${IA_TW_STATE_ROOT:-$HOME/.claude/team-workflow/state}"
 agent_link_strategy="${IA_TW_AGENT_LINK_STRATEGY:-symlink}"
 archive_on_merge="${IA_TW_ARCHIVE_ON_MERGE:-1}"
 
-state_dir="$state_root/$topic_hash"
+# State dir precedence:
+#   1. $IA_TW_STATE_DIR forwarded by the caller (the router exports this
+#      once it has resolved the topic to a stable session-id) — single
+#      source of truth shared by router, lead, and every sub-agent.
+#   2. Derived: <topic_hash> = sha1($topic OR "local:$feature")[:12]
+#      under $state_root.
+if [ -n "${IA_TW_STATE_DIR:-}" ]; then
+  state_dir="$IA_TW_STATE_DIR"
+  topic_hash="$(basename "$state_dir")"
+else
+  hash_key="${topic:-local:$feature}"
+  topic_hash=$(printf '%s' "$hash_key" | shasum | head -c 12)
+  state_dir="$state_root/$topic_hash"
+fi
+
 worktree_root="$state_dir/worktrees"
 agent_link_dir="$state_dir/.claude/agents"
 archive_dir="$HOME/.claude/team-workflow/archive/$topic_hash"
@@ -128,7 +137,6 @@ if [ -x "$gen_util" ]; then
   IA_TW_ARCHIVE_DIR="$archive_dir" \
   IA_TW_ARCHIVE_ON_MERGE="$archive_on_merge" \
   IA_TW_AGENT="$agent" \
-  IA_TW_TOPIC_WORKER_AGENT="$topic_worker_agent" \
   IA_TW_PROVISION="$provision" \
   IA_TW_REPO_URL="${repo_url:-}" \
   IA_TW_REPO_URLS="${repo_urls:-}" \
@@ -250,7 +258,6 @@ esac
   printf 'started_at: %s\n'                 "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   printf 'boot_host: %s\n'                  "$(hostname -s 2>/dev/null || echo unknown)"
   printf 'boot_pid: %s\n'                   "$$"
-  [ -n "${topic_worker_agent:-}" ] && printf 'topic_worker_agent: %s\n' "$topic_worker_agent"
   [ -n "${repo_url:-}" ]           && printf 'repo_url: %s\n'           "$repo_url"
   [ -n "${repo_urls:-}" ]          && printf 'repo_urls: %s\n'          "$repo_urls"
   # Request can be multiline — store on a single line with literal '\n'.
@@ -292,7 +299,6 @@ if [ "$chosen" = "tmux" ]; then
   ) >/dev/null 2>&1 &
 
   echo "✓ $agent spawned (tmux: $feature, provision: $provision, state: $state_dir)"
-  echo "  topic-worker: $topic_worker_agent"
   [ -n "$repo_url$repo_urls" ] && echo "  repo(s): ${repo_urls:-$repo_url}"
   echo "  attach: tmux attach -t $feature"
   exit 0
@@ -381,6 +387,5 @@ APPLESCRIPT
 ) >/dev/null 2>&1 &
 
 echo "✓ $agent spawned (iTerm2 window: $feature, provision: $provision, state: $state_dir)"
-echo "  topic-worker: $topic_worker_agent"
 [ -n "$repo_url$repo_urls" ] && echo "  repo(s): ${repo_urls:-$repo_url}"
 echo "  relay: /send-session-message auto-detects iTerm2 sessions by name."

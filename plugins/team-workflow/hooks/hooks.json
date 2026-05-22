@@ -157,6 +157,24 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/detect-user-correction.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/append-message.sh\" user-prompt"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/append-message.sh\" agent-stop"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -195,6 +213,15 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/detect-coverage-gate.sh\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*__reply|mcp__.*__reply_update|reply|reply_update",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/append-message.sh\" tool-use"
+          }
+        ]
       }
     ],
     "SubagentStop": [
@@ -203,6 +230,14 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/subagent-stop.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/append-message.sh\" subagent-stop"
           }
         ]
       }
