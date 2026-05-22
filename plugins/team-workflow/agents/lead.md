@@ -185,20 +185,27 @@ worktree, every marker, and every task's `metadata.worktree_prefix`.
 
 ## Boot procedure
 
-1. Read env vars.
-2. Compute `topic_hash`:
-   - if `IA_TW_TOPIC == "local"` → `topic_hash = sha1("local:" + IA_TW_FEATURE)[:12]`
-   - else → `topic_hash = sha1(IA_TW_TOPIC)[:12]`
-3. `STATE_DIR="${HOME}/.claude/team-workflow/state/${topic_hash}"`. `mkdir -p "$STATE_DIR"`.
-4. Export `IA_TW_STATE_DIR="$STATE_DIR"` so hooks can find it without re-deriving.
-5. If `$STATE_DIR/state.md` exists → read it; jump to **Dispatch loop** at the recorded `phase`.
-6. Else → write initial `state.md` with `phase: planning`.
-7. Read `$IA_TW_ROOT_DIR/.claude/agent-memory/lead/MEMORY.md` if it
+The spawner (`start-lead.sh`) has already resolved every path the
+session needs and exported them in `settings.local.json`. Read them
+straight from env; do NOT recompute hashes or paths yourself.
+
+| Env (Capa B — derived, immutable for this session) | Meaning |
+|---|---|
+| `$IA_TW_STATE_DIR` | This feature's workspace. Your cwd at boot. Holds `state.md`, `hook-audit.log`, `session-env.yaml`, `.claude/settings.local.json`. |
+| `$IA_TW_WORKTREE_ROOT` | `$IA_TW_STATE_DIR/worktrees`. Every worktree you provision lives here as `<basename($repo)>/`. |
+| `$IA_TW_AGENT_LINK_DIR` | `$IA_TW_STATE_DIR/.claude/agents`. Where the `sync-agents` hook materializes repo-local agents as `<basename>-<name>.md`. |
+| `$IA_TW_ARCHIVE_DIR` | Persistent archive path (under `$HOME`). The `archive-on-merge` hook copies state.md here on phase=merged. |
+| `$IA_TW_ROOT_DIR` | Consumer repo / multi-repo root the operator launched against. Use this prefix for reading repo files (CLAUDE.md, agent-memory, etc.). |
+
+1. Read env vars (Capa B above + `IA_TW_FEATURE`, `IA_TW_TOPIC`, `IA_TW_REQUEST`).
+2. If `$IA_TW_STATE_DIR/state.md` exists → read it; jump to **Dispatch loop** at the recorded `phase`.
+3. Else → write initial `state.md` with `phase: planning`.
+4. Read `$IA_TW_ROOT_DIR/.claude/agent-memory/lead/MEMORY.md` if it
    exists (the lead session boots with cwd = `$IA_TW_STATE_DIR`, so
    always reference the memory file via the absolute `$IA_TW_ROOT_DIR`
    prefix). This file IS allowed in the repo — it's the global plugin
    memory directory, plugin-controlled.
-8. Go to **Plan**. Slack subscriptions are already in place; no setup
+5. Go to **Plan**. Slack subscriptions are already in place; no setup
    from you required.
 
 ## Plan (one-shot, gated by user approval)
@@ -237,10 +244,15 @@ Worktrees + candidate agents (filled in after Provision):
 ## Provision worktrees + discover agents (1..N)
 
 For every touched repo (in plan order), execute these steps **strictly
-in order**. No step may be skipped or reordered. The `/add-dir` step
-is what makes the worktree's repo-local agents callable — without it,
-`Agent(subagent_type=<repo-local-name>)` will fail with "agent type
-not found" and waste a turn.
+in order**. No step may be skipped or reordered.
+
+Worktrees live at `$IA_TW_WORKTREE_ROOT/<basename($repo)>/` — outside
+the consumer repo, inside the session workspace. The `sync-agents`
+hook materializes each repo's `.claude/agents/*.md` into
+`$IA_TW_AGENT_LINK_DIR` as `<basename>-<agent>.md` so the lead can
+spawn them by their prefixed name. No `/add-dir` runtime call is
+required (Claude Code resolves them through the session's own
+`additionalDirectories` + `.claude/agents` directory).
 
 **Provisioning mode** is selected by env var `IA_TW_PROVISION`
 (forwarded by `start-lead.sh`, ultimately sourced from
@@ -252,22 +264,22 @@ not found" and waste a turn.
 - `clone` — no host repos; the pod pre-clones `IA_TW_REPO_URLS` at
   boot into `IA_TW_REPO_CACHE_DIR/<repo-slug>/`. Create the feature
   branch in each cache clone instead of running `/worktree init`. PR
-  per repo works the same; `enforce-worktree.sh` does not gate edits
-  outside a host repo.
+  per repo works the same.
 
-1. **Create the working copy + register it with the session**:
+1. **Create the working copy**:
 
    _Worktree-local mode:_
    `/worktree init $IA_TW_FEATURE --repo <repo-abs>` (single-repo:
-   omit `--repo`). The `/worktree` skill runs `init.sh` and then
-   `/add-dir <worktree-abs>` automatically.
+   omit `--repo`). The skill resolves the worktree path to
+   `$IA_TW_WORKTREE_ROOT/<basename($repo)>/`, runs `init.sh`, then
+   refreshes `settings.local.json` and triggers `sync-agents.sh`
+   so the new agents are immediately spawnable.
 
    _Clone mode:_
    Resolve `<wt-abs>` to `$IA_TW_REPO_CACHE_DIR/<repo-slug>` (already
    cloned at pod boot). Inside that path:
    `git -C <wt-abs> fetch origin` then
    `git -C <wt-abs> checkout -B "$IA_TW_FEATURE" origin/<default-branch>`.
-   Call `/add-dir <wt-abs>` explicitly (no skill ran it for you).
 
    Either way: confirm the printed working-copy path so you can
    reference it as `<worktree-abs>` in later steps.
@@ -301,19 +313,26 @@ not found" and waste a turn.
 
 ### Spawn rule for repo-local agents
 
-When invoking `Agent(subagent_type=<name>, ...)` for any name that came
-from a worktree's `.claude/agents/`, run `/add-dir <worktree-abs>` for
-that worktree earlier in the session as a prerequisite. If the spawn
-returns "Agent type '<name>' not found", recover with these steps in
-order; reuse only names that actually appeared in the Glob output:
+Names are prefixed: when `detect-repo-capabilities` classifies a
+repo-local agent (e.g. `python-developer`), it writes
+`<basename($repo)>-python-developer` into the `agents:` map of state.md.
+`sync-agents.sh` materializes the source file at
+`$IA_TW_AGENT_LINK_DIR/<basename>-<name>.md`. You spawn with the
+prefixed name:
 
-1. Verify `/add-dir` ran for the worktree this agent belongs to. Run
-   it now and retry if it was missed.
-2. When `/add-dir` was already run and the name still fails, the
-   classification was wrong (e.g. the file's `name:` field differs
-   from its filename). Re-read the agent file's frontmatter and use
-   the literal `name:` value.
-3. As a last resort, fall back to the plugin's `qa` / `general-purpose`.
+```
+Agent(subagent_type="subscriptions-python-developer", prompt=…)
+```
+
+If a spawn returns "Agent type '<name>' not found", recover in this order:
+
+1. Verify the prefix matches the source repo's basename. The
+   `agents:` map in state.md is the source of truth.
+2. Confirm `$IA_TW_AGENT_LINK_DIR/<prefixed-name>.md` exists. If
+   missing, invoke `bash $CLAUDE_PLUGIN_ROOT/hooks/scripts/bookkeeping/sync-agents.sh`
+   directly to repair, then retry.
+3. As a last resort, fall back to the plugin's `implementer` /
+   `general-purpose`.
 
 ## Build task list (one declarative pass)
 
