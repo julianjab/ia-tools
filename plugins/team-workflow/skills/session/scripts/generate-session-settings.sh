@@ -50,7 +50,6 @@
 #
 # Optional env (silently dropped from the JSON when empty):
 #   IA_TW_AGENT               default: team-workflow:lead
-#   IA_TW_TOPIC_WORKER_AGENT  default: team-workflow:topic-worker
 #   IA_TW_PROVISION           default: worktree-local
 #   IA_TW_REPO_URL            single-repo clone mode
 #   IA_TW_REPO_URLS           multi-repo CSV clone mode
@@ -78,7 +77,6 @@ state_dir="${1:?usage: generate-session-settings.sh <state-dir>}"
 : "${IA_TW_ROOT_DIR:?IA_TW_ROOT_DIR required}"
 
 agent="${IA_TW_AGENT:-team-workflow:lead}"
-topic_worker_agent="${IA_TW_TOPIC_WORKER_AGENT:-team-workflow:topic-worker}"
 provision="${IA_TW_PROVISION:-worktree-local}"
 daemon_url="${DAEMON_URL:-http://localhost:3800}"
 worktree_root="${IA_TW_WORKTREE_ROOT:-$state_dir/worktrees}"
@@ -158,7 +156,6 @@ printf '%s' "$existing" | jq \
   --arg archive_dir       "$archive_dir" \
   --arg archive_on_merge  "$archive_on_merge" \
   --arg agent             "$agent" \
-  --arg topic_worker      "$topic_worker_agent" \
   --arg provision         "$provision" \
   --arg repo_url          "${IA_TW_REPO_URL:-}" \
   --arg repo_urls         "${IA_TW_REPO_URLS:-}" \
@@ -202,7 +199,6 @@ printf '%s' "$existing" | jq \
     IA_TW_ARCHIVE_DIR:            $archive_dir,
     IA_TW_ARCHIVE_ON_MERGE:       $archive_on_merge,
     IA_TW_AGENT:                  $agent,
-    IA_TW_TOPIC_WORKER_AGENT:     $topic_worker,
     IA_TW_PROVISION:              $provision,
     DAEMON_URL:                   $daemon_url,
     SLACK_TOPICS:                 (if $topic != "local" then $topic else "" end),

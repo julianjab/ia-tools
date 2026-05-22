@@ -19,7 +19,8 @@
 # Consumer agents come from extending this image:
 #   FROM ia-tools-router-pod:dev
 #   COPY agents/<agent>.md /root/.claude/agents/<agent>.md
-# and pointing `router.topic_worker_agent: <agent>` in team-workflow.yaml.
+# and pointing `router.dispatch.agent: <agent>` in team-workflow.yaml
+# when the consumer ships a custom orchestrator persona.
 set -euo pipefail
 
 # --- 1. Load the declarative profile ----------------------------------------
@@ -66,18 +67,16 @@ else
 fi
 
 # --- 5. Boot the router -----------------------------------------------------
-# The router is the always-on main session. It reads IA_TW_TOPIC_WORKER_AGENT
-# at boot to pick the consumer agent that handles answer/ask (the same
-# agent doubles as bucket fallback inside `lead`). When unset, the router
-# falls back to the generic deterministic flow with `team-workflow:topic-worker`.
+# The router is the always-on main session. It receives every inbound,
+# bootstraps the per-topic state dir ($IA_TW_STATE_ROOT/<topic_hash>/)
+# the first time it sees a topic, and dispatches code changes to `lead`
+# via /session + an explicit Bash call to start-lead.sh.
 echo "▶ booting router"
-[ -n "${IA_TW_TOPIC_WORKER_AGENT:-}" ] && echo "  topic_worker_agent: $IA_TW_TOPIC_WORKER_AGENT"
-[ -n "${SLACK_TOPICS:-}" ]             && echo "  slack topics: $SLACK_TOPICS"
+[ -n "${SLACK_TOPICS:-}" ] && echo "  slack topics: $SLACK_TOPICS"
 
 exec env \
   CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 \
   CLAUDE_CODE_DISABLE_AGENT_VIEW=1 \
-  ${IA_TW_TOPIC_WORKER_AGENT:+IA_TW_TOPIC_WORKER_AGENT="$IA_TW_TOPIC_WORKER_AGENT"} \
   ${SLACK_TOPICS:+SLACK_TOPICS="$SLACK_TOPICS"} \
   ${ALLOWED_USERS_DM:+ALLOWED_USERS_DM="$ALLOWED_USERS_DM"} \
   ${ALLOWED_USERS_MENTIONS:+ALLOWED_USERS_MENTIONS="$ALLOWED_USERS_MENTIONS"} \

@@ -5,11 +5,11 @@
 > **Every change flows through four hard invariants.** Outside these rules,
 > the per-feature `lead` agent decides everything at runtime.
 >
-> 1. **Approval gate.** `router` forwards each inbound message to its
->    per-topic `topic-worker` (one per Slack thread/channel/DM). The
->    `topic-worker` classifies into `answer` / `ask` / `dispatch`; on
->    `dispatch` it runs `/session`, which spawns a `lead` sub-session.
->    lead publishes a plan and BLOCKS on `aprobar` (Slack text reply) or
+> 1. **Approval gate.** `router` handles every inbound inline: it
+>    classifies into `answer` / `ask` / `dispatch`. On `dispatch` it
+>    loads the `/session` skill and then makes an explicit `Bash` call
+>    to `start-lead.sh` to spawn a `lead` sub-session. `lead` publishes
+>    a plan and BLOCKS on `aprobar` (Slack text reply) or
 >    `AskUserQuestion` (local) before any code change.
 > 2. **QA writes tests first.** No `impl:green` task may complete until the
 >    matching `qa:red` task is completed AND `state.md` records
@@ -32,14 +32,15 @@
 >   prompt and does NOT sniff argv. The persona of the Claude session is
 >   whatever the operator selected with `claude --agent <plugin>:<name>`.
 >   Conventional boots:
->   - Main session: `claude --agent team-workflow:router` — a thin
->     dispatcher. Per message: resolve topic → `SendMessage` to the
->     topic's `topic-worker`, or `Agent()` a new one. Never classifies.
->   - Per-topic worker: `team-workflow:topic-worker`, spawned by the
->     router (not boot-launched). One per Slack thread/channel/DM;
->     owns that conversation and classifies its messages.
->   - Sub-session: `claude --agent team-workflow:lead`
->     (booted by `/session` via `start-lead.sh`)
+>   - Main session: `claude --agent team-workflow:router` — handles
+>     every inbound inline (`answer`/`ask`/`dispatch`). On the first
+>     inbound of a topic it bootstraps `$IA_TW_STATE_DIR/{state.md,
+>     messages.md}` as the single source of truth for that topic.
+>   - Sub-session: `claude --agent team-workflow:lead` (booted by
+>     `/session` + an explicit `Bash` call to `start-lead.sh`; the
+>     skill itself does NOT auto-execute). Inherits `$IA_TW_STATE_DIR`
+>     from the router and reads both `state.md` + `messages.md` before
+>     doing anything.
 >   - No `--agent`: only slack-bridge tools visible.
 >   No `SessionStart` hook, no `IA_TOOLS_ROLE` env var.
 > - **`PreToolUse` hook** (`plugins/team-workflow/hooks/scripts/enforcement/enforce-worktree.sh`)
@@ -96,25 +97,30 @@ not teammate).
 ## Structure
 
 - `plugins/team-workflow/agents/` — plugin agent definitions:
-  - `router.md` — main-session dispatcher. Resolves each message's
-    topic and forwards it (`SendMessage` to an existing worker, or
-    `Agent()` a new one). Runs no classification.
-  - `topic-worker.md` — per-topic conversational agent. One per Slack
-    thread/channel/DM; classifies its messages into
-    `answer` / `ask` / `dispatch` and acts. Spawned by `router`.
-  - `lead.md` — per-feature orchestrator (plan, provision, dispatch)
-  - `implementer.md` — stack-aware fallback subagent (used when a touched
-    repo has no repo-local implementer agent)
+  - `router.md` — main-session dispatcher AND inline conversational
+    agent. Classifies each inbound (`answer` / `ask` / `dispatch`),
+    handles it directly, bootstraps `$IA_TW_STATE_DIR/{state.md,
+    messages.md}` on first topic resolve.
+  - `lead.md` — per-feature orchestrator (plan, provision, dispatch).
+    Inherits `$IA_TW_STATE_DIR` from the router; reads `state.md` +
+    `messages.md` before any action.
+  - `implementer.md` — stack-aware fallback subagent (used when a
+    touched repo has no repo-local implementer agent). Also reads
+    `state.md` + `messages.md` at boot.
   Everything else — qa, security, architect, per-stack implementers — is
   discovered at runtime from each touched repo's `<repo>/.claude/agents/`.
 - `plugins/team-workflow/skills/` — Reusable Claude Code skills:
   `router`, `session`, `worktree`, `commit`, `review`, `pr`,
-  `team-review`, `sync-docs`, `pr-review`, `security-audit`.
+  `team-review`, `sync-docs`, `pr-review`, `security-audit`,
+  `ask-user`, `ipc-answer`.
 - `plugins/team-workflow/hooks/scripts/{enforcement,bookkeeping,intelligence}/`
   — bucketed hooks. `enforcement/` may exit 2 (enforce-worktree,
   enforce-task-invariants, teammate-idle, tool-guard, ci-poller);
   `bookkeeping/` always exit 0 (task-created, record-state-event,
-  subagent-stop, session-start, instructions-loaded, pre-compact);
+  subagent-stop, session-start, instructions-loaded, pre-compact,
+  **append-message** — writes the per-topic `messages.md` rolling log
+  from `UserPromptSubmit` / `Stop` / `SubagentStop` /
+  `PostToolUse:reply|reply_update`);
   `intelligence/` may call `claude -p` (session-end, plus correction
   detectors: detect-task-replaced, detect-retract, detect-user-correction,
   detect-coverage-gate, extract-memory-signal).
@@ -129,18 +135,20 @@ slack-bridge does NOT inject a role.
 
 | Boot command | Role | Prompt source |
 |--------------|------|---------------|
-| `claude --agent team-workflow:router` | main dispatcher | `plugins/team-workflow/agents/router.md` |
-| _(spawned by `router` via `Agent()`)_ | per-topic worker | `plugins/team-workflow/agents/topic-worker.md` |
-| `claude --agent team-workflow:lead` | sub-session orchestrator (booted by `/session`) | `plugins/team-workflow/agents/lead.md` |
+| `claude --agent team-workflow:router` | main dispatcher + inline classifier | `plugins/team-workflow/agents/router.md` |
+| `claude --agent team-workflow:lead` | sub-session orchestrator (booted by `/session` + explicit `Bash` to `start-lead.sh`) | `plugins/team-workflow/agents/lead.md` |
 | `claude` (no `--agent`) | unspecialised | none — slack-bridge surfaces only its tools |
 
-The 3-role flow: `router` (dispatch) → `topic-worker` (classify + act
-per topic) → `lead` (orchestrate a feature). See
-`specs/deterministic-router-dispatch.md` for the rationale.
+The 2-role flow: `router` (classify inline + dispatch on code-change) →
+`lead` (orchestrate a feature). The router holds answer/ask state per
+topic in `$IA_TW_STATE_DIR/state.md`; the `append-message.sh` hook
+writes every turn into the topic's `messages.md` so any agent that
+boots later on the same topic recovers the full history.
 
 The main router is started by the operator (once per machine, persistent
 tmux window). `/session` launches sub-sessions with `--agent
-team-workflow:lead`.
+team-workflow:lead`; the skill body documents the contract, but the
+actual spawn requires an explicit `Bash` call to `start-lead.sh`.
 
 ## Development
 

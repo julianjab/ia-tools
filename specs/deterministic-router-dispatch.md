@@ -1,7 +1,29 @@
 # Spec — Deterministic router dispatch
 
-**Branch:** `explore/deterministic-router-dispatch`
-**Status:** exploratory — for review, not yet wired in.
+**Status:** SUPERSEDED — kept for historical context.
+
+This spec proposed a 3-role split (router → topic-worker → lead).
+The 2-role simplification (router handles classification inline;
+`topic-worker` removed) shipped in PR #106 (`feat(team-workflow)!:
+collapse router+worker, per-topic state.md is source of truth`). The
+canonical, current behaviour lives in:
+
+- `plugins/team-workflow/agents/router.md` — inline `answer` / `ask` /
+  `dispatch` + state-dir bootstrap.
+- `plugins/team-workflow/agents/lead.md` — boots from
+  `$IA_TW_STATE_DIR` (created by the router) instead of recomputing
+  the topic-hash; reads `state.md` + `messages.md` before doing
+  anything else.
+- `plugins/team-workflow/hooks/scripts/bookkeeping/append-message.sh`
+  — writes `messages.md` from four native Claude Code hook events
+  (`UserPromptSubmit`, `Stop`, `SubagentStop`,
+  `PostToolUse:reply|reply_update`).
+
+The original spec text below documents the design that motivated the
+move from "main session classifies" to "deterministic dispatcher".
+Where it mentions `topic-worker`, the equivalent in the current
+architecture is "the router itself, holding pending-ask state in
+`state.md`".
 
 ## Goal
 
