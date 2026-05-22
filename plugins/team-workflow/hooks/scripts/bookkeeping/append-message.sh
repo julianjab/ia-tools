@@ -95,6 +95,27 @@ emit() {
 case "$mode" in
   user-prompt)
     text=$(printf '%s' "$payload" | jq -r '.prompt // empty' 2>/dev/null)
+    # Slack inbounds arrive wrapped in slack-bridge's channel envelope:
+    #   <channel ...>
+    #   [slack-bridge] <claim reminder paragraph>
+    #
+    #   <actual user message>
+    #   </channel>
+    # The wrapper + claim reminder is noise for the conversation log —
+    # strip both and keep only the user's message. Local terminal
+    # prompts (no envelope) are emitted verbatim.
+    if printf '%s' "$text" | head -n1 | grep -q '^<channel '; then
+      text=$(printf '%s' "$text" | awk '
+        BEGIN { in_channel = 0; past_reminder = 0 }
+        /^<channel / { in_channel = 1; next }
+        /^<\/channel>/ { in_channel = 0; next }
+        in_channel == 1 && past_reminder == 0 {
+          if ($0 == "") { past_reminder = 1 }
+          next
+        }
+        { print }
+      ')
+    fi
     emit "user" "$text"
     ;;
 
@@ -107,7 +128,13 @@ case "$mode" in
   subagent-stop)
     tp=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)
     text=$(read_transcript_tail "$tp")
-    actor=$(printf '%s' "$payload" | jq -r '.subagent_type // "subagent"' 2>/dev/null)
+    # Claude Code's SubagentStop payload uses `.agent_name` (matching the
+    # field consumed by `subagent-stop.sh` for state.md events). Fall back
+    # to `.subagent_type` for compatibility, then to the literal "subagent"
+    # as a last resort.
+    actor=$(printf '%s' "$payload" \
+      | jq -r '.agent_name // .subagent_type // "subagent"' \
+        2>/dev/null)
     emit "$actor" "$text"
     ;;
 
