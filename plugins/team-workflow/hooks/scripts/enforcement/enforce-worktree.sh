@@ -12,11 +12,15 @@
 #   1. File outside any git repo                 → ALLOW (no protection model)
 #   2. File explicitly gitignored                → ALLOW (ephemeral / local)
 #   3. Excepción explícita (state, agent-memory) → ALLOW
-#   4. team-lead session (IA_TW_FEATURE set) AND
+#   4. Repo has NO remotes configured            → ALLOW (no PR pipeline
+#      applies — without an upstream there is no protected main and no
+#      target for /pr, so worktree enforcement adds friction without
+#      protecting anything)
+#   5. team-lead session (IA_TW_FEATURE set) AND
 #      file is NOT inside `.worktrees/*`          → DENY
-#   5. Branch is `main` or `master` AND
+#   6. Branch is `main` or `master` AND
 #      file is tracked-or-trackable              → DENY
-#   6. Else                                       → ALLOW
+#   7. Else                                       → ALLOW
 #
 # Determinism: la decisión depende solo del payload + `git check-ignore`
 # (que mira `.gitignore` del repo target) + el env del proceso. No usa
@@ -43,6 +47,14 @@ fi
 
 # 2. ¿Está gitignored?
 if git -C "$dir" check-ignore -q "$file_path" 2>/dev/null; then
+  printf '{}'; exit 0
+fi
+
+# 3. ¿El repo tiene algún remote configurado?
+# Sin remote no hay branch protection real y no hay target para /pr.
+# Repos puramente locales (experimentos, scratch, prototipos sin upstream)
+# pasan sin enforcement.
+if [ -z "$(git -C "$dir" remote 2>/dev/null)" ]; then
   printf '{}'; exit 0
 fi
 
