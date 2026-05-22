@@ -82,8 +82,23 @@ terminal_pref="${IA_TW_TERMINAL:-auto}"
 hash_key="${topic:-local:$feature}"
 topic_hash=$(printf '%s' "$hash_key" | shasum | head -c 12)
 
-state_dir="$HOME/.claude/team-workflow/state/$topic_hash"
-mkdir -p "$state_dir"
+# ─── Capa A → Capa B env resolution (single source of truth) ───────────────
+# Capa A — user-tunable (yaml / env): controls *strategy*.
+#   IA_TW_STATE_ROOT          where session workspaces live
+#   IA_TW_AGENT_LINK_STRATEGY symlink | copy
+#   IA_TW_ARCHIVE_ON_MERGE    1 | 0
+# Capa B — derived (read by every downstream agent/skill/hook): single
+#   set of absolute paths. Downstream NEVER reads Capa A directly.
+state_root="${IA_TW_STATE_ROOT:-$HOME/.claude/team-workflow/state}"
+agent_link_strategy="${IA_TW_AGENT_LINK_STRATEGY:-symlink}"
+archive_on_merge="${IA_TW_ARCHIVE_ON_MERGE:-1}"
+
+state_dir="$state_root/$topic_hash"
+worktree_root="$state_dir/worktrees"
+agent_link_dir="$state_dir/.claude/agents"
+archive_dir="$HOME/.claude/team-workflow/archive/$topic_hash"
+
+mkdir -p "$state_dir" "$worktree_root" "$agent_link_dir"
 
 # ─── Resolve parent-IPC socket (used by the util to populate the env) ─────
 # Prefer the env value (direct spawn); fall back to the pointer file the
@@ -107,6 +122,11 @@ if [ -x "$gen_util" ]; then
   IA_TW_TOPIC="${topic:-local}" \
   IA_TW_ROOT_DIR="$PWD" \
   IA_TW_STATE_DIR="$state_dir" \
+  IA_TW_WORKTREE_ROOT="$worktree_root" \
+  IA_TW_AGENT_LINK_DIR="$agent_link_dir" \
+  IA_TW_AGENT_LINK_STRATEGY="$agent_link_strategy" \
+  IA_TW_ARCHIVE_DIR="$archive_dir" \
+  IA_TW_ARCHIVE_ON_MERGE="$archive_on_merge" \
   IA_TW_AGENT="$agent" \
   IA_TW_TOPIC_WORKER_AGENT="$topic_worker_agent" \
   IA_TW_PROVISION="$provision" \
@@ -204,16 +224,21 @@ esac
 # manifests free of bearer credentials so they can be pasted into bug
 # reports or shared between machines safely.
 {
-  printf 'feature: %s\n'        "$feature"
-  printf 'topic: %s\n'          "${topic:-local}"
-  printf 'state_dir: %s\n'      "$state_dir"
-  printf 'root_dir: %s\n'       "$PWD"
-  printf 'agent: %s\n'          "$agent"
-  printf 'provision: %s\n'      "$provision"
-  printf 'terminal: %s\n'       "$chosen"
-  printf 'started_at: %s\n'     "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  printf 'boot_host: %s\n'      "$(hostname -s 2>/dev/null || echo unknown)"
-  printf 'boot_pid: %s\n'       "$$"
+  printf 'feature: %s\n'                    "$feature"
+  printf 'topic: %s\n'                      "${topic:-local}"
+  printf 'state_dir: %s\n'                  "$state_dir"
+  printf 'worktree_root: %s\n'              "$worktree_root"
+  printf 'agent_link_dir: %s\n'             "$agent_link_dir"
+  printf 'agent_link_strategy: %s\n'        "$agent_link_strategy"
+  printf 'archive_dir: %s\n'                "$archive_dir"
+  printf 'archive_on_merge: %s\n'           "$archive_on_merge"
+  printf 'root_dir: %s\n'                   "$PWD"
+  printf 'agent: %s\n'                      "$agent"
+  printf 'provision: %s\n'                  "$provision"
+  printf 'terminal: %s\n'                   "$chosen"
+  printf 'started_at: %s\n'                 "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'boot_host: %s\n'                  "$(hostname -s 2>/dev/null || echo unknown)"
+  printf 'boot_pid: %s\n'                   "$$"
   [ -n "${topic_worker_agent:-}" ] && printf 'topic_worker_agent: %s\n' "$topic_worker_agent"
   [ -n "${repo_url:-}" ]           && printf 'repo_url: %s\n'           "$repo_url"
   [ -n "${repo_urls:-}" ]          && printf 'repo_urls: %s\n'          "$repo_urls"
