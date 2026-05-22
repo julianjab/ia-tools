@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.5.0...team-workflow-v2.0.0) (2026-05-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **team-workflow:** collapse router+worker, per-topic state.md is source of truth ([#106](https://github.com/julianjab/ia-tools/issues/106))
+
+### Features
+
+* **team-workflow:** bootstrap-topic-state helper + sentinel-based hook fallback ([#110](https://github.com/julianjab/ia-tools/issues/110)) ([e3bbe34](https://github.com/julianjab/ia-tools/commit/e3bbe340eb007d9d99e9210a5a01f877d42c4cd3))
+* **team-workflow:** collapse router+worker, per-topic state.md is source of truth ([#106](https://github.com/julianjab/ia-tools/issues/106)) ([d8752c7](https://github.com/julianjab/ia-tools/commit/d8752c7c9e9e8051c915351f0cb56d24721eb532))
+
+
+### Documentation
+
+* **team-workflow:** align with 2-role router+lead model + per-topic state.md ([#108](https://github.com/julianjab/ia-tools/issues/108)) ([c52fbb3](https://github.com/julianjab/ia-tools/commit/c52fbb3359cb5e1ecf5f725faad4447e615031f3))
+
 ## [1.5.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.4.0...team-workflow-v1.5.0) (2026-05-22)
 
 

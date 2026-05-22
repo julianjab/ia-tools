@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v1.0.0...slack-bridge-v2.0.0) (2026-05-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **team-workflow:** collapse router+worker, per-topic state.md is source of truth ([#106](https://github.com/julianjab/ia-tools/issues/106))
+
+### Features
+
+* **team-workflow:** collapse router+worker, per-topic state.md is source of truth ([#106](https://github.com/julianjab/ia-tools/issues/106)) ([d8752c7](https://github.com/julianjab/ia-tools/commit/d8752c7c9e9e8051c915351f0cb56d24721eb532))
+
 ## [1.0.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v0.7.1...slack-bridge-v1.0.0) (2026-05-21)
 
 
