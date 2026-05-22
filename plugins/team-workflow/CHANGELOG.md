@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.0.0...team-workflow-v2.0.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **team-workflow:** drop duplicate plugins/team-workflow/ prefix from CLAUDE_PLUGIN_ROOT refs in router.md ([#111](https://github.com/julianjab/ia-tools/issues/111)) ([81cfc36](https://github.com/julianjab/ia-tools/commit/81cfc36919cccdebf06f1aa3be9f204a549a7a53))
+
 ## [2.0.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.5.0...team-workflow-v2.0.0) (2026-05-22)
 
 
