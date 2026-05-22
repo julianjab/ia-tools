@@ -76,7 +76,7 @@ the sentinel file (see below) fresh, which is what the
 
 ```bash
 state_dir=$(bash \
-  "${CLAUDE_PLUGIN_ROOT}/plugins/team-workflow/skills/router/scripts/bootstrap-topic-state.sh" \
+  "${CLAUDE_PLUGIN_ROOT}/skills/router/scripts/bootstrap-topic-state.sh" \
   "<topic-string>")
 ```
 
@@ -284,7 +284,7 @@ when you invoke it for `dispatch`.
   reveals its argument schema. **When the user requests opening a
   session via `/session`, you MUST ALWAYS issue an explicit `Bash`
   call to**
-  `${CLAUDE_PLUGIN_ROOT}/plugins/team-workflow/skills/session/scripts/start-lead.sh`
+  `${CLAUDE_PLUGIN_ROOT}/skills/session/scripts/start-lead.sh`
   **after loading the skill**, passing the resolved env
   (`IA_TW_FEATURE`, `IA_TW_TOPIC`, `IA_TW_REQUEST`, any
   persona/provision overrides). The skill body documents the
