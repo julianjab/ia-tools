@@ -27,11 +27,10 @@ file first; the section below is conceptual.
 
 | Section | Maps to env vars | Consumer |
 |---|---|---|
-| `router.topic_worker_agent` | `IA_TW_TOPIC_WORKER_AGENT` | `router.md` (which persona answers info questions) |
 | `router.dispatch.agent` | `IA_TW_DISPATCH_AGENT` | `start-lead.sh` (which orchestrator boots on `dispatch`) |
-| `router.dispatch.provision` | `IA_TW_PROVISION` | `lead.md` / `repo-worker.md` (`worktree-local` or `clone`) |
-| `router.dispatch.repo_url` | `IA_TW_REPO_URL` | `repo-worker.md` (single-repo clone target) |
-| `repos[]` | `IA_TW_REPO_URLS` | entrypoint pre-clone + `topic-worker.md` cache grep |
+| `router.dispatch.provision` | `IA_TW_PROVISION` | `lead.md` (`worktree-local` or `clone`) |
+| `router.dispatch.repo_url` | `IA_TW_REPO_URL` | `lead.md` (single-repo clone target when `provision: clone`) |
+| `repos[]` | `IA_TW_REPO_URLS` | entrypoint pre-clone + `router.md` cache grep |
 | `slack.topics[]` | `SLACK_TOPICS` | slack-bridge MCP auto-subscribe |
 | `access.dm` / `access.mentions` | `ALLOWED_USERS_DM` / `ALLOWED_USERS_MENTIONS` | slack-bridge access gate |
 | `state.root` | `IA_TW_STATE_ROOT` | entrypoint / state.md location |
@@ -57,52 +56,6 @@ you want a public bot: `dm: true` or `mentions: true`.
 
 See `plugins/slack-bridge/README.md` → "Access control" for the full
 behaviour at the bridge level.
-
-## Single-agent pods (one persona handles answer + dispatch)
-
-When `router.topic_worker_agent` is set to a consumer-owned agent
-(reachable by name from the running session), that agent plays TWO
-roles in the framework — without any new abstraction or extra env var:
-
-1. **Per-topic conversational agent.** The router spawns it as the
-   topic-worker on every new topic. Classification (answer / ask /
-   dispatch) and replies live in this agent's `.md` (typically by
-   `@`-importing the base `topic-worker.md` for the decision table).
-2. **Bucket fallback inside `lead`.** When `lead` provisions a touched
-   repo and finds a bucket (impl / qa / sec / arch) without a
-   repo-local specialist agent, it falls back to
-   `$IA_TW_TOPIC_WORKER_AGENT` **before** the plugin-shipped
-   `implementer` / `lead-inline`. This lets the consumer's agent
-   execute concrete tasks (write tests, audit security, draft
-   architecture) in repos that ship no per-bucket agents — same agent
-   file, no duplication.
-
-The fallback step is opt-in by definition: it only fires when
-`router.topic_worker_agent` is configured. A worktree-local dev session
-with no override keeps today's behaviour exactly (plugin defaults for
-empty buckets).
-
-`lead` records the resolved name (not the env var reference) in
-`state.md` so the audit log stays readable: a bucket using the
-fallback shows up as `qa: <resolved-name>`, not `qa: $IA_TW_…`.
-
-```yaml
-# Single-agent pod: ONE consumer-owned agent handles both topic-worker
-# duties and bucket fallbacks inside lead.
-router:
-  topic_worker_agent: kubito       # resolved from $HOME/.claude/agents/kubito.md
-                                    # (or wherever the consumer ships it)
-repos:
-  - https://github.com/your-org/eks.git
-  - https://github.com/your-org/platform-infrastructure.git
-slack:
-  topics:
-    - C0DEVOPS-INFRA
-    - DM:U02M1QFA0AF
-access:
-  dm: [U02M1QFA0AF, U03ABCDEF]
-  mentions: [U02M1QFA0AF, U03ABCDEF, U04SRE-ONCALL]
-```
 
 ## Local dev requirements
 

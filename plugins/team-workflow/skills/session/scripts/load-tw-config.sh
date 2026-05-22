@@ -69,7 +69,6 @@ _emit_if_unset() {
 
 # --- 3. Map yaml fields → env vars -------------------------------------------
 
-_emit_if_unset IA_TW_TOPIC_WORKER_AGENT '.router.topic_worker_agent'
 _emit_if_unset IA_TW_DISPATCH_AGENT     '.router.dispatch.agent'
 _emit_if_unset IA_TW_DISPATCH_PROVISION '.router.dispatch.provision'
 _emit_if_unset IA_TW_REPO_URL           '.router.dispatch.repo_url'

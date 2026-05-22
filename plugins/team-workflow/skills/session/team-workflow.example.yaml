@@ -15,25 +15,21 @@
 
 # --- Router: which personas this pod / dev-host runs --------------------------
 router:
-  # Persona the router spawns for `answer` / `ask` intents.
-  # Default: team-workflow:topic-worker (generic classifier).
-  # Set to a persona-specific agent (e.g. team-workflow:kubito-topic) to
-  # make this pod "behave as kubito" when answering info questions.
-  topic_worker_agent: team-workflow:example-topic
-
   # Persona the router hands off to on `dispatch` (the actual code-changer).
+  # `answer` / `ask` intents are handled inline by the router itself — no
+  # separate per-topic worker.
   dispatch:
-    # Default: team-workflow:lead. Use team-workflow:repo-worker for
-    # single-repo pods, or any persona-specific worker.
-    agent: team-workflow:example-worker
+    # Default: team-workflow:lead. Override only when a consumer ships
+    # a custom orchestrator persona.
+    agent: team-workflow:lead
     # worktree-local (default — sibling host repos), clone (this pod
     # clones repos onto a persistent volume), or none (pure delegator).
     provision: clone
 
 # --- Repos this pod owns -----------------------------------------------------
 # String list OR {url, name} objects. Pre-clone iterates over `url`s and
-# clones each into $IA_TW_STATE_ROOT/clone-cache/<name>/. The
-# topic-worker uses that cache for cross-repo `Grep` on `answer` intent.
+# clones each into $IA_TW_STATE_ROOT/clone-cache/<name>/. The router
+# uses that cache for cross-repo `Grep` on `answer` intent.
 repos:
   - url: ${KUBITO_EKS_REPO_URL}
     name: eks

@@ -3,11 +3,9 @@ name: session
 description: >
   Spawn a Claude orchestrator sub-session in tmux (default) or iTerm2 (via osascript, when IA_TW_TERMINAL=iterm or as fallback if tmux is missing).
   Defaults to the `lead` agent (`team-workflow:lead`) with worktree
-  provisioning, but `--agent` / `--topic-worker-agent` / `--provision`
-  / `--repo-url[s]` let the caller pick a different persona — e.g.
-  `team-workflow:repo-worker` with `clone` provisioning for single-repo
-  pod work, or a persona pod (`team-workflow:kubito-worker`) for
-  Slack-resident agents. Routes the user's request, Slack-bridge topic,
+  provisioning. `--provision clone` switches `lead` to clone-mode (it
+  shallow-clones `--repo-url[s]` instead of provisioning a worktree).
+  `--agent` lets the caller pick a different orchestrator persona. Routes the user's request, Slack-bridge topic,
   feature label, and persona config into the wrapper. The spawned
   orchestrator creates its own worktree(s)/clone, state.md, and task
   list on boot — this skill only spawns the process.
@@ -15,8 +13,8 @@ description: >
   Examples:
     /session feat-google-login --description "arregla el login de Google"
     /session feat-payment-tracking --topic "C07815S0XNX:*:1728591234.001" --description "payment tracking across repos"
-    /session feat-logout-button --agent team-workflow:repo-worker --provision clone --repo-url "https://github.com/org/frontend.git" --description "agrega botón de logout"
-argument-hint: "[<feature-name> [--topic <topic>] [--agent <plugin:name>] [--topic-worker-agent <plugin:name>] [--provision worktree-local|clone] [--repo-url <url>] [--repo-urls <csv>] --description <text>] | rehydrate [--feature <name> | --state-dir <abs path>]"
+    /session feat-logout-button --provision clone --repo-url "https://github.com/org/frontend.git" --description "agrega botón de logout"
+argument-hint: "[<feature-name> [--topic <topic>] [--agent <plugin:name>] [--provision worktree-local|clone] [--repo-url <url>] [--repo-urls <csv>] --description <text>] | rehydrate [--feature <name> | --state-dir <abs path>]"
 disable-model-invocation: false
 ---
 
@@ -60,8 +58,7 @@ install instructions (`brew install tmux` or `https://iterm2.com`).
 |---|---|---|
 | `<feature-name>` | ✅ | Feature label. Used as the tmux session name AND the branch name for every worktree/clone the orchestrator creates. Must not contain `.` or `:` (tmux target syntax). |
 | `--topic <topic-string>` | Slack mode | Single slack-bridge topic string. Shapes: `<channel>:*:<thread_ts>` (thread), `<channel>` (channel-wide), `DM:<user>` (direct messages). Plumbed unchanged into `SLACK_TOPICS` so the slack-bridge MCP auto-subscribes at orchestrator boot. |
-| `--agent <plugin:name>` | — | Orchestrator persona to boot. Default `team-workflow:lead`. Exported as `IA_TW_AGENT`. Use `team-workflow:repo-worker` for single-repo pod sessions, or a persona-specific name. |
-| `--topic-worker-agent <plugin:name>` | — | topic-worker persona the router spawns for answer/ask intents. Default `team-workflow:topic-worker`. Exported as `IA_TW_TOPIC_WORKER_AGENT`. Lets a persona pod (kubito, gordo, …) answer info questions as itself. |
+| `--agent <plugin:name>` | — | Orchestrator persona to boot. Default `team-workflow:lead`. Exported as `IA_TW_AGENT`. Override only when a consumer ships a custom orchestrator persona. |
 | `--provision <strategy>` | — | `worktree-local` (default — worktree of a sibling host repo) or `clone` (git clone of `--repo-url[s]`). Exported as `IA_TW_PROVISION`. |
 | `--repo-url <git-url>` | when `--provision clone` and single repo | Git URL the orchestrator clones. Exported as `IA_TW_REPO_URL`. |
 | `--repo-urls <csv>` | when `--provision clone` and multi repo | Comma-separated git URLs for multi-repo pods. Exported as `IA_TW_REPO_URLS`. |
@@ -80,7 +77,6 @@ Tokenize `$ARGUMENTS` once at the start of the skill:
 | First positional (no `--` prefix), no `.`/`:` | `FEATURE` |
 | `--topic <value>` (two tokens) OR `--topic=<value>` | `TOPIC` |
 | `--agent <value>` OR `--agent=<value>` | `AGENT` |
-| `--topic-worker-agent <value>` OR `--topic-worker-agent=<value>` | `TOPIC_WORKER_AGENT` |
 | `--provision <value>` OR `--provision=<value>` | `PROVISION` |
 | `--repo-url <value>` OR `--repo-url=<value>` | `REPO_URL` |
 | `--repo-urls <csv>` OR `--repo-urls=<csv>` | `REPO_URLS` |
@@ -90,7 +86,7 @@ Tokenize `$ARGUMENTS` once at the start of the skill:
 If `FEATURE` is empty → STOP with the usage line above.
 If `DESCRIPTION` is empty → STOP with the usage line above.
 `TOPIC` empty is valid (local mode).
-`AGENT` / `TOPIC_WORKER_AGENT` / `PROVISION` empty are valid (defaults apply).
+`AGENT` / `PROVISION` empty are valid (defaults apply).
 If `PROVISION=clone` and both `REPO_URL` and `REPO_URLS` are empty → STOP: clone provisioning requires at least one repo URL.
 
 All flags overlay whatever the consumer repo's `.claude/team-workflow.yaml`
@@ -116,20 +112,19 @@ env var already set (including these flag-derived ones) wins.
 ## Delegate script
 
 The wrapper takes 3 positional args and reads the persona / provisioning
-strategy from env vars (`IA_TW_AGENT`, `IA_TW_TOPIC_WORKER_AGENT`,
-`IA_TW_PROVISION`, `IA_TW_REPO_URL`, `IA_TW_REPO_URLS`). Prefix the
-invocation with whichever flags were parsed; omit them to get the
-`lead` + `worktree-local` defaults plus whatever
-`.claude/team-workflow.yaml` provides.
+strategy from env vars (`IA_TW_AGENT`, `IA_TW_PROVISION`,
+`IA_TW_REPO_URL`, `IA_TW_REPO_URLS`). Prefix the invocation with
+whichever flags were parsed; omit them to get the `lead` +
+`worktree-local` defaults plus whatever `.claude/team-workflow.yaml`
+provides.
 
 ```bash
 # Default — lead with worktree provisioning:
 !bash "${CLAUDE_PLUGIN_ROOT}/skills/session/scripts/start-lead.sh" \
   "<feature-name>" "<topic-string-or-empty>" "<description>"
 
-# Non-default — e.g. repo-worker with clone provisioning, persona pod:
+# Non-default — clone provisioning for a single-repo pod:
 !IA_TW_AGENT="<agent>" \
- IA_TW_TOPIC_WORKER_AGENT="<topic-worker-agent>" \
  IA_TW_PROVISION="<provision>" \
  IA_TW_REPO_URL="<url>" \
  IA_TW_REPO_URLS="<csv-of-urls>" \
@@ -222,7 +217,6 @@ sub-command repairs both.
    IA_TW_ROOT_DIR="<root_dir>" \
    IA_TW_STATE_DIR="<resolved-state-dir>" \
    IA_TW_AGENT="<agent>" \
-   IA_TW_TOPIC_WORKER_AGENT="<topic_worker_agent>" \
    IA_TW_PROVISION="<provision>" \
    IA_TW_REPO_URL="<repo_url-or-empty>" \
    IA_TW_REPO_URLS="<repo_urls-or-empty>" \

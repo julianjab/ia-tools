@@ -42,6 +42,16 @@ The lead spawns you with a prompt containing:
 
 Before editing anything:
 
+0. **Recover topic context — no agent boots blind.** If
+   `$IA_TW_STATE_DIR` is set and `$IA_TW_STATE_DIR/state.md` exists:
+   - Read `$IA_TW_STATE_DIR/state.md` for the topic's plan, recorded
+     worktrees, `default_repo`, and any prior decisions.
+   - Read `$IA_TW_STATE_DIR/messages.md` for the rolling conversation
+     history that led to your assignment.
+   - Confirm the `worktree_path` you received matches one of the
+     `worktrees:` entries in `state.md` — if not, stop and escalate to
+     the lead; you may be looking at the wrong topic.
+
 1. **Load repo conventions**:
    - `Read <worktree_path>/CLAUDE.md` if it exists.
    - `Read <worktree_path>/AGENTS.md` if it exists.
