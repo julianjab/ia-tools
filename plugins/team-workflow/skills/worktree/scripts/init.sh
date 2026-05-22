@@ -178,6 +178,14 @@ if [ -x "$GEN_UTIL" ] && [ -n "${IA_TW_STATE_DIR:-}" ] && [ -n "${IA_TW_FEATURE:
     || warn "settings.local.json refresh failed (continuing)"
 fi
 
+# ── refresh <feature>.code-workspace so VS Code sees the new folder ───────────
+WS_UTIL="$(dirname "${BASH_SOURCE[0]}")/../../session/scripts/generate-vscode-workspace.sh"
+if [ -x "$WS_UTIL" ] && [ -n "${IA_TW_STATE_DIR:-}" ] && [ -n "${IA_TW_FEATURE:-}" ]; then
+  bash "$WS_UTIL" "$IA_TW_STATE_DIR" >/dev/null 2>&1 \
+    && ok ".code-workspace refreshed" \
+    || warn ".code-workspace refresh failed (continuing)"
+fi
+
 # ── invoke sync-agents (best-effort; the hook is the canonical entry) ─────────
 SYNC_HOOK="$(dirname "${BASH_SOURCE[0]}")/../../../hooks/scripts/bookkeeping/sync-agents.sh"
 if [ -x "$SYNC_HOOK" ] && [ -n "${IA_TW_AGENT_LINK_DIR:-}" ]; then

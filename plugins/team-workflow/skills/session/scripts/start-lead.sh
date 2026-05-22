@@ -144,6 +144,17 @@ else
   printf '  Session will boot without a settings.local.json — envs come from the launching shell.\n' >&2
 fi
 
+# ─── Write $state_dir/<feature>.code-workspace (VS Code multi-root) ────────
+# Best-effort: gives the operator a one-click way to open all worktrees
+# + the session dir side-by-side in VS Code (`code <file>.code-workspace`).
+ws_util="$(dirname "${BASH_SOURCE[0]}")/generate-vscode-workspace.sh"
+if [ -x "$ws_util" ]; then
+  IA_TW_FEATURE="$feature" \
+  IA_TW_STATE_DIR="$state_dir" \
+  IA_TW_ROOT_DIR="$PWD" \
+    bash "$ws_util" "$state_dir" >/dev/null || true
+fi
+
 # ─── Process-env passthrough — tokens ONLY ─────────────────────────────────
 # Everything non-secret already lives in settings.local.json. Tokens stay
 # in the launching process env (and the env_pairs array below) so they
