@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.3.0...team-workflow-v1.4.0) (2026-05-22)
+
+
+### Features
+
+* **team-workflow:** enforce-worktree bypass for repos without remote ([#103](https://github.com/julianjab/ia-tools/issues/103)) ([291e5a0](https://github.com/julianjab/ia-tools/commit/291e5a00d569c90a79e935e12a3f8b2e0eac6533))
+
 ## [1.3.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v1.2.0...team-workflow-v1.3.0) (2026-05-21)
 
 
