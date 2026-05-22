@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/redirect-ask-user.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/redirect-ask-user.sh\""
           }
         ]
       }
@@ -113,6 +113,14 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/session-start.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/sync-agents.sh\""
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -129,6 +137,14 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/extract-memory-signal.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/archive-on-merge.sh\""
           }
         ]
       }

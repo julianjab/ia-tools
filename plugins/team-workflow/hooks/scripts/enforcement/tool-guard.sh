@@ -164,23 +164,39 @@ load_settings_patterns() {
     _emit_patterns_from_file "$fpath"
   done
 
-  # 3. Project / session settings — walk up from CWD.
-  local dir="$PWD"
-  while [[ "$dir" != "/" ]]; do
-    for fname in settings.json settings.local.json; do
-      fpath="$dir/.claude/$fname"
-      [[ -f "$fpath" ]] || continue
+  # 3. Project / session settings — walk up from each of these roots:
+  #      - $PWD                  (current working dir; covers manual
+  #                              invocations in any repo)
+  #      - $IA_TW_STATE_DIR      (per-feature session workspace, where the
+  #                              spawner writes settings.local.json)
+  #      - $IA_TW_ROOT_DIR       (consumer repo / multi-repo root the lead
+  #                              was launched against — its .claude/* must
+  #                              still apply even when cwd = state_dir)
+  #    Dedup by canonical path so each settings file is loaded at most once.
+  local roots=()
+  roots+=("$PWD")
+  [[ -n "${IA_TW_STATE_DIR:-}" ]] && roots+=("$IA_TW_STATE_DIR")
+  [[ -n "${IA_TW_ROOT_DIR:-}" ]]  && roots+=("$IA_TW_ROOT_DIR")
 
-      local already=0
-      for seen in "${seen_files[@]+"${seen_files[@]}"}"; do
-        [[ "$seen" == "$fpath" ]] && already=1 && break
+  local root dir
+  for root in "${roots[@]}"; do
+    dir="$root"
+    while [[ -n "$dir" && "$dir" != "/" ]]; do
+      for fname in settings.json settings.local.json; do
+        fpath="$dir/.claude/$fname"
+        [[ -f "$fpath" ]] || continue
+
+        local already=0
+        for seen in "${seen_files[@]+"${seen_files[@]}"}"; do
+          [[ "$seen" == "$fpath" ]] && already=1 && break
+        done
+        [[ "$already" -eq 1 ]] && continue
+        seen_files+=("$fpath")
+
+        _emit_patterns_from_file "$fpath"
       done
-      [[ "$already" -eq 1 ]] && continue
-      seen_files+=("$fpath")
-
-      _emit_patterns_from_file "$fpath"
+      dir="$(dirname "$dir")"
     done
-    dir="$(dirname "$dir")"
   done
 }
 

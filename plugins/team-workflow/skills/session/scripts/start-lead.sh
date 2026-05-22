@@ -2,7 +2,7 @@
 # Spawn an orchestrator sub-session in tmux (default) or iTerm2.
 #
 # Usage:
-#   start-lead.sh <feature> <topic|""> <request>
+#   start-lead.sh <feature> <topic|""> <request> [--resume <session-id>]
 #
 # Exit codes:
 #   0  spawned OK
@@ -50,6 +50,26 @@ fi
 feature="${1:?feature required}"
 topic="${2:-}"
 request="${3:?request required}"
+shift 3 || true
+
+# Optional flags after the three positional args.
+resume_id=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --resume)
+      resume_id="${2:?--resume requires a session-id}"
+      shift 2
+      ;;
+    --resume=*)
+      resume_id="${1#--resume=}"
+      shift
+      ;;
+    *)
+      echo "start-lead: unknown argument '$1'" >&2
+      exit 1
+      ;;
+  esac
+done
 
 agent="${IA_TW_AGENT:-team-workflow:lead}"
 topic_worker_agent="${IA_TW_TOPIC_WORKER_AGENT:-team-workflow:topic-worker}"
@@ -62,45 +82,93 @@ terminal_pref="${IA_TW_TERMINAL:-auto}"
 hash_key="${topic:-local:$feature}"
 topic_hash=$(printf '%s' "$hash_key" | shasum | head -c 12)
 
-state_dir="$HOME/.claude/team-workflow/state/$topic_hash"
-mkdir -p "$state_dir"
+# ─── Capa A → Capa B env resolution (single source of truth) ───────────────
+# Capa A — user-tunable (yaml / env): controls *strategy*.
+#   IA_TW_STATE_ROOT          where session workspaces live
+#   IA_TW_AGENT_LINK_STRATEGY symlink | copy
+#   IA_TW_ARCHIVE_ON_MERGE    1 | 0
+# Capa B — derived (read by every downstream agent/skill/hook): single
+#   set of absolute paths. Downstream NEVER reads Capa A directly.
+state_root="${IA_TW_STATE_ROOT:-$HOME/.claude/team-workflow/state}"
+agent_link_strategy="${IA_TW_AGENT_LINK_STRATEGY:-symlink}"
+archive_on_merge="${IA_TW_ARCHIVE_ON_MERGE:-1}"
 
-# Note: .worktrees/ is added to each target repo's .gitignore by
-# /worktree init (see skills/worktree/scripts/init.sh). The wrapper
-# never touches consumer repo state.
+state_dir="$state_root/$topic_hash"
+worktree_root="$state_dir/worktrees"
+agent_link_dir="$state_dir/.claude/agents"
+archive_dir="$HOME/.claude/team-workflow/archive/$topic_hash"
 
-# ─── Build env pair list (shared by both hosts) ────────────────────────────
-env_pairs=(
-  "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
-  "CLAUDE_CODE_DISABLE_AGENT_VIEW=1"
-  "IA_TW_FEATURE=$feature"
-  "IA_TW_TOPIC=${topic:-local}"
-  "IA_TW_REQUEST=$request"
-  "IA_TW_ROOT_DIR=$PWD"
-  "IA_TW_STATE_DIR=$state_dir"
-  "IA_TW_AGENT=$agent"
-  "IA_TW_TOPIC_WORKER_AGENT=$topic_worker_agent"
-  "IA_TW_PROVISION=$provision"
-)
-[ -n "$topic" ]                       && env_pairs+=("SLACK_TOPICS=$topic")
-[ -n "$repo_url" ]                    && env_pairs+=("IA_TW_REPO_URL=$repo_url")
-[ -n "$repo_urls" ]                   && env_pairs+=("IA_TW_REPO_URLS=$repo_urls")
-[ -n "${IA_TW_REPO_CACHE_DIR:-}" ]    && env_pairs+=("IA_TW_REPO_CACHE_DIR=$IA_TW_REPO_CACHE_DIR")
-[ -n "${ALLOWED_USERS_DM:-}" ]        && env_pairs+=("ALLOWED_USERS_DM=$ALLOWED_USERS_DM")
-[ -n "${ALLOWED_USERS_MENTIONS:-}" ]  && env_pairs+=("ALLOWED_USERS_MENTIONS=$ALLOWED_USERS_MENTIONS")
-[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_pairs+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
+mkdir -p "$state_dir" "$worktree_root" "$agent_link_dir"
 
-# Parent-IPC: forward the router's socket so /ask-user in local mode can
-# escalate questions to the router-Claude when this lead runs detached.
+# ─── Resolve parent-IPC socket (used by the util to populate the env) ─────
 # Prefer the env value (direct spawn); fall back to the pointer file the
 # router wrapper writes at boot (covers indirect spawns from skills that
 # don't inherit env).
-if [ -n "${IA_TW_PARENT_SOCK:-}" ]; then
-  env_pairs+=("IA_TW_PARENT_SOCK=$IA_TW_PARENT_SOCK")
-elif [ -r "${HOME}/.claude/team-workflow/ipc/current.sock" ]; then
-  resolved_sock="$(cat "${HOME}/.claude/team-workflow/ipc/current.sock" 2>/dev/null || true)"
-  [ -n "$resolved_sock" ] && env_pairs+=("IA_TW_PARENT_SOCK=$resolved_sock")
+parent_sock="${IA_TW_PARENT_SOCK:-}"
+if [ -z "$parent_sock" ] && [ -r "${HOME}/.claude/team-workflow/ipc/current.sock" ]; then
+  parent_sock="$(cat "${HOME}/.claude/team-workflow/ipc/current.sock" 2>/dev/null || true)"
 fi
+
+# ─── Write $state_dir/.claude/settings.local.json (envs + MCP servers) ─────
+# Replaces the previous "env VAR=… claude …" + "--mcp-config" combo. The
+# helper writes a Claude Code-native settings.local.json with the per-
+# session env block and MCP servers (figma, slack, slack-bridge); claude
+# picks it up automatically because the session boots with cwd = state_dir.
+# Tokens (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, SLACK_*_TOKEN) stay
+# out of the file by design and are forwarded only via process env below.
+gen_util="$(dirname "${BASH_SOURCE[0]}")/generate-session-settings.sh"
+if [ -x "$gen_util" ]; then
+  IA_TW_FEATURE="$feature" \
+  IA_TW_TOPIC="${topic:-local}" \
+  IA_TW_ROOT_DIR="$PWD" \
+  IA_TW_STATE_DIR="$state_dir" \
+  IA_TW_WORKTREE_ROOT="$worktree_root" \
+  IA_TW_AGENT_LINK_DIR="$agent_link_dir" \
+  IA_TW_AGENT_LINK_STRATEGY="$agent_link_strategy" \
+  IA_TW_ARCHIVE_DIR="$archive_dir" \
+  IA_TW_ARCHIVE_ON_MERGE="$archive_on_merge" \
+  IA_TW_AGENT="$agent" \
+  IA_TW_TOPIC_WORKER_AGENT="$topic_worker_agent" \
+  IA_TW_PROVISION="$provision" \
+  IA_TW_REPO_URL="${repo_url:-}" \
+  IA_TW_REPO_URLS="${repo_urls:-}" \
+  IA_TW_REPO_CACHE_DIR="${IA_TW_REPO_CACHE_DIR:-}" \
+  IA_TW_PARENT_SOCK="$parent_sock" \
+  ALLOWED_USERS_DM="${ALLOWED_USERS_DM:-}" \
+  ALLOWED_USERS_MENTIONS="${ALLOWED_USERS_MENTIONS:-}" \
+  DAEMON_URL="${DAEMON_URL:-}" \
+    bash "$gen_util" "$state_dir" >/dev/null || \
+      printf '⚠ generate-session-settings.sh exited non-zero — settings.local.json may be incomplete.\n' >&2
+else
+  printf '⚠ generate-session-settings.sh missing or non-executable: %s\n' "$gen_util" >&2
+  printf '  Session will boot without a settings.local.json — envs come from the launching shell.\n' >&2
+fi
+
+# ─── Write $state_dir/<feature>.code-workspace (VS Code multi-root) ────────
+# Best-effort: gives the operator a one-click way to open all worktrees
+# + the session dir side-by-side in VS Code (`code <file>.code-workspace`).
+ws_util="$(dirname "${BASH_SOURCE[0]}")/generate-vscode-workspace.sh"
+if [ -x "$ws_util" ]; then
+  IA_TW_FEATURE="$feature" \
+  IA_TW_STATE_DIR="$state_dir" \
+  IA_TW_ROOT_DIR="$PWD" \
+    bash "$ws_util" "$state_dir" >/dev/null || true
+fi
+
+# ─── Process-env passthrough — tokens ONLY ─────────────────────────────────
+# Everything non-secret already lives in settings.local.json. Tokens stay
+# in the launching process env (and the env_pairs array below) so they
+# never touch disk. CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS / DISABLE_AGENT_VIEW
+# also pass through here because Claude Code reads them before loading
+# settings.json (they affect bootstrap).
+env_pairs=(
+  "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
+  "CLAUDE_CODE_DISABLE_AGENT_VIEW=1"
+)
+[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_pairs+=("CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
+[ -n "${ANTHROPIC_API_KEY:-}" ]       && env_pairs+=("ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[ -n "${SLACK_BOT_TOKEN:-}" ]         && env_pairs+=("SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN")
+[ -n "${SLACK_APP_TOKEN:-}" ]         && env_pairs+=("SLACK_APP_TOKEN=$SLACK_APP_TOKEN")
 
 # ─── Detect terminals ───────────────────────────────────────────────────────
 have_tmux() { command -v tmux >/dev/null 2>&1; }
@@ -167,16 +235,21 @@ esac
 # manifests free of bearer credentials so they can be pasted into bug
 # reports or shared between machines safely.
 {
-  printf 'feature: %s\n'        "$feature"
-  printf 'topic: %s\n'          "${topic:-local}"
-  printf 'state_dir: %s\n'      "$state_dir"
-  printf 'root_dir: %s\n'       "$PWD"
-  printf 'agent: %s\n'          "$agent"
-  printf 'provision: %s\n'      "$provision"
-  printf 'terminal: %s\n'       "$chosen"
-  printf 'started_at: %s\n'     "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  printf 'boot_host: %s\n'      "$(hostname -s 2>/dev/null || echo unknown)"
-  printf 'boot_pid: %s\n'       "$$"
+  printf 'feature: %s\n'                    "$feature"
+  printf 'topic: %s\n'                      "${topic:-local}"
+  printf 'state_dir: %s\n'                  "$state_dir"
+  printf 'worktree_root: %s\n'              "$worktree_root"
+  printf 'agent_link_dir: %s\n'             "$agent_link_dir"
+  printf 'agent_link_strategy: %s\n'        "$agent_link_strategy"
+  printf 'archive_dir: %s\n'                "$archive_dir"
+  printf 'archive_on_merge: %s\n'           "$archive_on_merge"
+  printf 'root_dir: %s\n'                   "$PWD"
+  printf 'agent: %s\n'                      "$agent"
+  printf 'provision: %s\n'                  "$provision"
+  printf 'terminal: %s\n'                   "$chosen"
+  printf 'started_at: %s\n'                 "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'boot_host: %s\n'                  "$(hostname -s 2>/dev/null || echo unknown)"
+  printf 'boot_pid: %s\n'                   "$$"
   [ -n "${topic_worker_agent:-}" ] && printf 'topic_worker_agent: %s\n' "$topic_worker_agent"
   [ -n "${repo_url:-}" ]           && printf 'repo_url: %s\n'           "$repo_url"
   [ -n "${repo_urls:-}" ]          && printf 'repo_urls: %s\n'          "$repo_urls"
@@ -186,12 +259,21 @@ esac
 
 # ─── Spawn: tmux ───────────────────────────────────────────────────────────
 if [ "$chosen" = "tmux" ]; then
-  tmux new-session -d -s "$feature" -c "$PWD" -- \
+  # MCP servers + per-session env now come from $state_dir/.claude/settings.local.json
+  # (boot cwd = $state_dir → Claude Code picks it up automatically).
+  claude_args=(--agent "$agent"
+               --dangerously-load-development-channels plugin:slack-bridge@ia-tools
+               --dangerously-skip-permissions)
+  [ -n "$resume_id" ] && claude_args+=(--resume "$resume_id")
+  claude_args+=("$request")
+
+  # Boot cwd = $state_dir so the session anchors on the per-feature state
+  # workspace (state.md, hook-audit.log, mcp-config.json, session-env.yaml)
+  # instead of a consumer repo. /add-dir adds repos/worktrees explicitly
+  # via /worktree init — keeping cwd stable.
+  tmux new-session -d -s "$feature" -c "$state_dir" -- \
     env "${env_pairs[@]}" \
-    claude --agent "$agent" \
-           --dangerously-load-development-channels plugin:slack-bridge@ia-tools \
-           --dangerously-skip-permissions \
-           "$request"
+    claude "${claude_args[@]}"
 
   # Boot-prompt poller: dismisses the two one-time prompts (dev-channels
   # warning + trust-folder) by sending Enter when their patterns appear.
@@ -230,10 +312,13 @@ launcher="$(mktemp -t ia-tw-lead-XXXXXX.sh)"
     # printf %q quotes safely for bash eval.
     printf 'export %q\n' "$kv"
   done
-  printf 'cd %q\n' "$PWD"
+  # Anchor cwd on the per-feature state workspace (see tmux branch above).
+  printf 'cd %q\n' "$state_dir"
+  # MCP servers + per-session env come from $state_dir/.claude/settings.local.json.
   printf 'exec claude --agent %q \\\n' "$agent"
   printf '  --dangerously-load-development-channels plugin:slack-bridge@ia-tools \\\n'
   printf '  --dangerously-skip-permissions \\\n'
+  [ -n "$resume_id" ] && printf '  --resume %q \\\n' "$resume_id"
   printf '  %q\n' "$request"
 } > "$launcher"
 chmod +x "$launcher"

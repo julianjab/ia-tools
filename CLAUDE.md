@@ -44,22 +44,22 @@
 >   No `SessionStart` hook, no `IA_TOOLS_ROLE` env var.
 > - **`PreToolUse` hook** (`plugins/team-workflow/hooks/scripts/enforcement/enforce-worktree.sh`)
 >   is gitignore-aware: blocks `Edit`/`Write`/`MultiEdit` on tracked files
->   when on `main`/`master`, or on any tracked file outside `.worktrees/*`
->   inside a `lead` session. Edits to gitignored / non-repo files pass.
+>   when the file's repo is checked out on `main`/`master`. Universal
+>   rule — no env coupling, no path patterns. Edits in feature-branch
+>   worktrees (wherever they live), in non-git directories, and in
+>   gitignored files always pass.
 > - **Quality-gate hooks** for agent teams
 >   (`plugins/team-workflow/hooks/scripts/bookkeeping/task-created.sh`,
 >   `plugins/team-workflow/hooks/scripts/enforcement/{task-completed,teammate-idle}.sh`)
 >   enforce invariants 2 and 3 at task completion / teammate-idle time.
 >   See AGENTS.md → "Hook-enforced quality gates".
 >
-> **Consumer `.gitignore` guidance.** Add to your consumer repo's root
-> `.gitignore`:
-> ```
-> .worktrees/
-> ```
-> `/worktree init` auto-adds this on first use. v2 state lives outside
-> the repo (`$HOME/.claude/team-workflow/state/<topic-hash>/`), so no
-> `.sessions/` entry is needed.
+> **Consumer `.gitignore` guidance.** None needed. Worktrees live
+> outside the consumer repo at `$IA_TW_STATE_DIR/worktrees/<basename>/`,
+> and per-session state lives at `$IA_TW_STATE_ROOT/<topic-hash>/`
+> (default `~/.claude/team-workflow/state/<topic-hash>/`). Neither
+> path is inside the consumer repo, so the repo's `.gitignore` does
+> not need any new entry.
 >
 > **Prerequisite: Claude Code ≥ v2.1.32 with agent teams enabled.** The
 > `start-lead.sh` wrapper exports `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
@@ -219,7 +219,9 @@ happens at MCP init via the `SLACK_TOPICS` env var (set by
 `git worktree` keeps multiple active features simultaneously. lead
 provisions worktrees per touched consumer repo via `/worktree init
 <feature> --repo <repo>`. Each worktree lives at
-`<repo>/.worktrees/<feature-as-dirname>/` and `.worktrees/` is auto-added
-to the repo's `.gitignore`.
+`$IA_TW_WORKTREE_ROOT/<basename($repo)>/` — under the per-feature
+session workspace (`$IA_TW_STATE_DIR/worktrees/...`), out of the
+consumer repo entirely. The consumer repo's `.gitignore` does not
+need any new entry.
 
 See `/worktree` skill and `AGENTS.md` for workflow details.

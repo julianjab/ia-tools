@@ -247,25 +247,36 @@ No prose, no markdown, no code fence."
 # and decides bucket fit based on intent, which generalises across naming
 # conventions that regex cannot enumerate. When `claude` is unavailable,
 # Haiku returns no picks and every bucket falls back to lead / implementer.
+#
+# Naming contract: Haiku picks are REPO-LOCAL names (e.g. "python-developer").
+# `sync-agents.sh` materializes them into the session as
+# `<repo-basename>-<agent-name>.md`, so the lead must spawn the prefixed
+# form. We apply that prefix here so the `agents:` map written into
+# state.md is already session-ready.
+#
+# Plugin-level fallbacks (lead, implementer, impl-<wt_prefix>) and the
+# topic-worker passthrough are never prefixed — they don't go through
+# sync-agents.
 resolve_buckets() {
   local wt_prefix="$1"
+  local repo_slug="$2"
   local twa="${IA_TW_TOPIC_WORKER_AGENT:-}"
 
-  if   [ -n "$haiku_impl" ];   then bucket_impl="$haiku_impl"
+  if   [ -n "$haiku_impl" ];   then bucket_impl="${repo_slug}-${haiku_impl}"
   else                              bucket_impl="impl-${wt_prefix}"
   fi
 
-  if   [ -n "$haiku_qa" ];     then bucket_qa="$haiku_qa"
+  if   [ -n "$haiku_qa" ];     then bucket_qa="${repo_slug}-${haiku_qa}"
   elif [ -n "$twa" ];          then bucket_qa="$twa"
   else                              bucket_qa="lead"
   fi
 
-  if   [ -n "$haiku_sec" ];    then bucket_sec="$haiku_sec"
+  if   [ -n "$haiku_sec" ];    then bucket_sec="${repo_slug}-${haiku_sec}"
   elif [ -n "$twa" ];          then bucket_sec="$twa"
   else                              bucket_sec="lead"
   fi
 
-  if   [ -n "$haiku_arch" ];   then bucket_arch="$haiku_arch"
+  if   [ -n "$haiku_arch" ];   then bucket_arch="${repo_slug}-${haiku_arch}"
   elif [ -n "$twa" ];          then bucket_arch="$twa"
   else                              bucket_arch="implementer"
   fi
@@ -322,7 +333,7 @@ while IFS='|' read -r wt_prefix repo worktree; do
 
   collect_agents "$local_root"
   ask_haiku_buckets "$stack" "$all_agents"
-  resolve_buckets "$wt_prefix"
+  resolve_buckets "$wt_prefix" "$(basename "$repo")"
 
   splice_file="${discovery_dir}/${wt_prefix}.splice"
   {
@@ -401,5 +412,11 @@ fi
 
 rm -rf "$discovery_dir" 2>/dev/null
 rm -f "$needs_file" "$events_file" "$tmp" 2>/dev/null
+
+# ── Trigger sync-agents so the freshly-classified repo-local agents land
+#    as <basename>-<name>.md symlinks/copies before the lead dispatches.
+#    Best-effort: failure here does not regress the splice above.
+sync_hook="$(dirname "$0")/../bookkeeping/sync-agents.sh"
+[ -x "$sync_hook" ] && bash "$sync_hook" >/dev/null 2>&1 || true
 
 exit 0

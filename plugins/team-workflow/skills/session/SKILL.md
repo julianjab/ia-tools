@@ -16,19 +16,21 @@ description: >
     /session feat-google-login --description "arregla el login de Google"
     /session feat-payment-tracking --topic "C07815S0XNX:*:1728591234.001" --description "payment tracking across repos"
     /session feat-logout-button --agent team-workflow:repo-worker --provision clone --repo-url "https://github.com/org/frontend.git" --description "agrega botón de logout"
-argument-hint: "<feature-name> [--topic <topic>] [--agent <plugin:name>] [--topic-worker-agent <plugin:name>] [--provision worktree-local|clone] [--repo-url <url>] [--repo-urls <csv>] --description <text>"
+argument-hint: "[<feature-name> [--topic <topic>] [--agent <plugin:name>] [--topic-worker-agent <plugin:name>] [--provision worktree-local|clone] [--repo-url <url>] [--repo-urls <csv>] --description <text>] | rehydrate [--feature <name> | --state-dir <abs path>]"
 disable-model-invocation: false
 ---
 
-## /session — Spawn a lead sub-session
+## /session — Sub-session lifecycle (spawn + rehydrate)
 
-`/session` opens a fresh terminal host (tmux by default, iTerm2 on
-demand) running Claude Code with the `lead` agent preloaded. All
-runtime context (feature label, user request, Slack topic) travels via
-environment variables that the wrapper sets up. The lead is responsible
-for the entire downstream flow: plan, approval gate, worktree
-provisioning per touched repo, agent discovery, task list, dispatch
-loop, and PR creation.
+`/session` is a dispatcher on its first positional token:
+
+| First token | Sub-command | Purpose |
+|---|---|---|
+| `rehydrate` | `rehydrate` | Re-register every active worktree of an existing session via `/add-dir` and regenerate its `.claude/settings.local.json`. Use after `/compact`, `/clear`, or a fresh `/resume` when repo-local agent spawns start failing with "agent type not found", or after an `ia-tools` update changed the per-session settings schema. |
+| anything else (a `<feature-name>`) | `spawn` (default) | Open a fresh terminal host (tmux by default, iTerm2 on demand) running Claude Code with the `lead` agent preloaded. The lead owns the downstream flow: plan, approval gate, worktree provisioning per touched repo, agent discovery, task list, dispatch loop, PR creation. |
+
+The spawn flow is documented below from "Terminal host" onward.
+`rehydrate` lives in its own section near the end (`## Sub-command: rehydrate`).
 
 ### Terminal host
 
@@ -151,3 +153,127 @@ the env-var prefixes for flags that were actually provided.
 | tmux session `<feature-name>` already exists | Warn and reuse; do not relaunch claude. |
 | iTerm2 window with the same session name already exists | A new window is created; the previous one stays. Operator manages duplicates. |
 | `<description>` contains newline or NUL | Reject. |
+
+## Sub-command: `rehydrate`
+
+**Purpose**: re-register every active worktree of an existing session
+via `/add-dir`, and regenerate that session's
+`$state_dir/.claude/settings.local.json` so envs + MCP servers match
+the current spawner schema. Use after `/compact`, `/clear`, or a fresh
+`/resume` when repo-local agent spawns start failing with "agent type
+not found", or after an `ia-tools` update changed the per-session
+settings layout. Works inside a lead session (auto-resolves from
+`$IA_TW_STATE_DIR`) and outside one (lists every active session and
+asks which to rehydrate).
+
+After context loss the worktrees still exist on disk and `state.md`
+still records them, but the Claude Code session forgot the `/add-dir`
+registrations that `init` set up, and the per-session settings file
+may be missing (e.g. blown away by a fresh checkout of state). This
+sub-command repairs both.
+
+### Arguments
+
+| Form | Action |
+|------|--------|
+| `/session rehydrate` | Auto-resolve: use `$IA_TW_STATE_DIR` if set, else list every session via `scripts/list-sessions.sh` and prompt the operator to pick one. |
+| `/session rehydrate --feature <name>` | Find the session whose `feature:` field matches `<name>` (substring match allowed) and rehydrate it. Errors if zero or multiple match. |
+| `/session rehydrate --state-dir <abs path>` | Use the given state dir directly. Bypasses discovery and prompts. |
+| `/session rehydrate ... --skip-settings` | Re-register worktrees only; do NOT regenerate `settings.local.json`. Use when the file is intentionally hand-edited. |
+
+### Preconditions
+
+| Condition | Action |
+|-----------|--------|
+| Helper script `worktree/scripts/active-worktrees.sh` missing | STOP — installation issue. |
+| Helper script `worktree/scripts/list-sessions.sh` missing | STOP — installation issue. |
+| Resolved `state.md` is missing | STOP — report the resolved path and ask the operator to check it. |
+
+### Steps
+
+1. **Resolve the target state dir**:
+   - If `--state-dir <path>` was passed → use it.
+   - Else if `--feature <name>` was passed → run
+     `bash "${CLAUDE_PLUGIN_ROOT}/skills/worktree/scripts/list-sessions.sh" --format tsv`
+     and filter rows where `feature:` contains `<name>` (case-insensitive).
+     One match → use its `state_dir`. Zero or multiple → report and exit.
+   - Else if `$IA_TW_STATE_DIR` is set and the dir exists → use it.
+   - Else → run `list-sessions.sh` (human format), present the numbered
+     list to the operator, ask which row to rehydrate (via the
+     `team-workflow:ask-user` skill, never raw `AskUserQuestion`), and
+     use the selected row's `state_dir`.
+
+2. **List active worktree paths** from the resolved state.md:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/worktree/scripts/active-worktrees.sh" \
+        "<resolved-state-dir>/state.md"
+   ```
+   Empty output → report "No worktrees to rehydrate for <feature>"
+   and continue to step 3 (settings can still be regenerated).
+
+3. **Regenerate `settings.local.json`** unless `--skip-settings` was passed.
+   Read the existing `state.md` frontmatter to recover the original
+   spawn envs (`feature`, `topic`, `root_dir`, `agent`, `provision`,
+   …) and the optional fields (`repo_url`, `repo_urls`,
+   `repo_cache_dir`, `parent_sock`, `allowed_users_*`), then call:
+   ```bash
+   IA_TW_FEATURE="<feature>" \
+   IA_TW_TOPIC="<topic-or-local>" \
+   IA_TW_ROOT_DIR="<root_dir>" \
+   IA_TW_STATE_DIR="<resolved-state-dir>" \
+   IA_TW_AGENT="<agent>" \
+   IA_TW_TOPIC_WORKER_AGENT="<topic_worker_agent>" \
+   IA_TW_PROVISION="<provision>" \
+   IA_TW_REPO_URL="<repo_url-or-empty>" \
+   IA_TW_REPO_URLS="<repo_urls-or-empty>" \
+   IA_TW_REPO_CACHE_DIR="<repo_cache-or-empty>" \
+   IA_TW_PARENT_SOCK="<sock-or-empty>" \
+   ALLOWED_USERS_DM="<dm-or-empty>" \
+   ALLOWED_USERS_MENTIONS="<mentions-or-empty>" \
+   DAEMON_URL="<daemon-or-empty>" \
+     bash "${CLAUDE_PLUGIN_ROOT}/skills/session/scripts/generate-session-settings.sh" \
+          "<resolved-state-dir>"
+   ```
+   The util writes `<state-dir>/.claude/settings.local.json` atomically.
+   Skip silently if `jq` is missing (the util emits a warning).
+
+4. **Always print the `/add-dir` commands** to the user before running
+   them — this is the fallback path when `SlashCommand` cannot reach
+   `/add-dir` in the current session. Output block:
+   ```
+   /session rehydrate — N worktrees to register for <feature>:
+     /add-dir <path1>
+     /add-dir <path2>
+     /add-dir <path3>
+   ```
+
+5. **Re-register each path** by invoking `/add-dir <path>` via the
+   `SlashCommand` tool. On failure (tool unavailable, permission
+   denied), report which paths the operator must paste manually
+   (taken from step 4's output).
+
+6. **Verify by sampling**. Read the `.claude/agents/` listing of the
+   first rehydrated worktree to confirm registration took effect.
+
+### Output
+
+```
+/session rehydrate complete:
+  feature:         <name>
+  state_dir:       <abs path>
+  settings:        regenerated | skipped (--skip-settings) | jq missing
+  rehydrated:      <N>     (auto-registered via SlashCommand)
+  printed-only:    <M>     (printed for manual paste — SlashCommand failed)
+  skipped:         <list>  (terminal phases or paths that no longer exist)
+
+Repo-local agents under each rehydrated worktree are now callable via
+Agent(subagent_type=<name>).
+```
+
+### Error handling
+
+| Condition | Action |
+|-----------|--------|
+| `active-worktrees.sh` prints nothing | Continue: regenerate settings if requested, then report "No worktrees to rehydrate" and exit 0. |
+| `/add-dir` invocation fails for one path | Continue with remaining paths; include failures in the final report. |
+| `generate-session-settings.sh` exits non-zero | Continue; print a warning. Worktree re-registration is still useful. |
