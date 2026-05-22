@@ -41578,18 +41578,10 @@ var McpBridgeServer = class {
       logger: { log: (m) => this.logger.log(m), warn: (m) => this.logger.warn(m) }
     });
     const instructions = [
-      "slack-bridge \u2014 Slack I/O transport. Tools: subscribe_slack, unsubscribe_slack,",
-      "list_subscriptions, claim_message, reply, reply_update, read_thread, read_channel, list_channels.",
-      "Lifecycle for an incoming Slack message:",
-      "(1) call claim_message(message_ts) first; if claimed=false, another session won \u2014 stop.",
-      '(2) Compose your full response. The thinking indicator (set on claim) stays visible until reply() is called \u2014 do NOT send a placeholder "..." message.',
-      "(3) call reply(full_text_or_first_chunk). For channel messages always reply in a thread:",
-      "pass thread_ts when known, or pass message_ts (the server uses message_ts as the thread",
-      "anchor when thread_ts is omitted and is_dm is not true). For DMs reply at the DM root",
-      "unless the source had an explicit thread_ts.",
-      "(4) Optionally call reply_update(ts, more_text) one or more times with growing text to stream.",
-      "Use read_thread / read_channel to inspect history before replying.",
-      "Use subscribe_slack / unsubscribe_slack to change which topics this session listens to."
+      "slack-bridge \u2014 Slack I/O transport. For every incoming Slack message:",
+      "(1) claim_message first \u2014 if claimed=false, another session won, stop;",
+      "(2) reply with the full response.",
+      "Detailed threading, streaming, and read-history options are documented on each tool schema."
     ].join(" ");
     this.mcp = new Server(
       { name: "slack-bridge", version: "0.3.0" },
