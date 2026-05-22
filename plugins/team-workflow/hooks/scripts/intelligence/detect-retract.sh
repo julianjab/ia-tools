@@ -51,53 +51,28 @@ retracts=$(awk '
 
 ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-# Build a temp file with NEW events that are not yet recorded.
-new_events=$(mktemp 2>/dev/null) || exit 0
+# Emit one event per NEW retract. Each call to write-event.sh appends a
+# single entry; idempotency is enforced per-marker via the dedupe_key
+# grep so reruns on the same state.md are no-ops.
+writer="$(dirname "$0")/../lib/write-event.sh"
 printf '%s\n' "$retracts" | while IFS='|' read -r wt marker; do
   [ -n "$wt" ] || continue
-  # Dedupe key: a short hash of the marker text + wt_prefix.
   key_hash=$(printf '%s|%s' "$wt" "$marker" | cksum 2>/dev/null | awk '{print $1}')
   if grep -qF "marker_retracted:${key_hash}" "$state_file" 2>/dev/null; then
     continue
   fi
-  # Escape quotes in marker.
-  esc_marker=${marker//\"/\\\"}
-  {
-    printf '  - ts: %s\n'                 "$ts"
-    printf '    kind: marker_retracted\n'
-    printf '    wt_prefix: %s\n'          "$wt"
-    printf '    marker: "%s"\n'           "$esc_marker"
-    printf '    dedupe_key: marker_retracted:%s\n' "$key_hash"
-  } >> "$new_events"
+  jq -n \
+    --arg ts       "$ts" \
+    --arg wt       "$wt" \
+    --arg marker   "$marker" \
+    --arg key_hash "$key_hash" '{
+      ts:         $ts,
+      kind:       "marker_retracted",
+      wt_prefix:  $wt,
+      marker:     $marker,
+      dedupe_key: ("marker_retracted:" + $key_hash)
+    }' \
+    | IA_TW_STATE_DIR="$state_dir" bash "$writer" || true
 done
-
-if [ ! -s "$new_events" ]; then
-  rm -f "$new_events"
-  exit 0
-fi
-
-# Insert the new events into state.md before the closing ---.
-# Note: BSD awk on macOS rejects newlines inside -v values, so we pass the
-# events blob as a file path and slurp it via getline from awk.
-tmp=$(mktemp 2>/dev/null) || { rm -f "$new_events"; exit 0; }
-awk -v blob_file="$new_events" '
-  BEGIN { state = "pre"; has_events_header = 0 }
-  state == "pre" && /^---$/ { state = "front"; print; next }
-  state == "front" && /^---$/ {
-    if (has_events_header == 0) print "events:"
-    while ((getline line < blob_file) > 0) print line
-    close(blob_file)
-    state = "body"
-    print
-    next
-  }
-  state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
-  { print }
-' "$state_file" > "$tmp" 2>/dev/null
-
-if [ -s "$tmp" ]; then
-  cat "$tmp" > "$state_file" 2>/dev/null || true
-fi
-rm -f "$tmp" "$new_events" 2>/dev/null || true
 
 exit 0

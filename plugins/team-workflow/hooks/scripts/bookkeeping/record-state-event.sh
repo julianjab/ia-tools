@@ -17,8 +17,11 @@
 #   4. $state_dir/state.md last_event_at  — bump to now
 #
 # Bucket discipline: never blocks, never calls `claude -p`, always exit 0.
-# The events: insertion + local_phase rewrite is a single awk pass that
-# preserves the rest of the file byte-for-byte.
+# Two passes:
+#   (1) events: insertion delegated to lib/write-event.sh (shared YAML helper).
+#   (2) in-place updates of last_event_at + the matching worktree's
+#       local_phase, in one awk pass that preserves the rest of the file
+#       byte-for-byte.
 
 set -u
 
@@ -64,28 +67,27 @@ case "$subject" in
   *":pr"|*":pr:open"|*":pr:"*)                      new_phase="pr-open" ;;
 esac
 
-tmp=$(mktemp 2>/dev/null) || exit 0
+# Pass 1 — insert the event entry via the shared helper.
+jq -n \
+  --arg ts      "$ts" \
+  --arg subject "$subject" \
+  --arg wt      "$worktree_prefix" '{
+    ts:        $ts,
+    kind:      "task_completed",
+    subject:   $subject,
+    wt_prefix: $wt
+  }' | IA_TW_STATE_DIR="$state_dir" bash "$(dirname "$0")/../lib/write-event.sh" || true
 
+# Pass 2 — in-place updates of last_event_at and the matching worktree's
+# local_phase. Pure scalar rewrites; no list manipulation.
+tmp=$(mktemp 2>/dev/null) || exit 0
 awk -v prefix="$worktree_prefix" \
     -v new_phase="$new_phase" \
-    -v ts="$ts" \
-    -v subject="$subject" '
-  BEGIN { state = "pre"; has_events_header = 0; matched = 0 }
-
+    -v ts="$ts" '
+  BEGIN { state = "pre"; matched = 0 }
   state == "pre" && /^---$/ { state = "front"; print; next }
+  state == "front" && /^---$/ { state = "body"; print; next }
 
-  state == "front" && /^---$/ {
-    if (has_events_header == 0) print "events:"
-    print "  - ts: " ts
-    print "    kind: task_completed"
-    print "    subject: \"" subject "\""
-    print "    wt_prefix: " prefix
-    state = "body"
-    print
-    next
-  }
-
-  state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
   state == "front" && /^last_event_at:[[:space:]]/ {
     sub(/last_event_at:[[:space:]]*.*/, "last_event_at: " ts)
   }
@@ -99,7 +101,6 @@ awk -v prefix="$worktree_prefix" \
   { print }
 ' "$state_md" > "$tmp" 2>/dev/null
 
-# Only swap if awk produced non-empty output (guard against truncation).
 if [ -s "$tmp" ]; then
   cat "$tmp" > "$state_md" 2>/dev/null || true
 fi

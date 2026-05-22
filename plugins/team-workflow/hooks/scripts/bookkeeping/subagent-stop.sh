@@ -38,7 +38,9 @@ if grep -qF "$dedupe_key" "$state_file" 2>/dev/null \
   exit 0
 fi
 
-# One-line summary: last 400 chars of output, collapsed to single line.
+# One-line summary: last 400 chars of output, collapsed to single line. No
+# "-escaping needed — write-event.sh quotes when the value carries YAML-
+# significant characters.
 note=""
 if [ -n "$raw_output" ]; then
   note=$(printf '%s' "$raw_output" \
@@ -46,42 +48,27 @@ if [ -n "$raw_output" ]; then
     | tr '\n\r\t' '   ' \
     | sed 's/[[:space:]]\+/ /g' \
     | sed 's/^[[:space:]]*//' \
-    | sed 's/[[:space:]]*$//' \
-    | sed 's/"/\\"/g')
+    | sed 's/[[:space:]]*$//')
 fi
 
-# Insert the event entry inside the YAML frontmatter, before the closing `---`.
-# Previously this appended to EOF, which placed events after the frontmatter
-# in the markdown body — incompatible with the lead/session-end YAML parser
-# (S14: structured output must land in the right place). awk single-pass:
-#   - Track frontmatter state (between the two `---` lines).
-#   - On the closing `---`, emit `events:` header if missing, then the entry,
-#     then the dash itself.
-tmp=$(mktemp 2>/dev/null) || tmp=""
-if [ -n "$tmp" ]; then
-  awk -v ts="$ts" -v agent="$agent_name" -v task="$task_subj" \
-      -v exitc="$exit_code" -v note="$note" '
-    BEGIN { state = "pre"; has_events_header = 0 }
-    state == "pre" && /^---$/ { state = "front"; print; next }
-    state == "front" && /^---$/ {
-      if (has_events_header == 0) print "events:"
-      printf "  - ts: %s\n",     ts
-      printf "    agent: %s\n",  agent
-      if (task != "")  printf "    task: %s\n", task
-      printf "    exit_code: %s\n", exitc
-      if (note != "")  printf "    note: \"%s\"\n", note
-      state = "body"
-      print
-      next
-    }
-    state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
-    { print }
-  ' "$state_file" > "$tmp" 2>/dev/null
-
-  if [ -s "$tmp" ]; then
-    cat "$tmp" > "$state_file" 2>/dev/null || true
-  fi
-  rm -f "$tmp" 2>/dev/null || true
-fi
+# Delegate the YAML insert to the shared helper. `kind: subagent_run`
+# discriminates these from feedback-grade events (user_correction etc.)
+# that extract-memory-signal.sh consumes — that hook filters by kind
+# and ignores unrecognised kinds, so adding a new kind is a no-op for it.
+jq -n \
+  --arg ts        "$ts" \
+  --arg agent     "$agent_name" \
+  --arg task      "$task_subj" \
+  --arg exit_code "$exit_code" \
+  --arg note      "$note" '
+  {
+    ts:        $ts,
+    kind:      "subagent_run",
+    agent:     $agent,
+    exit_code: $exit_code
+  }
+  | if ($task | length) > 0 then .task = $task else . end
+  | if ($note | length) > 0 then .note = $note else . end
+' | bash "$(dirname "$0")/../lib/write-event.sh" || true
 
 exit 0

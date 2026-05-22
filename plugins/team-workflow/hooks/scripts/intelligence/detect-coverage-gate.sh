@@ -104,14 +104,13 @@ if [ -n "$worktree_path" ]; then
 fi
 
 # Build a short excerpt of the failure: first 6 lines containing FAIL or
-# coverage, joined.
+# coverage, joined. No "-escaping — write-event.sh handles quoting.
 excerpt=$(printf '%s' "$output" \
   | grep -iE 'FAIL|coverage' 2>/dev/null \
   | head -6 \
   | tr '\n' ' ' \
   | sed 's/[[:space:]]\+/ /g' \
-  | cut -c1-300 \
-  | sed 's/"/\\"/g')
+  | cut -c1-300)
 
 ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
@@ -122,28 +121,21 @@ if grep -qF "coverage_gate:${key_hash}" "$state_file" 2>/dev/null; then
   exit 0
 fi
 
-tmp=$(mktemp 2>/dev/null) || exit 0
-awk -v ts="$ts" -v wt="$wt_prefix" -v excerpt="$excerpt" -v key_hash="$key_hash" '
-  BEGIN { state = "pre"; has_events_header = 0 }
-  state == "pre" && /^---$/ { state = "front"; print; next }
-  state == "front" && /^---$/ {
-    if (has_events_header == 0) print "events:"
-    printf "  - ts: %s\n",                       ts
-    printf "    kind: coverage_gate_iteration\n"
-    if (wt != "")      printf "    wt_prefix: %s\n", wt
-    if (excerpt != "") printf "    excerpt: \"%s\"\n", excerpt
-    printf "    dedupe_key: coverage_gate:%s\n", key_hash
-    state = "body"
-    print
-    next
+# Delegate the YAML insert to the shared helper. Optional fields are
+# included only when non-empty (write-event.sh emits whatever keys the
+# JSON carries).
+jq -n \
+  --arg ts         "$ts" \
+  --arg wt         "$wt_prefix" \
+  --arg excerpt    "$excerpt" \
+  --arg key_hash   "$key_hash" '
+  {
+    ts:         $ts,
+    kind:       "coverage_gate_iteration",
+    dedupe_key: ("coverage_gate:" + $key_hash)
   }
-  state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
-  { print }
-' "$state_file" > "$tmp" 2>/dev/null
-
-if [ -s "$tmp" ]; then
-  cat "$tmp" > "$state_file" 2>/dev/null || true
-fi
-rm -f "$tmp" 2>/dev/null || true
+  | if ($wt      | length) > 0 then .wt_prefix = $wt      else . end
+  | if ($excerpt | length) > 0 then .excerpt   = $excerpt else . end
+' | bash "$(dirname "$0")/../lib/write-event.sh" || true
 
 exit 0

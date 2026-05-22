@@ -95,36 +95,25 @@ if grep -qF "user_correction:${key_hash}" "$state_file" 2>/dev/null; then
   exit 0
 fi
 
-# One-line excerpt (first 200 chars, collapsed).
+# One-line excerpt (first 200 chars, collapsed). No "-escaping needed —
+# write-event.sh quotes when it sees ":" or other YAML-significant chars.
 excerpt=$(printf '%s' "$prompt" \
   | tr '\n\r\t' '   ' \
   | sed 's/[[:space:]]\+/ /g' \
   | sed 's/^[[:space:]]*//' \
-  | cut -c1-200 \
-  | sed 's/"/\\"/g')
+  | cut -c1-200)
 
-tmp=$(mktemp 2>/dev/null) || exit 0
-awk -v ts="$ts" -v signal="$signal" -v excerpt="$excerpt" -v key_hash="$key_hash" '
-  BEGIN { state = "pre"; has_events_header = 0 }
-  state == "pre" && /^---$/ { state = "front"; print; next }
-  state == "front" && /^---$/ {
-    if (has_events_header == 0) print "events:"
-    printf "  - ts: %s\n",                ts
-    printf "    kind: user_correction\n"
-    printf "    signal: %s\n",            signal
-    printf "    excerpt: \"%s\"\n",       excerpt
-    printf "    dedupe_key: user_correction:%s\n", key_hash
-    state = "body"
-    print
-    next
-  }
-  state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
-  { print }
-' "$state_file" > "$tmp" 2>/dev/null
-
-if [ -s "$tmp" ]; then
-  cat "$tmp" > "$state_file" 2>/dev/null || true
-fi
-rm -f "$tmp" 2>/dev/null || true
+# Delegate the YAML insert to the shared helper.
+jq -n \
+  --arg ts         "$ts" \
+  --arg signal     "$signal" \
+  --arg excerpt    "$excerpt" \
+  --arg key_hash   "$key_hash" '{
+    ts:         $ts,
+    kind:       "user_correction",
+    signal:     $signal,
+    excerpt:    $excerpt,
+    dedupe_key: ("user_correction:" + $key_hash)
+  }' | bash "$(dirname "$0")/../lib/write-event.sh" || true
 
 exit 0
