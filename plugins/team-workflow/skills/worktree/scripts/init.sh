@@ -2,24 +2,37 @@
 # =============================================================================
 # skills/worktree/scripts/init.sh — Create a git worktree for a branch.
 #
-# Implements the `/worktree init` sub-command with support for the `--repo`
-# flag introduced by REQ-001 (multi-repo orchestration).
+# Worktrees live under the per-feature session workspace, not inside the
+# consumer repo:
+#
+#   $IA_TW_WORKTREE_ROOT/<basename($repo)>/
+#
+# This keeps consumer repos clean (no `.worktrees/` directory), lets a
+# single session manage worktrees across multiple touched repos in one
+# place, and makes `/session rehydrate` + archival straightforward.
 #
 # Usage:
 #   bash init.sh <branch-name> [--base <base-branch>] [--repo <target-repo-root>]
 #
+# Required env (the lead session ALWAYS has this; standalone callers must
+# export it before invoking):
+#   IA_TW_WORKTREE_ROOT   abs path. Typically $IA_TW_STATE_DIR/worktrees.
+#
+# Optional env (forwarded to generate-session-settings.sh for the
+# additionalDirectories refresh):
+#   IA_TW_STATE_DIR, IA_TW_FEATURE, IA_TW_TOPIC, IA_TW_ROOT_DIR, etc.
+#
 # Flags:
 #   --base <branch>   Base branch for the new worktree (default: main → master).
-#   --repo <path>     Target repo root. When set, all git operations run as
-#                     `git -C <path>` and the worktree lives at
-#                     `<path>/.worktrees/<dir-name>` (inside the target repo,
-#                     NOT the invoking CWD). The flag is additive — omitting it
-#                     preserves the single-repo behavior.
+#   --repo <path>     Target repo root. When omitted, the script falls back to
+#                     CWD's repo root. The worktree path is computed from this
+#                     repo's basename, NOT from cwd.
 #
 # Rules:
 #   - <path> passed to --repo MUST be an existing git repo root.
-#   - Composes with --base and --review unchanged.
-#   - Single-repo usage (no --repo) is identical to before REQ-001.
+#   - Multiple consumer repos with the same basename collide — that's a
+#     known limitation; rename the dir or use a unique prefix upstream.
+#   - The script no longer modifies the target repo's .gitignore.
 # =============================================================================
 set -euo pipefail
 
@@ -123,14 +136,14 @@ log "Base branch: ${BASE_BRANCH}"
 log "Fetching origin..."
 git -C "$TARGET_REPO" fetch origin >/dev/null 2>&1 || warn "fetch failed (continuing)"
 
-# ── ensure .worktrees/ dir and gitignore entry ────────────────────────────────
-mkdir -p "${TARGET_REPO}/.worktrees"
-grep -qxF '.worktrees/' "${TARGET_REPO}/.gitignore" 2>/dev/null \
-  || printf '.worktrees/\n' >> "${TARGET_REPO}/.gitignore"
+# ── compute worktree path (under $IA_TW_WORKTREE_ROOT/<basename>) ─────────────
+[ -n "${IA_TW_WORKTREE_ROOT:-}" ] \
+  || die "IA_TW_WORKTREE_ROOT not set — start-lead.sh / lead session is the supported entrypoint. To run init.sh standalone, export IA_TW_WORKTREE_ROOT to an absolute path first."
 
-# ── compute worktree path ─────────────────────────────────────────────────────
-DIR_NAME="$(printf '%s' "$BRANCH_NAME" | tr '/' '-')"
-WORKTREE_PATH="${TARGET_REPO}/.worktrees/${DIR_NAME}"
+REPO_SLUG="$(basename "$TARGET_REPO")"
+WORKTREE_PATH="${IA_TW_WORKTREE_ROOT%/}/${REPO_SLUG}"
+
+mkdir -p "$IA_TW_WORKTREE_ROOT"
 
 # ── check if worktree already exists ─────────────────────────────────────────
 if git -C "$TARGET_REPO" worktree list --porcelain | grep -q "^worktree ${WORKTREE_PATH}$"; then
@@ -154,11 +167,28 @@ fi
 CURRENT_BRANCH="$(git -C "${WORKTREE_PATH}" branch --show-current 2>/dev/null || echo '(unknown)')"
 ok "Branch: ${CURRENT_BRANCH}"
 
+# ── refresh settings.local.json so additionalDirectories includes the new wt ──
+# Best-effort: only runs when the lead session env is present + the util
+# is installed alongside this script's plugin. Failures don't abort init.
+GEN_UTIL="$(dirname "${BASH_SOURCE[0]}")/../../session/scripts/generate-session-settings.sh"
+if [ -x "$GEN_UTIL" ] && [ -n "${IA_TW_STATE_DIR:-}" ] && [ -n "${IA_TW_FEATURE:-}" ]; then
+  log "Refreshing settings.local.json with new worktree..."
+  bash "$GEN_UTIL" "$IA_TW_STATE_DIR" >/dev/null 2>&1 \
+    && ok "settings.local.json updated" \
+    || warn "settings.local.json refresh failed (continuing)"
+fi
+
+# ── invoke sync-agents (best-effort; the hook is the canonical entry) ─────────
+SYNC_HOOK="$(dirname "${BASH_SOURCE[0]}")/../../../hooks/scripts/bookkeeping/sync-agents.sh"
+if [ -x "$SYNC_HOOK" ] && [ -n "${IA_TW_AGENT_LINK_DIR:-}" ]; then
+  bash "$SYNC_HOOK" >/dev/null 2>&1 \
+    && ok "agent links synced" \
+    || warn "sync-agents failed (continuing — re-run via SessionStart)"
+fi
+
 printf "\n${BOLD}Worktree created:${RESET}\n"
 printf "  Path:   ${CYAN}%s${RESET}\n" "${WORKTREE_PATH}"
 printf "  Branch: ${CYAN}%s${RESET}\n" "${CURRENT_BRANCH}"
 printf "  Base:   ${CYAN}origin/%s${RESET}\n" "${BASE_BRANCH}"
-if [ -n "$REPO_PATH" ]; then
-  printf "  Repo:   ${CYAN}%s${RESET} (--repo mode)\n" "${TARGET_REPO}"
-fi
+printf "  Repo:   ${CYAN}%s${RESET}\n" "${TARGET_REPO}"
 printf "\nTo work in this worktree, operate on files at: %s\n" "${WORKTREE_PATH}"
