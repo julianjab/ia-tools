@@ -82,37 +82,22 @@ if grep -qF "plan_hash: ${current_hash}" "$state_file" 2>/dev/null; then
   exit 0
 fi
 
-ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 # Short preview of the new plan (first 200 chars, single line).
 preview=$(printf '%s' "$current_plan" \
   | tr '\n\r\t' '   ' \
   | sed 's/[[:space:]]\+/ /g' \
   | sed 's/^[[:space:]]*//' \
-  | cut -c1-200 \
-  | sed 's/"/\\"/g')
+  | cut -c1-200)
 
-tmp=$(mktemp 2>/dev/null) || exit 0
-awk -v ts="$ts" -v hash="$current_hash" -v prev="$prev_hash" -v preview="$preview" '
-  BEGIN { state = "pre"; has_events_header = 0 }
-  state == "pre" && /^---$/ { state = "front"; print; next }
-  state == "front" && /^---$/ {
-    if (has_events_header == 0) print "events:"
-    printf "  - ts: %s\n",          ts
-    printf "    kind: plan_edited\n"
-    printf "    plan_hash: %s\n",   hash
-    printf "    prev_hash: %s\n",   prev
-    printf "    preview: \"%s\"\n", preview
-    state = "body"
-    print
-    next
-  }
-  state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
-  { print }
-' "$state_file" > "$tmp" 2>/dev/null
-
-if [ -s "$tmp" ]; then
-  cat "$tmp" > "$state_file" 2>/dev/null || true
-fi
-rm -f "$tmp" 2>/dev/null || true
+# Delegate the YAML insert to the shared helper.
+jq -n \
+  --arg hash    "$current_hash" \
+  --arg prev    "$prev_hash" \
+  --arg preview "$preview" '{
+    kind:      "plan_edited",
+    plan_hash: $hash,
+    prev_hash: $prev,
+    preview:   $preview
+  }' | bash "$(dirname "$0")/../lib/write-event.sh" || true
 
 exit 0

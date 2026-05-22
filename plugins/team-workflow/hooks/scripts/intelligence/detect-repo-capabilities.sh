@@ -314,8 +314,8 @@ if [ ! -s "$needs_file" ]; then
 fi
 
 discovery_dir=$(mktemp -d 2>/dev/null) || { rm -f "$needs_file"; exit 0; }
-events_file=$(mktemp 2>/dev/null) || { rm -rf "$discovery_dir" "$needs_file"; exit 0; }
 ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+writer="$(dirname "$0")/../lib/write-event.sh"
 
 while IFS='|' read -r wt_prefix repo worktree; do
   [ -n "$wt_prefix" ] && [ -n "$repo" ] || continue
@@ -347,45 +347,46 @@ while IFS='|' read -r wt_prefix repo worktree; do
     printf '      base_branch: %s\n'      "$base_branch"
   } > "$splice_file"
 
+  # Per-repo event, delegated to the shared YAML helper. Idempotency by
+  # repo path hash — second runs (re-discovery) are no-ops.
   key_hash=$(printf '%s' "$repo" | cksum 2>/dev/null | awk '{print $1}')
   if ! grep -qF "repo_capabilities:${key_hash}" "$state_file" 2>/dev/null; then
-    {
-      printf '  - ts: %s\n'                  "$ts"
-      printf '    kind: repo_capabilities\n'
-      printf '    repo: %s\n'                "$repo"
-      printf '    wt_prefix: %s\n'           "$wt_prefix"
-      printf '    stack: %s\n'               "$stack"
-      printf '    pre_push_hook: "%s"\n'     "$pre_push_hook"
-      printf '    claude_agents_dir: %s\n'   "$agents_count"
-      printf '    agent_memory_dir: %s\n'    "$agent_memory_dir"
-      printf '    team_review_config: "%s"\n' "$team_review_config"
-      printf '    conventional_commits_enforced: %s\n' "$conventional_commits"
-      printf '    base_branch: %s\n'         "$base_branch"
-      printf '    dedupe_key: repo_capabilities:%s\n' "$key_hash"
-    } >> "$events_file"
+    jq -n \
+      --arg ts                         "$ts" \
+      --arg repo                       "$repo" \
+      --arg wt_prefix                  "$wt_prefix" \
+      --arg stack                      "$stack" \
+      --arg pre_push_hook              "$pre_push_hook" \
+      --arg claude_agents_dir          "$agents_count" \
+      --arg agent_memory_dir           "$agent_memory_dir" \
+      --arg team_review_config         "$team_review_config" \
+      --arg conventional_commits       "$conventional_commits" \
+      --arg base_branch                "$base_branch" \
+      --arg key_hash                   "$key_hash" '{
+        ts:                            $ts,
+        kind:                          "repo_capabilities",
+        repo:                          $repo,
+        wt_prefix:                     $wt_prefix,
+        stack:                         $stack,
+        pre_push_hook:                 $pre_push_hook,
+        claude_agents_dir:             $claude_agents_dir,
+        agent_memory_dir:              $agent_memory_dir,
+        team_review_config:            $team_review_config,
+        conventional_commits_enforced: $conventional_commits,
+        base_branch:                   $base_branch,
+        dedupe_key:                    ("repo_capabilities:" + $key_hash)
+      }' | IA_TW_STATE_DIR="$state_dir" bash "$writer" || true
   fi
 done < "$needs_file"
 
-tmp=$(mktemp 2>/dev/null) || { rm -rf "$discovery_dir" "$needs_file" "$events_file"; exit 0; }
+# Single awk pass for the splice (events were already inserted above by
+# the helper, so this pass no longer touches the events: block).
+tmp=$(mktemp 2>/dev/null) || { rm -rf "$discovery_dir" "$needs_file"; exit 0; }
 
-awk -v dir="$discovery_dir" -v events_file="$events_file" '
-  BEGIN { state = "pre"; has_events_header = 0 }
+awk -v dir="$discovery_dir" '
+  BEGIN { state = "pre" }
   state == "pre" && /^---$/ { state = "front"; print; next }
-  state == "front" && /^---$/ {
-    if (events_file != "") {
-      gotone = 0
-      while ((getline line < events_file) > 0) {
-        if (!gotone && has_events_header == 0) { print "events:"; gotone = 1 }
-        gotone = 1
-        print line
-      }
-      close(events_file)
-    }
-    state = "body"
-    print
-    next
-  }
-  state == "front" && /^events:[[:space:]]*$/ { has_events_header = 1 }
+  state == "front" && /^---$/ { state = "body"; print; next }
   state == "front" && /^[[:space:]]+wt_prefix:[[:space:]]/ {
     print
     prefix = $0
@@ -406,7 +407,7 @@ if [ -s "$tmp" ]; then
 fi
 
 rm -rf "$discovery_dir" 2>/dev/null
-rm -f "$needs_file" "$events_file" "$tmp" 2>/dev/null
+rm -f "$needs_file" "$tmp" 2>/dev/null
 
 # ── Trigger sync-agents so the freshly-classified repo-local agents land
 #    as <basename>-<name>.md symlinks/copies before the lead dispatches.
