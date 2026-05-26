@@ -270,6 +270,7 @@ if [ "$chosen" = "tmux" ]; then
   # MCP servers + per-session env now come from $state_dir/.claude/settings.local.json
   # (boot cwd = $state_dir → Claude Code picks it up automatically).
   claude_args=(--agent "$agent"
+               --teammate-mode in-process
                --dangerously-load-development-channels plugin:slack-bridge@ia-tools
                --dangerously-skip-permissions)
   [ -n "$resume_id" ] && claude_args+=(--resume "$resume_id")
@@ -323,6 +324,7 @@ launcher="$(mktemp -t ia-tw-lead-XXXXXX.sh)"
   printf 'cd %q\n' "$state_dir"
   # MCP servers + per-session env come from $state_dir/.claude/settings.local.json.
   printf 'exec claude --agent %q \\\n' "$agent"
+  printf '  --teammate-mode in-process \\\n'
   printf '  --dangerously-load-development-channels plugin:slack-bridge@ia-tools \\\n'
   printf '  --dangerously-skip-permissions \\\n'
   [ -n "$resume_id" ] && printf '  --resume %q \\\n' "$resume_id"
