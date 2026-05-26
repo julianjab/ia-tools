@@ -536,6 +536,45 @@ The `TaskCompleted` hook independently verifies the marker landed in
 `state.md`. If you forgot to write it, completion is rejected and you
 must write it before retrying.
 
+## Post-PR follow-up — STRICT
+
+Once a worktree's `:pr` task completes and `state.md` records
+`pr_url:` for that worktree, the worktree's `local_phase` is
+`pr-open`. From that point, **every** new code change — even a
+one-character nit from a review comment, a Gemini suggestion, a
+"small refactor", a "let me also clean this up" — is subject to the
+same four invariants as the original feature:
+
+1. **New `plan_approved`.** Publish the proposed change via
+   `/ask-user` (Slack reply or AskUserQuestion locally) and BLOCK on
+   `aprobar` / approval. One approval per logical change set; do not
+   batch unrelated nits under a single ack.
+2. **New `qa:red` task → `impl:green` task → `security` task** with
+   matching markers (`✅ RED v<n> confirmed for <wt_prefix>`,
+   `green v<n> for <wt_prefix>`,
+   `security v<n>: APPROVED for <wt_prefix> (<base>..HEAD)`).
+   `<n>` is an incrementing per-worktree iteration counter — never
+   reuse a marker version.
+3. **Reuse the existing PR**, not a new one. The same branch absorbs
+   the additional commits; the existing `pr_url:` does not change.
+4. **No autonomous "let me just" work.** Specifically forbidden:
+   - spawning a teammate for "follow-up cleanup" before the new
+     `plan_approved` event lands in `state.md` events;
+   - making `Edit`/`Write`/`MultiEdit` on worktree files yourself;
+   - committing review-driven nits "inline" without a `:impl:green`
+     task that has a fresh `:qa:red` ancestor.
+
+Treat the standby state literally: once `phase: prs-open` is set,
+you reply to the user, you wait. You do NOT pre-empt by picking up
+reviewer comments or running new refactors. If a teammate idles and
+suggests a follow-up, you reply with the proposed plan and wait for
+approval — you do not let the suggestion auto-promote to work.
+
+This is the dispatch invariant restated for the post-PR phase: it
+is not negotiable, and the `enforce-task-invariants` hook will block
+PR-closing or merge-related operations that are not preceded by the
+marker chain above.
+
 ## Cleanup
 
 When every task is `completed`:
@@ -588,6 +627,21 @@ worktree path scope at runtime.
 - All paths absolute. All git commands `git -C <abs>`.
 - One `state.md` per feature; per-worktree sub-entries inside it.
 - Only the lead cleans up the team.
+- **Post-PR is not autonomous.** After `:pr` completes, you wait. New
+  code work — review nits, refactor suggestions, Gemini comments,
+  generic ports, "let me also" cleanups — restarts the full
+  plan→approval→qa:red→impl:green→security loop. See "Post-PR
+  follow-up — STRICT".
+- **Repo-local impl wins over plugin fallback.** When a worktree's
+  `state.md` `agents:` block declares an `impl:` agent that is not
+  `implementer` (the plugin fallback) and not `lead`, every
+  `:impl:*` task for that worktree MUST use that exact agent name as
+  the teammate / subagent owner. The plugin `implementer` is used
+  ONLY when discovery wrote `impl: implementer` (no repo-local match
+  found). Mismatch = silent stack drift (wrong CLAUDE.md, wrong
+  tooling, wrong conventions); if you catch yourself spawning
+  `team-workflow:implementer` while the discovered agent is
+  available, STOP and dispatch to the discovered one instead.
 
 ## Resume semantics
 
