@@ -536,44 +536,103 @@ The `TaskCompleted` hook independently verifies the marker landed in
 `state.md`. If you forgot to write it, completion is rejected and you
 must write it before retrying.
 
-## Post-PR follow-up — STRICT
+## Code-change task chain — UNIVERSAL
 
-Once a worktree's `:pr` task completes and `state.md` records
-`pr_url:` for that worktree, the worktree's `local_phase` is
-`pr-open`. From that point, **every** new code change — even a
-one-character nit from a review comment, a Gemini suggestion, a
-"small refactor", a "let me also clean this up" — is subject to the
-same four invariants as the original feature:
+There is exactly **one** path from "user wants a code change" to a
+commit on a tracked file: a task chain. This applies before the first
+PR, while the PR is open, after the PR is merged, and to every
+follow-up of any size — a reviewer's nit, a Gemini suggestion, a
+generic port refactor, a one-character typo fix.
 
-1. **New `plan_approved`.** Publish the proposed change via
-   `/ask-user` (Slack reply or AskUserQuestion locally) and BLOCK on
-   `aprobar` / approval. One approval per logical change set; do not
-   batch unrelated nits under a single ack.
-2. **New `qa:red` task → `impl:green` task → `security` task** with
-   matching markers (`✅ RED v<n> confirmed for <wt_prefix>`,
-   `green v<n> for <wt_prefix>`,
-   `security v<n>: APPROVED for <wt_prefix> (<base>..HEAD)`).
-   `<n>` is an incrementing per-worktree iteration counter — never
-   reuse a marker version.
-3. **Reuse the existing PR**, not a new one. The same branch absorbs
-   the additional commits; the existing `pr_url:` does not change.
-4. **No autonomous "let me just" work.** Specifically forbidden:
-   - spawning a teammate for "follow-up cleanup" before the new
-     `plan_approved` event lands in `state.md` events;
-   - making `Edit`/`Write`/`MultiEdit` on worktree files yourself;
-   - committing review-driven nits "inline" without a `:impl:green`
-     task that has a fresh `:qa:red` ancestor.
+For every change-set the user approves, you create this chain per
+touched worktree (`P = <wt_prefix>`, `n` = next change-set index):
 
-Treat the standby state literally: once `phase: prs-open` is set,
-you reply to the user, you wait. You do NOT pre-empt by picking up
-reviewer comments or running new refactors. If a teammate idles and
-suggests a follow-up, you reply with the proposed plan and wait for
-approval — you do not let the suggestion auto-promote to work.
+| id | role | owner | marker on completion |
+|---|---|---|---|
+| `P:qa:red:vN`     | qa       | `agents.qa` (or `lead` inline if no repo-local qa)   | `✅ RED vN confirmed for P` |
+| `P:impl:green:vN` | impl     | `agents.impl` (repo-local always; plugin fallback only when discovery returned `implementer`) | `green vN for P (<k> commits)` |
+| `P:security:vN`   | security | `agents.sec` (or `lead` inline)                      | `security vN: APPROVED for P (<base>..HEAD)` |
+| `P:pr:vN`         | impl     | same as `impl:green`                                 | `pr vN open` (first) / `pr vN updated` (subsequent) |
 
-This is the dispatch invariant restated for the post-PR phase: it
-is not negotiable, and the `enforce-task-invariants` hook will block
-PR-closing or merge-related operations that are not preceded by the
-marker chain above.
+`vN` is a monotonic per-worktree counter starting at `v1` for the
+original feature and incrementing on every approved change-set after
+that. Never reuse a marker version.
+
+`:pr:vN` opens the PR the first time and **amends** (force-push to
+the same branch) for every later iteration. `pr_url:` does not change
+between versions. A new PR is created only when the user explicitly
+asks for one.
+
+### Plan gate per change-set — at your discretion
+
+Every chain starts with a fresh `plan_*` event in `state.md`. You
+choose which kind based on scope:
+
+| Event kind | When to write it | User involvement |
+|---|---|---|
+| `plan_recorded` | small / obvious scope: review nit, lint fix, drop-dead-alias, internal refactor that doesn't change API or behavior | none — you write it autonomously |
+| `plan_approved` | large / sensitive scope: API change, schema migration, security-critical code, new feature, anything you would want the operator to sign off on | `/ask-user` → block on `aprobar` → write event |
+
+Both kinds satisfy the `enforce-code-change-task` hook equivalently.
+The hook gates on EXISTENCE and FRESHNESS, not on which kind it is.
+
+The required event shape (write via the lib helper, not by hand):
+
+```yaml
+  - ts: 2026-05-26T15:45:00Z
+    kind: plan_recorded        # or plan_approved
+    wt_prefix: wt-backend-543f1f   # OR  scope: global  for multi-wt plans
+    iteration: v2                  # match the vN used in the task chain
+    scope: "drop deprecated response= alias after PR #795 review"
+```
+
+After the event lands, call `TaskCreate` for the four tasks above
+(with `blockedBy` wiring them in order). One plan event per logical
+change-set. Do not batch unrelated nits under one event. Do not let a
+teammate's idle suggestion ("we could also extract X") auto-promote
+to work — record a plan event for it first (or reply with the
+proposed plan and wait, if it warrants approval).
+
+When in doubt, escalate to `plan_approved`. The cost of asking is
+one round-trip; the cost of silent drift is a session like
+`notif-snowplow-traceability` where 10 commits landed without a
+trace of why.
+
+### What this rules out
+
+- `Edit`/`Write`/`MultiEdit` on a tracked file inside a worktree
+  outside an in-progress task whose owner you are (or that you
+  dispatched).
+- `git commit` driven directly by you on a worktree.
+- Spawning a teammate or one-shot subagent for "follow-up cleanup"
+  without a corresponding pending task that has a `plan_recorded` or
+  `plan_approved` event preceding it.
+- "Standby" meaning "I'll just pick up reviewer comments now".
+  Standby means you reply, you wait, you do nothing on disk.
+
+### Worked example — original feature + one review nit
+
+```
+v1 (original feature)
+  P:qa:red:v1       owner=python-unittest-expert  marker=✅ RED v1 confirmed for P
+  P:impl:green:v1   owner=python-developer        marker=green v1 for P (10 commits)
+  P:security:v1     owner=lead                    marker=security v1: APPROVED for P (base..HEAD)
+  P:pr:v1           owner=python-developer        marker=pr v1 open
+                                                  → pr_url written to state.md
+
+v2 (reviewer asked to drop a dead alias)
+  ← plan_approved event in state.md
+  P:qa:red:v2       (blockedBy: P:pr:v1)
+  P:impl:green:v2   (blockedBy: P:qa:red:v2)
+  P:security:v2     (blockedBy: P:impl:green:v2)
+  P:pr:v2           (blockedBy: P:security:v2) — force-pushes onto same branch
+                                                  → pr_url unchanged
+```
+
+The `enforce-task-invariants` hook checks markers and the
+`blockedBy` graph at task-completion time. Skipping a step is
+silent before the hook fires; the dispatch rule above is what
+prevents you from getting there in the first place.
 
 ## Cleanup
 
@@ -627,11 +686,12 @@ worktree path scope at runtime.
 - All paths absolute. All git commands `git -C <abs>`.
 - One `state.md` per feature; per-worktree sub-entries inside it.
 - Only the lead cleans up the team.
-- **Post-PR is not autonomous.** After `:pr` completes, you wait. New
-  code work — review nits, refactor suggestions, Gemini comments,
-  generic ports, "let me also" cleanups — restarts the full
-  plan→approval→qa:red→impl:green→security loop. See "Post-PR
-  follow-up — STRICT".
+- **Every code change goes through the chain.** No exceptions for
+  size, phase, or origin. Reviewer nits, Gemini comments, "small
+  refactors", post-merge cleanups, generic ports — each one needs
+  its own `plan_approved` event followed by `qa:red:vN → impl:green:vN
+  → security:vN → pr:vN` (open or amend). See "Code-change task
+  chain — UNIVERSAL".
 - **Repo-local impl wins over plugin fallback.** When a worktree's
   `state.md` `agents:` block declares an `impl:` agent that is not
   `implementer` (the plugin fallback) and not `lead`, every
