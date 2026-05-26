@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.2.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.1.0...team-workflow-v2.2.0) (2026-05-26)
+
+
+### Features
+
+* **team-workflow:** force in-process teammate mode in /session ([#118](https://github.com/julianjab/ia-tools/issues/118)) ([a44f4e3](https://github.com/julianjab/ia-tools/commit/a44f4e37c35024c12196a4b80bb389626535ed0b))
+
+
+### Bug Fixes
+
+* **team-workflow:** guard detect-user-correction against recursion ([#117](https://github.com/julianjab/ia-tools/issues/117)) ([5bbae75](https://github.com/julianjab/ia-tools/commit/5bbae7520fc4b18ca2dc1a0df00f8b4c16336ec4))
+* **team-workflow:** post-PR guard + impl discovery + orphan-event log ([#120](https://github.com/julianjab/ia-tools/issues/120)) ([85e4b29](https://github.com/julianjab/ia-tools/commit/85e4b29c4a4e65efd2ef72a35526856af8ff9554))
+
+
+### Documentation
+
+* https://code.claude.com/docs/en/agent-teams#choose-a-display-mode ([a44f4e3](https://github.com/julianjab/ia-tools/commit/a44f4e37c35024c12196a4b80bb389626535ed0b))
+
 ## [2.1.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.0.1...team-workflow-v2.1.0) (2026-05-22)
 
 
