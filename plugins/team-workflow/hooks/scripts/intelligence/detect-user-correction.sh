@@ -29,6 +29,14 @@
 
 set -u
 
+# Recursion guard. fast_claude spawns `claude -p` which inherits IA_TW_*
+# and re-fires UserPromptSubmit with the classifier's own template as
+# `.prompt`. Without this guard, the hook ends up classifying its own
+# wrapper text ("Classify this user message...") and writing garbage
+# events to state.md. The export below propagates IA_TW_IN_HOOK to the
+# child so the recursive invocation bails here.
+[ -z "${IA_TW_IN_HOOK:-}" ] || exit 0
+
 payload=$(cat)
 
 [ -n "${IA_TW_FEATURE:-}" ]   || exit 0
@@ -71,8 +79,10 @@ classifier_prompt="Classify this user message from a software-engineering chat:
   No prose, no markdown, no code fence."
 
 . "$(dirname "$0")/_fast_claude.sh"
+export IA_TW_IN_HOOK=1
 classifier_response=$(printf '%s' "$classifier_prompt" \
   | fast_claude --model claude-haiku-4-5-20251001) || classifier_response=""
+unset IA_TW_IN_HOOK
 
 # Extract the signal field. Rejects 'none' so we don't write spurious events.
 signal=$(printf '%s' "$classifier_response" \
