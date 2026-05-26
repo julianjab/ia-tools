@@ -42,7 +42,18 @@ elif [ -n "$cwd" ] && [ -d "$cwd/.sessions" ]; then
   state_dir=$(find "$cwd/.sessions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
 fi
 
-[ -n "$state_dir" ] || exit 0
+# Orphan-event fallback. When state_dir can't be resolved we still want
+# a breadcrumb that the TaskCompleted hook fired — otherwise the bug is
+# invisible. Without this, missing IA_TW_STATE_DIR propagation produces
+# zero audit log + zero events, looking identical to "no tasks ran".
+if [ -z "$state_dir" ]; then
+  orphan_log="${HOME}/.claude/team-workflow/orphan-events.log"
+  mkdir -p "$(dirname "$orphan_log")" 2>/dev/null || true
+  printf '%s TaskCompleted subject=%q status=%s cwd=%q IA_TW_STATE_DIR=%q (UNRESOLVED — no audit written)\n' \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$subject" "$status" "$cwd" "${IA_TW_STATE_DIR:-}" \
+    >> "$orphan_log" 2>/dev/null || true
+  exit 0
+fi
 
 worktree_prefix="${subject%%:*}"
 
