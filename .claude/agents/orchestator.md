@@ -1,0 +1,1 @@
+../../.worktrees/fix-mcp-tools-allowlist/plugins/team-workflow/agents/orchestrator.md
