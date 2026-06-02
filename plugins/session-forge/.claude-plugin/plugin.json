@@ -1,0 +1,12 @@
+{
+  "name": "session-forge",
+  "version": "0.1.0",
+  "description": "Captures Claude Code session events (sessions, prompts, tool usage) to a local SQLite store so future versions can detect patterns and forge skills/agents/hooks automatically. PR1: capture only.",
+  "author": {
+    "name": "Julian Buitrago",
+    "email": "julianbuitrago@lahaus.com"
+  },
+  "homepage": "https://github.com/julianjab/ia-tools",
+  "repository": "https://github.com/julianjab/ia-tools",
+  "license": "MIT"
+}

@@ -38,6 +38,21 @@
         "mcp",
         "best-practices"
       ]
+    },
+    {
+      "name": "session-forge",
+      "source": "./plugins/session-forge",
+      "description": "Captures Claude Code session events (sessions, prompts, tool usage) into a local SQLite store so future versions can detect patterns and forge skills/agents/hooks automatically. PR1 is capture-only; ships the /insights skill as a smoke-test reader.",
+      "category": "observability",
+      "keywords": [
+        "observability",
+        "telemetry",
+        "session",
+        "sqlite",
+        "hooks",
+        "analytics",
+        "self-improving"
+      ]
     }
   ]
 }

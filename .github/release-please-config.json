@@ -51,6 +51,18 @@
           "jsonpath": "$.version"
         }
       ]
+    },
+    "plugins/session-forge": {
+      "package-name": "session-forge",
+      "release-type": "simple",
+      "component": "session-forge",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        }
+      ]
     }
   }
 }
