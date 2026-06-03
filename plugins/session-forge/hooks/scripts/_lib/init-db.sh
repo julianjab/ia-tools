@@ -32,6 +32,19 @@ fi
 sqlite3 "$SF_DB" < "$SF_SCHEMA" >/dev/null 2>>"$SF_ERRORS_LOG" || \
   sf_log_err "init-db: sqlite3 apply failed (db=$SF_DB)"
 
+# v1 → v2 migration: add events.cwd if missing. SQLite has no IF NOT EXISTS
+# for ADD COLUMN, so probe pragma_table_info first. Idempotent per S8.
+has_cwd=$(sqlite3 "$SF_DB" "SELECT 1 FROM pragma_table_info('events') WHERE name='cwd';" 2>/dev/null)
+if [ -z "$has_cwd" ]; then
+  sqlite3 "$SF_DB" "ALTER TABLE events ADD COLUMN cwd TEXT;" >/dev/null 2>>"$SF_ERRORS_LOG" || \
+    sf_log_err "init-db: ALTER events ADD cwd failed"
+  sqlite3 "$SF_DB" "INSERT OR REPLACE INTO schema_version (version) VALUES (2);" >/dev/null 2>>"$SF_ERRORS_LOG" || true
+fi
+
+# Index on cwd is created here (not in schema.sql) so v1 DBs migrate without
+# the schema apply hitting "no such column: cwd" before the ALTER TABLE.
+sqlite3 "$SF_DB" "CREATE INDEX IF NOT EXISTS idx_events_cwd ON events(cwd);" >/dev/null 2>>"$SF_ERRORS_LOG" || true
+
 # Seed empty registry + config if missing.
 [ -f "$SF_REGISTRY" ] || printf '{}\n' > "$SF_REGISTRY" 2>/dev/null
 [ -f "$SF_CONFIG" ]   || printf '{"max_payload_bytes":4096}\n' > "$SF_CONFIG" 2>/dev/null
