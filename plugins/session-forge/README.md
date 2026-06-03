@@ -49,12 +49,27 @@ goes to `errors.log` — your session is never interrupted.
 
 ## Inspect the data
 
-The `/insights` skill prints a friendly list:
+The `/insights` skill is the reader surface:
 
 ```
-/insights sessions
-/insights sessions 50
+/insights sessions              # last 20 sessions
+/insights sessions 50           # last 50
+/insights tools                 # top tools by frequency + success rate
+/insights tools --days 7        # last 7 days only
+/insights tools --repo /path    # filter to a repo subtree
+/insights corrections           # user prompts that look like corrections
+/insights weekly                # writes ~/.claude/session-forge/reports/YYYY-WNN.md
 ```
+
+The `/forge list` skill ranks detected patterns as candidate artefacts:
+
+```
+/forge list                     # last 30 days, table output
+/forge list --days 7 --json     # last 7 days, JSON
+```
+
+PR3 will add `/forge accept <id>` to actually generate the skill / agent /
+permission rule via `scaffold:*` agents.
 
 For raw access, open the DB directly:
 
@@ -84,12 +99,14 @@ rm -rf ~/.claude/session-forge
 
 The next Claude Code session recreates everything.
 
-## Roadmap (out of scope for PR1)
+## Roadmap
 
-- PR2: detectors for repeated prompts, repeated tool calls, repeated
-  Bash approvals, and user corrections.
-- PR3: `/forge propose` skill that turns detected patterns into
-  skills/agents/hooks/permissions via the `scaffold:*` agents.
-- PR4: `/insights tools`, `/insights corrections`, `/insights weekly`.
-- PR5: feedback loop — track which forged artefacts get used and which
-  decay.
+- ✅ PR1 (v0.2.0): capture-only pipeline.
+- ✅ PR1.5 (v0.2.1): per-event `cwd` + `git_branch` backfill.
+- ✅ PR2: detectors (top tools, repeated bash, repeated prompts, corrections)
+  + `/insights tools|corrections|weekly` + `/forge list`.
+- 🔜 PR3: `/forge accept <id>` — generate the artefact via `scaffold:*`
+  and register in `forge_registry.json`.
+- 🔜 PR4: `/insights dashboard` — Datasette + curated metadata.
+- 🔜 PR5: feedback loop — track which forged artefacts get used; auto-archive
+  the dormant ones.
