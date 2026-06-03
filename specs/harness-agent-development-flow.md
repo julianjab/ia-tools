@@ -21,6 +21,45 @@ verification loops, memory, and observability.
 The deliverable of this document is **the plan only**. No code is
 created yet.
 
+> **Consumer-repo model.** Like every plugin in `ia-tools`,
+> `harness-forge` is *authored here but runs in other repos*
+> (`client-api`, `ai-mobile-app`, `lh-seller-v2-frontend`, …). `ia-tools`
+> only hosts the plugin source; the value is produced inside the target
+> repo, where the flow emits and maintains a versioned
+> `.claude/harness.manifest.yaml` plus its wired subsystems. Design is
+> **generic** (backend / frontend / mobile), not pinned to one repo;
+> the team-workflow dogfood (PR6) is the validation milestone.
+
+---
+
+## 0.5 What we achieve day-to-day (in consumer repos)
+
+Today every repo re-invents how to make Claude reliable: a `CLAUDE.md`
+here, a copied agent there, a hook somewhere else — dispersed and prone
+to rot. `harness-forge` turns that into a guided 6-step flow plus a
+versioned manifest. Concrete wins for a developer working in a target
+repo:
+
+- **New / unconfigured repo →** `/harness frame` produces a versioned
+  `harness.manifest.yaml` in minutes (tool boundaries, plan→normal mode,
+  test gates, memory) instead of hours copying config and guessing.
+- **Claude misbehaves in a repo** ("drifts from spec", "forgets a
+  convention", "skips tests") **→** `/harness-audit` names the *missing
+  subsystem* (no verification loop S3, no persistent rule S4, no
+  deterministic gate S1). Each complaint becomes a concrete harness fix,
+  not another prompt paragraph.
+- **Onboarding a repo to the discipline →** the manifest is living
+  documentation of how the AI is meant to operate there, instead of
+  "read these four plugins and copy what applies".
+- **The harness improves itself →** `/harness-evolve` reads what
+  `session-forge` already captured in that repo (repeated corrections,
+  failing tools) and proposes turning a 5×-repeated correction into a
+  fixed rule.
+
+One line: *each repo stops re-inventing reliability; it gets a guided
+flow + a versioned manifest, installable anywhere, that self-corrects
+from real usage.*
+
 ---
 
 ## 1. What "harness engineering" means here
@@ -316,6 +355,11 @@ PR-per-increment habit.
 ---
 
 ## 10. Open questions for the operator
+
+> **Resolved (2026-06-03):** Design is **generic** (no pilot repo) —
+> validation comes from the team-workflow dogfood in PR6. Rollout
+> delivers the **full 6-phase flow in order** (PR1→PR6 below), not a
+> single-phase subset first.
 
 1. **Name.** `harness-forge` (parallels `session-forge`/`scaffold`) vs
    `harness-flow` vs `agent-harness`. Default: `harness-forge`.
