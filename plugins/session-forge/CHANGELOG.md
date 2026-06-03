@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/julianjab/ia-tools/compare/session-forge-v0.2.1...session-forge-v0.3.0) (2026-06-03)
+
+
+### Features
+
+* **session-forge:** detectors + /insights tools|corrections|weekly + /forge list ([#125](https://github.com/julianjab/ia-tools/issues/125)) ([321aef1](https://github.com/julianjab/ia-tools/commit/321aef12216fe60357f91a6a01a06b0810f9f9e5))
+
 ## [0.2.1](https://github.com/julianjab/ia-tools/compare/session-forge-v0.2.0...session-forge-v0.2.1) (2026-06-03)
 
 
