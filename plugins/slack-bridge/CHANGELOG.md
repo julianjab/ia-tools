@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/julianjab/ia-tools/compare/slack-bridge-v2.0.0...slack-bridge-v2.0.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **team-workflow:** release hook removal so installed consumers stop running it ([#128](https://github.com/julianjab/ia-tools/issues/128)) ([06eea39](https://github.com/julianjab/ia-tools/commit/06eea39886944f979a66c48c078d71703a1d02e7))
+
 ## [2.0.0](https://github.com/julianjab/ia-tools/compare/slack-bridge-v1.0.0...slack-bridge-v2.0.0) (2026-05-22)
 
 

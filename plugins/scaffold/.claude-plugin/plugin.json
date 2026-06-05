@@ -1,6 +1,6 @@
 {
   "name": "scaffold",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Scaffolding, validation, and editing for Claude Code agents, skills, MCP servers, and bash hooks/scripts. Ships /new-agent, /new-skill, /new-mcp, /new-script (generators); /audit-agent, /audit-skill, /audit-mcp, /audit-script (validators); /edit-agent, /edit-skill, /edit-mcp, /edit-script (focused edits with audit-bracketed regression checks). Backed by canonical best-practice references including script-style.md (S1-S20 structured-bash rules).",
   "author": {
     "name": "Julian Buitrago",
