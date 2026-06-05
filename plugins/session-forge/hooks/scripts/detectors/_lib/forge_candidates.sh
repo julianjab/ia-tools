@@ -56,38 +56,62 @@ d4=$(bash "${DET_DIR}/D4_corrections.sh"       --days "$days" --json 2>/dev/null
 [ -n "$d3" ] || d3='[]'
 [ -n "$d4" ] || d4='[]'
 
-# Confidence weighting and id derivation done in jq for portability.
-# `now` is in seconds since epoch; `last_seen` is a localtime string from
-# sqlite, which jq parses with fromdateiso8601 (we coerce by replacing the
-# space with 'T').
+# Confidence weighting and type classification done in jq. The id is added
+# afterwards in shell (jq has no sha1 builtin; @base64 collisions when
+# truncated, so we use a real digest via shasum).
+#
+# Bash classification:
+#   - "permission" when the command is short (<=80 chars) and atomic (no
+#     &&, |, ;) — these belong in settings.json allowlist.
+#   - "skill" when the command is long or composite — these are better
+#     wrapped in a reusable skill than blanket-allowed.
 combine='
 def conf(freq; last_iso):
   (last_iso | gsub(" "; "T") | strptime("%Y-%m-%dT%H:%M:%S") | mktime) as $ts
   | ((now - $ts) / 86400) as $age
-  # jq pow is binary: pow($base; $exp). Use 2.71828 ** (-age/7) as the
-  # recency weight, multiplied by frequency.
   | (freq * pow(2.71828; (- $age / 7)))
   | (. * 100 | round) / 100
 ;
-def fid(kind; pat):
-  (kind + ":" + (pat // "" | tostring))
-  | @base64 | .[0:12]
+def classify_bash(cmd):
+  if (cmd | length) <= 80
+     and (cmd | test("&&|\\|\\||;|\\|") | not)
+  then "permission" else "skill" end
 ;
-($d2 | map({ kind: "bash_repeat",   type: "permission", pattern: .cmd,    frequency: .n, last_seen: .last_seen }))
-+ ($d3 | map({ kind: "prompt_repeat", type: "skill",      pattern: .prompt, frequency: .n, last_seen: .last_seen }))
-+ ($d4 | map({ kind: "correction",  type: "memory",     pattern: .prompt, frequency: 1,  last_seen: .at }))
-| map(. + {
-    id: fid(.kind; .pattern),
-    confidence: conf(.frequency; .last_seen)
-  })
+($d2 | map({
+    kind: "bash_repeat",
+    type: classify_bash(.cmd // ""),
+    pattern: .cmd, frequency: .n, last_seen: .last_seen
+  }))
++ ($d3 | map({
+    kind: "prompt_repeat", type: "skill",
+    pattern: .prompt, frequency: .n, last_seen: .last_seen
+  }))
++ ($d4 | map({
+    kind: "correction", type: "memory",
+    pattern: .prompt, frequency: 1, last_seen: .at
+  }))
+| map(. + { confidence: conf(.frequency; .last_seen) })
 | sort_by(-.confidence)
 '
 
-candidates=$(jq -n \
+without_id=$(jq -n \
   --argjson d2 "$d2" \
   --argjson d3 "$d3" \
   --argjson d4 "$d4" \
   "$combine" 2>>"$SF_ERRORS_LOG")
+
+[ -n "$without_id" ] || without_id='[]'
+
+# Add deterministic sha1(kind:pattern)[0:12] as id. The same pattern across
+# runs yields the same id, so PR3 forge_registry can match accept/dismiss
+# records back to detected candidates.
+candidates=$(printf '%s' "$without_id" | jq -c '.[]' 2>/dev/null \
+  | while IFS= read -r row; do
+      kind=$(printf '%s' "$row" | jq -r '.kind')
+      pat=$(printf '%s'  "$row" | jq -r '.pattern // ""')
+      id=$(printf '%s:%s' "$kind" "$pat" | shasum -a 1 2>/dev/null | cut -c1-12)
+      printf '%s' "$row" | jq -c --arg id "$id" '. + { id: $id }'
+    done | jq -s '.' 2>/dev/null)
 
 [ -n "$candidates" ] || candidates='[]'
 

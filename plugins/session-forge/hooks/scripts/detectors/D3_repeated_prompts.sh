@@ -66,7 +66,12 @@ SELECT
   datetime(MIN(ts)/1000,'unixepoch','localtime')    AS first_seen,
   datetime(MAX(ts)/1000,'unixepoch','localtime')    AS last_seen
 FROM prompts
-WHERE p IS NOT NULL AND length(p) > 0
+WHERE p IS NOT NULL
+  -- Filter out noise that pollutes skill candidates:
+  --   length<5 catches acknowledgements like 'si', 'ok', 'no'
+  --   prefix '/' catches invocations of skills that already exist
+  AND length(p) >= 5
+  AND p NOT LIKE '/%'
 GROUP BY p
 HAVING n >= ${min}
 ORDER BY n DESC, last_seen DESC
