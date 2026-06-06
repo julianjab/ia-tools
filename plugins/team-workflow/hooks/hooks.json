@@ -36,6 +36,24 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/redirect-ask-user.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/agent-routing-pretool-edit.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/agent-routing-pretool-bash.sh\""
+          }
+        ]
       }
     ],
     "TaskCreated": [
@@ -121,6 +139,14 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/sync-agents.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/agent-routing-session-start.sh\""
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -163,6 +189,14 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bookkeeping/append-message.sh\" user-prompt"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/intelligence/agent-routing-prompt.sh\""
           }
         ]
       }
