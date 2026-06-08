@@ -73,7 +73,9 @@ config_init() {
     cat >"$cfg" <<YAML
 # agent-harness user config — edit freely.
 # Unknown keys are ignored. Env vars (AGENT_HARNESS_*) override these.
-session_root: $(_ah_default session_root)
+# session_root is derived from \$AGENT_HARNESS_HOME by default;
+# uncomment + set explicitly only to pin it to a custom path.
+# session_root: /custom/sessions
 repo_roots:
   - $HOME/development
 default_model: $(_ah_default default_model)
