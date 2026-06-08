@@ -1,0 +1,1 @@
+crear una api de customer y mostrar la vista en la app de la información del customer

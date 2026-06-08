@@ -1,0 +1,19 @@
+# Assertions for the intake stage on this request.
+# All assertions must hold for the case to pass.
+
+intent: feature
+min_targets: 2
+max_targets: 3
+scope_hint_contains: customer
+# At least one target should mention an API surface, and at least one
+# should mention a UI/view/screen artifact.
+target_titles_must_contain_any_of:
+  api_side:
+    - api
+    - endpoint
+    - service
+  ui_side:
+    - view
+    - screen
+    - widget
+    - app

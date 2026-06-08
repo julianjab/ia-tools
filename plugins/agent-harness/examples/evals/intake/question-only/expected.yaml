@@ -1,0 +1,4 @@
+intent: question
+min_targets: 1
+max_targets: 2
+scope_hint_contains: Slack
