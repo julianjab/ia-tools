@@ -7,11 +7,25 @@ Per-user settings that change behavior without touching plugin code.
 For every setting, the first non-empty value wins:
 
 1. Environment variable (`AGENT_HARNESS_<NAME>`)
-2. User config file at `${AGENT_HARNESS_HOME:-$HOME/.agent-harness}/config.yaml`
-3. Plugin default (documented below)
+2. Per-repo overlay at `<repo>/.agent-harness/config.yaml`
+3. User config at `${AGENT_HARNESS_HOME:-$HOME/.agent-harness}/config.yaml`
+4. Plugin default (documented below)
 
-This lets a user pin defaults in their config file and override
-per-shell with env vars (useful in CI, tmux per-pane, etc.).
+The per-repo overlay is discovered by walking up from
+`$AGENT_HARNESS_REPO_PWD` (set by stages that operate inside a
+worktree) or `$PWD` (otherwise) until `.agent-harness/config.yaml`
+is found or the search reaches `$HOME` / `/`. Use it to pin a
+project's preferred model, max_repos, or language without polluting
+the user-wide settings.
+
+```
+priority    where it lives                                  used for
+─────────   ─────────────────────────────────────────────   ──────────────────────────
+env         AGENT_HARNESS_*                                 per-shell / CI overrides
+repo        <repo>/.agent-harness/config.yaml               project-pinned preferences
+user        ~/.agent-harness/config.yaml                    operator defaults
+default     lib/config.sh                                   shipped fallback
+```
 
 ## Settings
 
