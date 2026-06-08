@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidates"],
+  "properties": {
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path", "reason", "confidence", "matched_targets"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Repo basename (must match one of the supplied catalog entries)."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path of the repo (must match the catalog)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Short justification (≤ 200 chars) of why this repo is needed for the request."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          },
+          "matched_targets": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Subset of the intake.targets[].title strings this repo addresses."
+          }
+        }
+      }
+    }
+  }
+}

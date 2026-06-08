@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tasks"],
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "worktree", "title", "assigned_to", "blockedBy"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable kebab-case id, unique within this plan."
+          },
+          "worktree": {
+            "type": "string",
+            "description": "Worktree name (must match one in the input)."
+          },
+          "title": {
+            "type": "string",
+            "description": "One-line, imperative outcome for this task."
+          },
+          "assigned_to": {
+            "type": ["string", "null"],
+            "description": "Agent id from the worktree's agents list, OR null if no suitable agent. Stages that consume this MUST handle null."
+          },
+          "blockedBy": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Task ids in this plan that must complete first. Use for cross-target dependencies (e.g. the consumer waits for the producer's contract)."
+          }
+        }
+      }
+    }
+  }
+}
