@@ -162,11 +162,19 @@ run_task() {
   mark_task "$id" "in_progress" "$run_file" ""
 
   local started; started="$(now)"
+  # Permission mode for the spawned task. The operator chose to invoke
+  # dispatch, which is the explicit handoff of autonomy. Default to
+  # acceptEdits so Write/Edit/MultiEdit run without prompts inside the
+  # worktree. Operators who want stricter behavior override with
+  # AGENT_HARNESS_DISPATCH_PERMISSION_MODE.
+  local perm_mode="${AGENT_HARNESS_DISPATCH_PERMISSION_MODE:-acceptEdits}"
+
   if claude -p \
       --add-dir "$wt_path" \
       --agent "$assigned" \
       --output-format json \
       --disable-slash-commands \
+      --permission-mode "$perm_mode" \
       -- "$title" \
       >"$run_file" 2>>"$runs_dir/${id}.stderr"; then
     local stop; stop="$(jq -r '.stop_reason // ""' "$run_file" 2>/dev/null || echo "")"
