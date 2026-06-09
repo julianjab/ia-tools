@@ -105,6 +105,26 @@ jobs:
       - name: Verify dist/ in sync (post-rebuild safety net)
         run: bash scripts/check-slack-bridge-dist.sh
 
+      - name: agent-harness — shellcheck
+        # Lints every shell script the plugin ships. Catches the most
+        # common bash bugs (unbound vars under set -u, broken
+        # substitutions, portability issues) without needing API
+        # credentials. The fixture-based eval runner
+        # (bin/harness-eval.sh) is not run in CI because it spawns
+        # `claude -p` per case and needs ANTHROPIC_API_KEY; run it
+        # locally before opening a PR that changes any inferential
+        # stage.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          # -S error: fail only on error-level findings (parse errors,
+          # undefined-after-set-u, etc.). Warning/info findings still
+          # print so they're visible in the log but do not fail CI.
+          shellcheck -x -S error \
+            plugins/agent-harness/bin/*.sh \
+            plugins/agent-harness/stages/*/run.sh \
+            plugins/agent-harness/lib/*.sh
+
       # NOTE: slack-bridge vitest suite is intentionally not run here yet.
       # The registry.test.ts suite describes a 4-level access-control model
       # whose implementation is incomplete on main (tests landed with #44 but
