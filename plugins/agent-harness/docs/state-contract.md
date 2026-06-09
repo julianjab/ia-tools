@@ -4,6 +4,27 @@ Every stage of the pipeline reads `state.yaml`, mutates the section it
 owns, and writes it back. No stage reads or writes another stage's
 section. This is the single coupling point.
 
+## Schema versioning
+
+The top-level `version:` field is the schema version. Stages refuse to
+operate on a state file whose version they do not understand:
+
+- `1` — current. Sections covered by this document.
+
+Compatibility rules:
+
+- **Adding optional fields** does NOT bump the version. Stages tolerate
+  unknown keys (they round-trip them untouched).
+- **Adding a required field** or **changing the meaning of an existing
+  field** DOES bump the version. The change must ship with a migration
+  script at `bin/state-migrate.sh <state.yaml>` that takes the file from
+  N to N+1 in place.
+- Stages that read `state.yaml` MUST refuse a version higher than they
+  know and emit an error pointing at `bin/state-migrate.sh`.
+
+See `bin/state-migrate.sh` for the migration entry point. Currently
+v1 is the only version, so the script is a no-op stub.
+
 ## Layout (draft)
 
 ```yaml

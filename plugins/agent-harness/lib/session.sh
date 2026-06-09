@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
 # lib/session.sh — single source of truth for session id / dir / state.yaml.
+
+# Schema version this plugin understands. Stages reading state.yaml
+# call `assert_state_version <state.yaml>` to refuse files written by
+# a newer plugin version.
+STATE_SCHEMA_VERSION=1
+
+assert_state_version() {
+  local state="$1" v
+  [[ -f "$state" ]] || return 0  # fresh session — no version to check yet
+  v="$(yq -r '.version // 1' "$state" 2>/dev/null)"
+  if [[ "$v" =~ ^[0-9]+$ ]] && [[ "$v" -le "$STATE_SCHEMA_VERSION" ]]; then
+    return 0
+  fi
+  echo "✗ state.yaml version=$v but this plugin understands up to $STATE_SCHEMA_VERSION." >&2
+  echo "  run: bin/state-migrate.sh $state" >&2
+  return 1
+}
 #
 # Source this AFTER lib/config.sh:
 #   source "$PLUGIN_ROOT/lib/config.sh"
