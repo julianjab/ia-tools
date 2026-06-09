@@ -1,6 +1,6 @@
 {
   "name": "agent-harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Composable harness for coding-agent workflows. Defines a pipeline of swappable stages (intake, repo-detect, repo-fetch, worktree, agent-scan, task-plan, dispatch) connected by a single state.yaml contract. Stages are independently runnable, each declared as guide|sensor and computational|inferential, with an event log enabling the harness-engineering improvement loop.",
   "author": {
     "name": "Julian Buitrago",

@@ -5,6 +5,18 @@ in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/julianjab/ia-tools/compare/agent-harness-v0.1.0...agent-harness-v0.2.0) (2026-06-09)
+
+
+### Features
+
+* **agent-harness:** introduce composable harness plugin (v0.1.0) ([#132](https://github.com/julianjab/ia-tools/issues/132)) ([751cd2f](https://github.com/julianjab/ia-tools/commit/751cd2fd301acda6f3db4b9d79cb81335d5bf331))
+
+
+### Bug Fixes
+
+* **team-workflow:** release hook removal so installed consumers stop running it ([#128](https://github.com/julianjab/ia-tools/issues/128)) ([06eea39](https://github.com/julianjab/ia-tools/commit/06eea39886944f979a66c48c078d71703a1d02e7))
+
 ## [0.1.0] - 2026-06-08
 
 Initial release.
