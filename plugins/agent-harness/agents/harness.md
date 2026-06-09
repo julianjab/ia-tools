@@ -56,22 +56,24 @@ verbatim.
 
 # Session workspace
 
-For a new request:
+Every id/dir derivation flows through `lib/session.sh` so a session
+id derived here matches the one the skill and stages compute for the
+same input:
 
-1. Derive a slug — first 4–6 meaningful words, lowercase,
-   non-alphanumerics replaced with `-`.
-2. Hash — `printf '%s' "<request>" | shasum | cut -c1-8`.
-3. Session id — `<slug>_<hash>`.
-4. Session dir —
-   `${AGENT_HARNESS_HOME:-$HOME/.agent-harness}/sessions/<session-id>/`.
-5. State file — `<session-dir>/state.yaml`.
+```bash
+source "$PLUGIN_ROOT/lib/config.sh"
+source "$PLUGIN_ROOT/lib/session.sh"
+SESSION_ID="$(session_id_for "$REQUEST")"
+SESSION_DIR="$(session_dir_for "$SESSION_ID")"
+STATE="$(state_file_for "$SESSION_ID")"
+```
 
 `stages/intake/run.sh` creates the session dir and state.yaml
 skeleton on first run.
 
 For a resumed request:
 
-- List `$HOME/.agent-harness/sessions/` and offer matching slugs.
+- Use `find_session_dirs <id-prefix>` to look up matches.
 - Read the existing `state.yaml`'s `phase` field and restart from the
   stage immediately after that phase.
 

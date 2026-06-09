@@ -38,17 +38,16 @@ skill itself does no LLM work; reasoning happens inside the stages.
 
 ## Steps — `run`
 
-1. Resolve session id:
+1. Resolve session id (always through `lib/session.sh` so other
+   callers compute the same id for the same input):
    ```bash
+   PLUGIN="${CLAUDE_PLUGIN_ROOT}"
+   source "$PLUGIN/lib/config.sh"
+   source "$PLUGIN/lib/session.sh"
    REQ="$1"
-   SLUG=$(printf '%s' "$REQ" | tr '[:upper:]' '[:lower:]' \
-           | tr -c '[:alnum:]' '-' | sed -E 's/-+/-/g; s/^-//; s/-$//' \
-           | cut -c1-60)
-   HASH=$(printf '%s' "$REQ" | shasum | cut -c1-8)
-   SESSION_ID="${SLUG}_${HASH}"
-   HOME_DIR="${AGENT_HARNESS_HOME:-$HOME/.agent-harness}"
-   SESSION_DIR="$HOME_DIR/sessions/$SESSION_ID"
-   STATE="$SESSION_DIR/state.yaml"
+   SESSION_ID="$(session_id_for "$REQ")"
+   SESSION_DIR="$(session_dir_for "$SESSION_ID")"
+   STATE="$(state_file_for "$SESSION_ID")"
    ```
 2. Run stages in order; stop at the first failure:
    ```bash
@@ -66,8 +65,8 @@ skill itself does no LLM work; reasoning happens inside the stages.
 
 ## Steps — `next`
 
-1. Find the most recently modified `state.yaml` under
-   `$HOME_DIR/sessions/`.
+1. Find the most recently touched session via
+   `$(latest_session_dir)` (from `lib/session.sh`).
 2. Read its `phase`.
 3. Run the next stage according to this map:
 
@@ -102,8 +101,9 @@ skill itself does no LLM work; reasoning happens inside the stages.
 
 ## Steps — `resume`
 
-1. Search `$HOME_DIR/sessions/` for a directory whose name starts with
-   `<id>` (slug or `slug_hash`).
+1. `mapfile -t matches < <(find_session_dirs "<id>")` (from
+   `lib/session.sh`) — matches any session whose id starts with
+   `<id>`.
 2. If exactly one matches, treat that session as current and run
    `next`.
 3. If multiple match, print the candidates and stop.
