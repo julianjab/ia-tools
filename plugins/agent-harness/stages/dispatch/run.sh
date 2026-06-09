@@ -77,6 +77,25 @@ task_status() {
   ID="$id" yq -r '.tasks[] | select(.id == strenv(ID)) | .status // "pending"' "$state_file"
 }
 
+# Serialize state.yaml mutations across parallel runners with a
+# mkdir-based lock (portable, works on macOS without flock).
+state_lock_dir="$session_dir/.lock"
+with_state_lock() {
+  local tries=0
+  while ! mkdir "$state_lock_dir" 2>/dev/null; do
+    tries=$((tries + 1))
+    if [[ "$tries" -gt 600 ]]; then
+      echo "✗ dispatch: state lock stuck at $state_lock_dir" >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+  "$@"
+  local rc=$?
+  rmdir "$state_lock_dir" 2>/dev/null || true
+  return $rc
+}
+
 # helper: mark a task and record a run
 mark_task() {
   local id="$1" status="$2" run_path="$3" reason="${4:-}"
@@ -87,7 +106,7 @@ mark_task() {
     --arg rp "$run_path" --arg rs "$reason" \
     '{task_id:$id, finished_at:$ts, status:$st, run_file:$rp, reason:$rs}')"
   export ID="$id" ST="$status" TS="$ts" RUN_OBJ="$run_obj"
-  yq -i '
+  with_state_lock yq -i '
     (.tasks[] | select(.id == strenv(ID))).status = strenv(ST) |
     (.tasks[] | select(.id == strenv(ID))).finished_at = strenv(TS) |
     .runs = ((.runs // []) + [strenv(RUN_OBJ) | from_json]) |
@@ -245,23 +264,79 @@ yq -i '.updated_at = strenv(NOW) | .phase = "dispatch"' "$state_file"
 
 n_total="$(echo "$tasks_json" | jq 'length')"
 loops=0
+pids=()      # background runner PIDs (parallel mode)
+in_flight=() # task ids currently running
+
+# wait for any background runner to finish
+wait_one() {
+  while [[ "${#pids[@]}" -gt 0 ]]; do
+    local new_pids=() new_flight=()
+    local exited=0 i=0
+    for i in "${!pids[@]}"; do
+      local p="${pids[$i]}"
+      if kill -0 "$p" 2>/dev/null; then
+        new_pids+=("$p")
+        new_flight+=("${in_flight[$i]}")
+      else
+        wait "$p" 2>/dev/null || true
+        exited=1
+      fi
+    done
+    if [[ "${#new_pids[@]}" -gt 0 ]]; then
+      pids=("${new_pids[@]}")
+      in_flight=("${new_flight[@]}")
+    else
+      pids=()
+      in_flight=()
+    fi
+    [[ "$exited" -eq 1 ]] && return 0
+    sleep 0.1
+  done
+}
+
+is_in_flight() {
+  local q="$1" id
+  [[ "${#in_flight[@]}" -eq 0 ]] && return 1
+  for id in "${in_flight[@]}"; do
+    [[ "$id" == "$q" ]] && return 0
+  done
+  return 1
+}
+
 while :; do
-  # find one ready task (one at a time; max-parallel reserved for future)
-  picked=""
-  for i in $(seq 0 $((n_total - 1))); do
-    id="$(echo "$tasks_json" | jq -r ".[$i].id")"
-    s="$(task_status "$id")"
-    [[ "$s" == "pending" ]] || continue
-    if deps_ready "$id"; then picked="$id"; break; fi
+  # spawn ready tasks up to max_parallel
+  while [[ "${#pids[@]}" -lt "$max_parallel" ]]; do
+    picked=""
+    for i in $(seq 0 $((n_total - 1))); do
+      id="$(echo "$tasks_json" | jq -r ".[$i].id")"
+      is_in_flight "$id" && continue
+      s="$(task_status "$id")"
+      [[ "$s" == "pending" ]] || continue
+      if deps_ready "$id"; then picked="$id"; break; fi
+    done
+    [[ -n "$picked" ]] || break
+
+    if [[ "$max_parallel" -eq 1 ]]; then
+      run_task "$picked"
+    else
+      ( run_task "$picked" ) &
+      pids+=("$!")
+      in_flight+=("$picked")
+    fi
+    loops=$((loops + 1))
+    if [[ "$loops" -gt $((n_total * 2)) ]]; then
+      echo "✗ dispatch: loop guard tripped — possible cycle or unmet deps" >&2
+      # let background drain
+      if [[ "${#pids[@]}" -gt 0 ]]; then
+        for p in "${pids[@]}"; do wait "$p" 2>/dev/null || true; done
+      fi
+      exit 1
+    fi
   done
 
-  if [[ -z "$picked" ]]; then break; fi
-  run_task "$picked"
-  ((loops++))
-  if [[ "$loops" -gt $((n_total * 2)) ]]; then
-    echo "✗ dispatch: loop guard tripped — possible cycle or unmet deps" >&2
-    exit 1
-  fi
+  # nothing more to spawn — drain background or exit
+  if [[ "${#pids[@]}" -eq 0 ]]; then break; fi
+  wait_one
 done
 
 # ── summary ───────────────────────────────────────────────────────
