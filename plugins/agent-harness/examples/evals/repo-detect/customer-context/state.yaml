@@ -1,0 +1,19 @@
+version: 1
+session_id: fixture_repo-detect_customer
+created_at: 2026-06-08T00:00:00Z
+updated_at: 2026-06-08T00:00:00Z
+phase: intake
+
+intake:
+  request_raw: crear endpoint customer y mostrar vista en la app
+  result:
+    intent: feature
+    signals:
+      repos_hint: []
+      stack_hint: []
+      scope_hint: Customer endpoint + customer view in the app
+    targets:
+      - title: Customer API endpoint
+        kind: api
+      - title: Customer view in app
+        kind: screen

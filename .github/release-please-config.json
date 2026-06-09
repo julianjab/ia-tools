@@ -52,6 +52,18 @@
         }
       ]
     },
+    "plugins/agent-harness": {
+      "package-name": "agent-harness",
+      "release-type": "simple",
+      "component": "agent-harness",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
     "plugins/session-forge": {
       "package-name": "session-forge",
       "release-type": "simple",

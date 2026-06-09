@@ -40,6 +40,21 @@
       ]
     },
     {
+      "name": "agent-harness",
+      "source": "./plugins/agent-harness",
+      "description": "Composable pipeline (intake → repo-detect → repo-fetch → worktree → agent-scan → task-plan → dispatch) connected by a single state.yaml contract, with a per-session harness-events.log feeding the harness-engineering improvement loop. Workflow-agnostic: no role taxonomy, no ordering invariants, no Slack/tmux coupling.",
+      "category": "workflow",
+      "keywords": [
+        "harness",
+        "pipeline",
+        "agents",
+        "orchestration",
+        "worktree",
+        "composable",
+        "self-improving"
+      ]
+    },
+    {
       "name": "session-forge",
       "source": "./plugins/session-forge",
       "description": "Captures Claude Code session events (sessions, prompts, tool usage) into a local SQLite store so future versions can detect patterns and forge skills/agents/hooks automatically. PR1 is capture-only; ships the /insights skill as a smoke-test reader.",

@@ -1,0 +1,50 @@
+# Synthetic state for the task-plan fixture. The runner uses this as
+# the input state.yaml and validates the .tasks[] section the stage
+# writes back. No worktree dirs need to exist on disk — task-plan
+# only reads the .worktrees section.
+
+version: 1
+session_id: fixture_task-plan_two
+created_at: 2026-06-08T00:00:00Z
+updated_at: 2026-06-08T00:00:00Z
+phase: agent-scan
+
+intake:
+  request_raw: crear una api de customer y mostrar la vista en la app
+  result:
+    intent: feature
+    signals:
+      repos_hint: []
+      stack_hint: []
+      scope_hint: Create a customer API and a customer view in the app
+    targets:
+      - title: Customer API endpoint
+        kind: api
+      - title: Customer information view in app
+        kind: screen
+
+worktrees:
+  - name: customer-api
+    repo: /irrelevant/customer-api
+    path: /irrelevant/wt/customer-api
+    branch: feat/x
+    base: main
+    agents:
+      - id: api-developer
+        description: Implements REST endpoints and database access for a FastAPI customer service.
+        source: irrelevant
+      - id: api-test-writer
+        description: Writes pytest tests for FastAPI endpoints.
+        source: irrelevant
+  - name: mobile-app
+    repo: /irrelevant/mobile-app
+    path: /irrelevant/wt/mobile-app
+    branch: feat/x
+    base: main
+    agents:
+      - id: flutter-developer
+        description: Implements Flutter screens consuming customer-related backend APIs.
+        source: irrelevant
+      - id: flutter-test-writer
+        description: Writes Flutter widget tests.
+        source: irrelevant

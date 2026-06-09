@@ -1,0 +1,16 @@
+# Task-plan assertions: structure of the produced tasks[].
+
+min_tasks: 2
+max_tasks: 10
+# Each worktree must produce at least one task.
+worktrees_covered:
+  - customer-api
+  - mobile-app
+# At least one task in mobile-app should depend on a customer-api task
+# (the app consumes the API). The runner walks tasks and confirms.
+cross_worktree_dependency:
+  consumer_worktree: mobile-app
+  producer_worktree: customer-api
+# Every task's assigned_to must be one of the agents listed for that
+# worktree (no inventions).
+assignments_must_be_from_worktree_agents: true

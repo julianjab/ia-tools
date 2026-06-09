@@ -1,0 +1,9 @@
+min_tasks: 1
+max_tasks: 3
+worktrees_covered:
+  - web-app
+assignments_must_be_from_worktree_agents: true
+# No cross-worktree dependency: only one worktree, so no task should
+# blockedBy a different worktree's task. The runner checks every
+# blockedBy id resolves to the same worktree.
+no_cross_worktree_dependency: true
