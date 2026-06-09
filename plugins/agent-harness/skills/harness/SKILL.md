@@ -21,6 +21,7 @@ skill itself does no LLM work; reasoning happens inside the stages.
 |--------------------------|--------|
 | `run "<request>"`        | Bootstrap a session from a new request and run stages 1–6 (intake → task-plan). |
 | `next`                   | Run the next pending stage of the most recently touched session. |
+| `list [--all]`           | One line per session (id, phase, updated_at, task summary). Top 10 by default. |
 | `status [<id>]`          | Print the state.yaml summary + last 10 events. Defaults to the most recent session. |
 | `resume <id>`            | Identify session `<id>` (slug or `slug_hash`) and run `next` against it. |
 | `dispatch [--dry-run]`   | Execute the task plan. `--dry-run` validates the loop without spawning per-task `claude -p`. |
@@ -101,9 +102,9 @@ skill itself does no LLM work; reasoning happens inside the stages.
 
 ## Steps — `resume`
 
-1. `mapfile -t matches < <(find_session_dirs "<id>")` (from
-   `lib/session.sh`) — matches any session whose id starts with
-   `<id>`.
+1. Resolve via `bin/harness-sessions.sh resume "<id>"` — prints the
+   matching session dir on stdout. Exit codes: 0 ok, 1 no match,
+   2 ambiguous (multiple matches printed to stderr).
 2. If exactly one matches, treat that session as current and run
    `next`.
 3. If multiple match, print the candidates and stop.
