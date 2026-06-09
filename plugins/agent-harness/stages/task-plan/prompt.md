@@ -44,4 +44,15 @@ A JSON object `{ tasks: [...] }` matching the schema you were given.
    provisioned worktree, emit a task with `worktree` = the closest
    match and `assigned_to: null`, and explain in the title.
 
+7. **expected_artifacts.** For each task, list 0..N relative paths
+   inside that task's worktree that the dispatcher should verify
+   exist after the agent finishes. Use a path that the work
+   inherently produces (e.g. `src/api/customers.py`,
+   `lib/features/customers/customer.dart`,
+   `docs/customers.md`). Use an empty array `[]` when the change is
+   in-place (edits to existing files only) or otherwise has no
+   single file-shaped output you can name in advance. Do NOT use
+   wildcards. Keep the list short and meaningful — these are
+   sensors, not exhaustive specs.
+
 Return JSON only. No commentary.

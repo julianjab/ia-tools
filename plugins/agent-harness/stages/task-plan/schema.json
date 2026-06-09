@@ -9,7 +9,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "worktree", "title", "assigned_to", "blockedBy"],
+        "required": ["id", "worktree", "title", "assigned_to", "blockedBy", "expected_artifacts"],
         "properties": {
           "id": {
             "type": "string",
@@ -31,6 +31,11 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "Task ids in this plan that must complete first. Use for cross-target dependencies (e.g. the consumer waits for the producer's contract)."
+          },
+          "expected_artifacts": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Paths (relative to the task's worktree) that the dispatcher should verify exist after the task finishes. If any are missing the task is marked failed even if claude -p exited 0. May be an empty array when the work has no file-shaped output."
           }
         }
       }

@@ -60,6 +60,10 @@ tasks:
                                        # semantic match — no role bucket
     title: <string>
     blockedBy: [<task-id>]
+    expected_artifacts: [<rel-path>]   # paths inside the worktree the
+                                       # dispatcher verifies post-run
+                                       # (sensor). [] when the work has
+                                       # no nameable file-shaped output.
     status: pending | in_progress | done | failed
 
 # ─── stage 7: dispatch ─────────────────────────────────────────────

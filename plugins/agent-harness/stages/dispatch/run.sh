@@ -178,6 +178,35 @@ run_task() {
       -- "$title" \
       >"$run_file" 2>>"$runs_dir/${id}.stderr"; then
     local stop; stop="$(jq -r '.stop_reason // ""' "$run_file" 2>/dev/null || echo "")"
+
+    # ── sensor: expected_artifacts must exist after the run ──────
+    local expected; expected="$(echo "$task" | jq -c '.expected_artifacts // []')"
+    local n_expected; n_expected="$(echo "$expected" | jq 'length')"
+    local missing=()
+    if [[ "$n_expected" -gt 0 ]]; then
+      local i
+      for i in $(seq 0 $((n_expected - 1))); do
+        local rel; rel="$(echo "$expected" | jq -r ".[$i]")"
+        if [[ ! -e "$wt_path/$rel" ]]; then
+          missing+=("$rel")
+        fi
+      done
+    fi
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+      local missing_json; missing_json="$(printf '%s\n' "${missing[@]}" | jq -R . | jq -s .)"
+      jq -nc --arg ts "$(now)" --arg sid "$session_id" \
+         --arg sum "sensor-fail $id (missing ${#missing[@]} artifact(s))" \
+         --arg id "$id" --arg rp "$run_file" --arg stop "$stop" \
+         --argjson missing "$missing_json" \
+         '{ts:$ts, session_id:$sid, stage:"dispatch", kind:"sensor",
+           summary:$sum, data:{task_id:$id, run_file:$rp, stop_reason:$stop,
+                               missing_artifacts:$missing}}' \
+         >>"$events_log"
+      mark_task "$id" "failed" "$run_file" "expected artifacts missing: ${missing[*]}"
+      echo "✗ [$id] sensor failed — missing: ${missing[*]}"
+      return 0
+    fi
+
     jq -nc --arg ts "$(now)" --arg sid "$session_id" \
        --arg sum "done $id ($stop)" --arg id "$id" --arg rp "$run_file" --arg st "$started" \
        '{ts:$ts, session_id:$sid, stage:"dispatch", kind:"outcome",
