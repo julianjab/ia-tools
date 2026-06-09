@@ -1,0 +1,13 @@
+# repo-detect assertions on the candidate list.
+# The shared fake catalog ships customer-api, mobile-app,
+# notification-service. The model should pick the first two and skip
+# the third for this customer-related request.
+
+min_candidates: 2
+max_candidates: 3
+must_include:
+  - customer-api
+  - mobile-app
+must_exclude:
+  - notification-service
+all_paths_must_be_in_catalog: true

@@ -1,0 +1,31 @@
+version: 1
+session_id: fixture_task-plan_single
+created_at: 2026-06-08T00:00:00Z
+updated_at: 2026-06-08T00:00:00Z
+phase: agent-scan
+
+intake:
+  request_raw: arregla el bug donde el login con Google a veces falla con redirect_uri_mismatch
+  result:
+    intent: fix
+    signals:
+      repos_hint: []
+      stack_hint: []
+      scope_hint: Fix Google login failing with redirect_uri_mismatch
+    targets:
+      - title: Fix Google login redirect_uri_mismatch
+        kind: fix
+
+worktrees:
+  - name: web-app
+    repo: /irrelevant/web-app
+    path: /irrelevant/wt/web-app
+    branch: feat/x
+    base: main
+    agents:
+      - id: web-developer
+        description: Implements and debugs OAuth flows in the React/Next web app.
+        source: irrelevant
+      - id: web-test-writer
+        description: Writes Vitest + Playwright tests for the web app.
+        source: irrelevant
