@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.2.1...team-workflow-v2.3.0) (2026-06-26)
+
+
+### Features
+
+* **team-workflow:** agnostic agent-routing nudges at 4 critical hook points ([#131](https://github.com/julianjab/ia-tools/issues/131)) ([a3ce700](https://github.com/julianjab/ia-tools/commit/a3ce70096c76ebd051f1029beda37468b4f04f3c))
+
 ## [2.2.1](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.2.0...team-workflow-v2.2.1) (2026-06-05)
 
 
