@@ -3,5 +3,5 @@
   "plugins/slack-bridge": "2.0.1",
   "plugins/scaffold": "1.1.1",
   "plugins/agent-harness": "0.2.0",
-  "plugins/session-forge": "0.3.1"
+  "plugins/session-forge": "0.3.2"
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/julianjab/ia-tools/compare/session-forge-v0.3.1...session-forge-v0.3.2) (2026-06-26)
+
+
+### Bug Fixes
+
+* **session-forge:** real ids + prompt filter + bash classification ([#130](https://github.com/julianjab/ia-tools/issues/130)) ([08083d6](https://github.com/julianjab/ia-tools/commit/08083d6c8cdc42310c40a581e4cc1ad225a120c2))
+
 ## [0.3.1](https://github.com/julianjab/ia-tools/compare/session-forge-v0.3.0...session-forge-v0.3.1) (2026-06-05)
 
 
