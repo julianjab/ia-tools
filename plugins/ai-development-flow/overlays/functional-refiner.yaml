@@ -1,0 +1,7 @@
+description: >-
+  Parte una épica o feature de producto en sub-issues técnicos, uno por unidad
+  de trabajo y por repo, con un PRD funcional en el padre. Úsalo cuando el
+  trabajo cruza más de un repo o no es mergeable de una sola vez. No escribe
+  PRDs técnicos ni código: solo desglosa.
+color: purple
+maxTurns: 80

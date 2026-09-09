@@ -1,0 +1,9 @@
+# Lo que el AgentDefinition del engine no tiene y Claude Code necesita.
+# Sobrevive a cada `sync-agents.py`.
+description: >-
+  Convierte un issue técnico de un repo en un PRD accionable, verificado contra
+  el código real del repo antes de escribirlo. Úsalo cuando pidan "refiná el
+  issue", "armá el PRD", "dejá esto listo para implementar" sobre una tarea de
+  un solo repo backend. No implementa: entrega el documento.
+color: cyan
+maxTurns: 60

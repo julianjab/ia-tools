@@ -1,0 +1,6 @@
+# Clasificador de un bit: reacciona 👍/👎 sobre un comentario de GitHub y emite
+# un `output` que una regla del board lee para despachar al agente destino.
+# Fuera del engine no hay ni regla ni despacho, así que el agente no tendría a
+# quién avisar — el modelo principal ya decide eso solo, sin subagente.
+skip: true
+reason: gate del engine (webhook + regla del board), sin sentido fuera de él

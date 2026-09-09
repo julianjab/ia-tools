@@ -1,0 +1,7 @@
+description: >-
+  Implementa un issue ya refinado de punta a punta en el repo actual: explora
+  antes de tocar nada, escribe el código, tilda el PRD, valida con el lint y
+  los tests del repo, y deja el PR abierto con su descripción al día. Úsalo
+  para "implementá el issue", "resolvé la tarea".
+color: green
+maxTurns: 120

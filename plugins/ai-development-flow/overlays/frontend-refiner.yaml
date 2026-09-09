@@ -1,0 +1,6 @@
+description: >-
+  Refina un issue de un repo frontend en un PRD técnico, leyendo el diseño de
+  Figma referenciado (si la tarea trae una URL de figma.com) además del código.
+  Úsalo para "refiná el issue" cuando la tarea es de UI/frontend.
+color: cyan
+maxTurns: 60

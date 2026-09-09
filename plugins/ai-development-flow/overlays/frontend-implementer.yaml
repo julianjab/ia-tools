@@ -1,0 +1,6 @@
+description: >-
+  Implementa un issue de frontend contra el diseño de Figma referenciado por la
+  tarea, valida con el lint y los tests del repo y deja el PR abierto. Úsalo
+  para implementar tareas de UI donde el diseño es la fuente de verdad.
+color: green
+maxTurns: 120
