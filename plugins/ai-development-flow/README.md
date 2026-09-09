@@ -39,6 +39,42 @@ subagente), `color`, `maxTurns`, overrides de modelo y tools, notas extra de
 contexto, y `skip: true` para los agentes que solo tienen sentido dentro del
 engine.
 
+## El pipeline: `/aiflow`
+
+Los agentes solos no son el flujo. `rules/*.yaml` es, sacándole el mecanismo
+de webhooks, una tabla de `(status × type × repos × labels) → agente + brief`,
+y el transformador la emite como `pipeline.json` junto con las transiciones de
+cada agente (`exits`) y la config del board.
+
+La skill `/aiflow <issue>` la consume: lee la card, elige la ruta, despacha el
+subagente con su brief y **escribe la transición de vuelta** en el board.
+
+```bash
+/aiflow la-haus/subscriptions#123      # corre hasta un gate humano
+/aiflow #123 --step                    # una sola vuelta
+/aiflow #123 --dry-run                 # qué haría, sin tocar nada
+```
+
+Escribir sobre un board compartido con el engine tiene tres guardas, todas
+sacadas del propio `project.yaml`:
+
+- **`Working` es un lock.** Es el `workingMarker`, el único guard
+  anti-doble-dispatch que el engine tiene fuera de su RAM. Si dice `Yes`, la
+  skill no despacha.
+- **Los comentarios llevan `<!-- ia-flow:claude-code -->`.** Las reglas del
+  engine filtran con `^(?![\s\S]*<!-- ia-flow:)`; sin la marca, un comentario
+  nuestro lo despierta y arranca un ping-pong.
+- **`Refined → Build` sigue siendo humano.** El loop para ahí, y también a las
+  tres vueltas.
+
+Lo que la tabla no puede resolver sola queda documentado en la skill: las
+rutas `comment`/`pr_review`/`ci` necesitan un contexto que el board no tiene,
+y `build-arrival` matchea sobre la transición (`from`/`to`), no sobre el
+estado — se distingue por si ya hay rama y PR.
+
+Las rutas `wait.resumed`/`wait.expired` no se emiten: son la contracara de
+`pause_until`, que no existe fuera del engine.
+
 ## Lo que se pierde
 
 - **Los comentarios `#` del YAML** (~20% de esos archivos, y es el rationale
