@@ -49,7 +49,8 @@ DEFAULT_SOURCE = Path(
         Path.home() / "development/lahaus/agents/claw-agents",
     )
 )
-AGENTS_SUBPATH = "agents/ai-development-flow/config/projects/lahaus-ai-flow/agents"
+PROJECT_SUBPATH = "agents/ai-development-flow/config/projects/lahaus-ai-flow"
+AGENTS_SUBPATH = f"{PROJECT_SUBPATH}/agents"
 REPO = "la-haus/claw-agents"
 
 # Los agentes se instalan a scope de usuario y conviven con los de otros
@@ -106,6 +107,7 @@ MODEL_MAP: dict[str, str] = {
 
 OVERLAY_KEYS = {
     "skip",
+    "shared_prompts",
     "reason",
     "description",
     "color",
@@ -183,6 +185,33 @@ def load_definitions(source: Path) -> list[tuple[Path, dict[str, Any]]]:
     if not out:
         raise SyncError(f"{agents_dir} no tiene agentes")
     return out
+
+
+def load_shared_prompts(source: Path) -> str:
+    """El `settings.systemPrompts` de `project.yaml`.
+
+    El engine lo manda como system prompt a TODOS los agentes del proyecto,
+    antes de los bloques propios de cada uno. Sin esto los agentes generados
+    pierden lo transversal —responder en español, que el `CLAUDE.md` del repo
+    gana sobre el prompt, delegar en los subagentes del repo, no mergear
+    nunca, la referencia de validación por stack y la convención de commits—
+    que sus prompts propios dan por sentado y no repiten.
+
+    El primer bloque se descarta: es "You are Claude Code…", que acá ya lo
+    dice el harness.
+    """
+    path = source / PROJECT_SUBPATH / "project.yaml"
+    if not path.exists():
+        raise SyncError(f"no existe {path}")
+    project = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    blocks = ((project.get("settings") or {}).get("systemPrompts")) or []
+    texts = [
+        (b.get("text") or "").strip()
+        for b in blocks
+        if isinstance(b, dict)
+        and not (b.get("text") or "").startswith("You are Claude")
+    ]
+    return "\n\n".join(t for t in texts if t)
 
 
 def load_overlay(agent_id: str) -> dict[str, Any]:
@@ -415,6 +444,7 @@ def render(
     overlay: dict[str, Any],
     src_name: str,
     ref: str,
+    shared: str = "",
 ) -> str:
     agent_id = definition["id"]
     provider_config = definition.get("providerConfig") or {}
@@ -451,6 +481,19 @@ def render(
 
     body = [f"# {NAME_PREFIX}{agent_id}", "", "## Contexto de ejecución", ""]
     body.append("\n\n".join(context_notes(definition, tool_notes, overlay)))
+    if shared and overlay.get("shared_prompts", True):
+        body += [
+            "",
+            "## Reglas del pipeline",
+            "",
+            (
+                "Valen para todos los pasos del pipeline, no solo para vos, y "
+                "ganan sobre el método de abajo cuando choquen."
+            ),
+            "",
+            demote_headings(shared),
+        ]
+
     body += ["", "## Método", "", system]
 
     if prompt:
@@ -491,6 +534,7 @@ def render(
 def build(source: Path, ref: str) -> tuple[dict[str, str], list[str]]:
     generated: dict[str, str] = {}
     skipped: list[str] = []
+    shared = load_shared_prompts(source)
     for path, definition in load_definitions(source):
         agent_id = definition["id"]
         overlay = load_overlay(agent_id)
@@ -500,7 +544,7 @@ def build(source: Path, ref: str) -> tuple[dict[str, str], list[str]]:
         if not overlay.get("description"):
             raise SyncError(f"overlays/{agent_id}.yaml: falta `description`")
         generated[f"{NAME_PREFIX}{agent_id}.md"] = render(
-            definition, overlay, path.name, ref
+            definition, overlay, path.name, ref, shared
         )
     return generated, skipped
 
