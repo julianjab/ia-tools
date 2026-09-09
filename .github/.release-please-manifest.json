@@ -1,5 +1,5 @@
 {
-  "plugins/team-workflow": "2.2.1",
+  "plugins/team-workflow": "2.3.0",
   "plugins/slack-bridge": "2.0.1",
   "plugins/scaffold": "1.1.1",
   "plugins/agent-harness": "0.2.0",
