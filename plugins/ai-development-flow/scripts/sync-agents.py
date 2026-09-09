@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
 import os
 import re
 import shutil
@@ -49,7 +50,9 @@ DEFAULT_SOURCE = Path(
         Path.home() / "development/lahaus/agents/claw-agents",
     )
 )
-PROJECT_SUBPATH = "agents/ai-development-flow/config/projects/lahaus-ai-flow"
+CONFIG_SUBPATH = "agents/ai-development-flow/config"
+RULES_SUBPATH = f"{CONFIG_SUBPATH}/rules"
+PROJECT_SUBPATH = f"{CONFIG_SUBPATH}/projects/lahaus-ai-flow"
 AGENTS_SUBPATH = f"{PROJECT_SUBPATH}/agents"
 REPO = "la-haus/claw-agents"
 
@@ -125,6 +128,57 @@ class SyncError(Exception):
     pass
 
 
+class ConfigLoader(yaml.SafeLoader):
+    """SafeLoader sin la resolución de booleanos de YAML 1.1.
+
+    `workingMarker` usa `on:` y `off:` como CLAVES, y PyYAML implementa
+    YAML 1.1, donde on/off/yes/no son booleanos: el marcador llegaba como
+    `{"true": "Yes", "false": ""}` y quedaba ilegible para quien lo consuma.
+    Se deja solo true/false, que es lo que YAML 1.2 resuelve.
+    """
+
+
+for _ch, _resolvers in list(ConfigLoader.yaml_implicit_resolvers.items()):
+    kept = [(tag, rx) for tag, rx in _resolvers if tag != "tag:yaml.org,2002:bool"]
+    if _ch in "tTfF":
+        kept += [(tag, rx) for tag, rx in _resolvers if tag == "tag:yaml.org,2002:bool"]
+    ConfigLoader.yaml_implicit_resolvers[_ch] = kept
+
+
+def read_yaml(path: Path) -> Any:
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=ConfigLoader)
+
+
+# Cómo dispara cada regla en el engine, y qué puede hacer con eso una sesión
+# de Claude Code, que no recibe webhooks:
+#
+#   board   → se evalúa sola con el estado de la card (es el caso útil)
+#   comment → necesita el comentario como contexto; en modo pull, alguien
+#             tiene que decir "atendé esto"
+#   pr_review / ci → igual, pero el contexto es el review o el run de CI
+#   pause   → `wait.resumed`/`wait.expired` son la contracara de
+#             `pause_until`, que no existe fuera del engine: no hay pausa
+#             que reanudar, así que estas filas no se emiten
+TRIGGERS: dict[str, str] = {
+    "issue.created": "board",
+    "issue.status_changed": "board",
+    "projects_v2_item.edited": "board",
+    "issue_comment.created": "comment",
+    "pr.review_submitted": "pr_review",
+    "ci.finished": "ci",
+    "wait.resumed": "pause",
+    "wait.expired": "pause",
+}
+
+
+def classify_trigger(on: list[str]) -> str:
+    kinds = {TRIGGERS.get(event, "board") for event in on}
+    for kind in ("pause", "comment", "pr_review", "ci"):
+        if kind in kinds:
+            return kind
+    return "board"
+
+
 # ── Lectura de la fuente ──────────────────────────────────────────────────
 
 
@@ -175,7 +229,7 @@ def load_definitions(source: Path) -> list[tuple[Path, dict[str, Any]]]:
         raise SyncError(f"no existe {agents_dir}")
     out: list[tuple[Path, dict[str, Any]]] = []
     for path in sorted(agents_dir.glob("*.yaml")):
-        docs = yaml.safe_load(path.read_text(encoding="utf-8"))
+        docs = read_yaml(path)
         if not isinstance(docs, list):
             raise SyncError(f"{path.name}: se esperaba una lista de agentes")
         for definition in docs:
@@ -203,7 +257,7 @@ def load_shared_prompts(source: Path) -> str:
     path = source / PROJECT_SUBPATH / "project.yaml"
     if not path.exists():
         raise SyncError(f"no existe {path}")
-    project = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    project = read_yaml(path) or {}
     blocks = ((project.get("settings") or {}).get("systemPrompts")) or []
     texts = [
         (b.get("text") or "").strip()
@@ -214,6 +268,103 @@ def load_shared_prompts(source: Path) -> str:
     return "\n\n".join(t for t in texts if t)
 
 
+def build_pipeline(
+    source: Path,
+    skipped_ids: set[str],
+    ref: str,
+    definitions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """La tabla de ruteo: `rules/*.yaml` + lo que el board necesita.
+
+    Cada regla es, sacándole el mecanismo de eventos, una fila de
+    `(status × type × repos × labels) → agente + brief`. Eso es lo que una
+    sesión de Claude Code puede evaluar sola leyendo el board, y es lo único
+    que se extrae acá: el `on` se conserva como `trigger` para que el
+    consumidor sepa si la fila necesita un comentario como contexto o le
+    alcanza con el estado de la card.
+
+    Del `project.yaml` viajan las tres cosas sin las cuales escribir en el
+    board sería peligroso: la url del proyecto, el `baseWhen` (ninguna regla
+    corre sobre una card `blocked`) y el `workingMarker`, que es el único
+    guard anti-doble-dispatch que el engine tiene fuera de su RAM.
+    """
+    rules_dir = source / RULES_SUBPATH
+    if not rules_dir.is_dir():
+        raise SyncError(f"no existe {rules_dir}")
+
+    routes: list[dict[str, Any]] = []
+    for path in sorted(rules_dir.glob("*.yaml")):
+        for rule in read_yaml(path) or []:
+            steps: list[dict[str, Any]] = []
+            for step in rule.get("do") or []:
+                if step.get("action") != "agent":
+                    continue
+                engine_agent = step["agentId"]
+                steps.append(
+                    {
+                        # Un agente con `skip` no se generó: la fila queda con
+                        # `agent: null` y el nombre del original, para que el
+                        # consumidor sepa que ese juicio le toca a él.
+                        "agent": (
+                            None
+                            if engine_agent in skipped_ids
+                            else f"{NAME_PREFIX}{engine_agent}"
+                        ),
+                        "engineAgent": engine_agent,
+                        "brief": (step.get("brief") or "").strip(),
+                        "when": step.get("when") or [],
+                    }
+                )
+            if not steps:
+                continue
+            trigger = classify_trigger(rule.get("on") or [])
+            if trigger == "pause":
+                continue
+            routes.append(
+                {
+                    "id": rule["id"],
+                    "name": rule.get("name", rule["id"]),
+                    "position": rule.get("position", 999),
+                    "trigger": trigger,
+                    "when": rule.get("when") or [],
+                    "steps": steps,
+                }
+            )
+
+    routes.sort(key=lambda r: (r["position"], r["id"]))
+
+    project = read_yaml(source / PROJECT_SUBPATH / "project.yaml") or {}
+    settings = project.get("settings") or {}
+    src_config = ((project.get("source") or {}).get("config")) or {}
+
+    # Las transiciones: sin esto quien consuma la tabla sabe a qué agente
+    # despachar, pero no qué escribir en el board cuando ese agente vuelve.
+    # `onProcess` se aplica ANTES de correr, no al salir — el implementer se
+    # saca `reviewed` solo, y por eso su push vuelve a pasar por el reviewer.
+    agents: dict[str, Any] = {}
+    for definition in definitions or []:
+        if definition["id"] in skipped_ids:
+            continue
+        agents[f"{NAME_PREFIX}{definition['id']}"] = {
+            "exits": definition.get("exits") or {},
+            "onProcess": definition.get("onProcess"),
+            "requiresBranch": bool(definition.get("requiresBranch")),
+            "allowBlocked": bool(definition.get("allowBlocked")),
+        }
+
+    return {
+        "_generado": "scripts/sync-agents.py — no editar a mano",
+        "_fuente": f"{RULES_SUBPATH}/*.yaml @ {ref}",
+        "project": {
+            "url": src_config.get("url"),
+            "workingMarker": src_config.get("workingMarker"),
+            "baseWhen": settings.get("baseWhen") or [],
+        },
+        "routes": routes,
+        "agents": agents,
+    }
+
+
 def load_overlay(agent_id: str) -> dict[str, Any]:
     path = PLUGIN_DIR / "overlays" / f"{agent_id}.yaml"
     if not path.exists():
@@ -222,7 +373,7 @@ def load_overlay(agent_id: str) -> dict[str, Any]:
             "`description` y el YAML del engine no tiene ninguna. Creá el "
             "overlay (o marcá `skip: true` con su `reason`)."
         )
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data = read_yaml(path) or {}
     unknown = set(data) - OVERLAY_KEYS
     if unknown:
         raise SyncError(
@@ -531,22 +682,27 @@ def render(
 # ── Orquestación ──────────────────────────────────────────────────────────
 
 
-def build(source: Path, ref: str) -> tuple[dict[str, str], list[str]]:
+def build(source: Path, ref: str) -> tuple[dict[str, str], str, list[str]]:
     generated: dict[str, str] = {}
     skipped: list[str] = []
+    skipped_ids: set[str] = set()
     shared = load_shared_prompts(source)
     for path, definition in load_definitions(source):
         agent_id = definition["id"]
         overlay = load_overlay(agent_id)
         if overlay.get("skip"):
             skipped.append(f"{agent_id} ({overlay.get('reason', 'sin motivo')})")
+            skipped_ids.add(agent_id)
             continue
         if not overlay.get("description"):
             raise SyncError(f"overlays/{agent_id}.yaml: falta `description`")
         generated[f"{NAME_PREFIX}{agent_id}.md"] = render(
             definition, overlay, path.name, ref, shared
         )
-    return generated, skipped
+    pipeline = build_pipeline(
+        source, skipped_ids, ref, [d for _, d in load_definitions(source)]
+    )
+    return generated, json.dumps(pipeline, indent=2, ensure_ascii=False) + "\n", skipped
 
 
 def without_provenance(text: str) -> str:
@@ -576,7 +732,7 @@ def main() -> int:
 
     try:
         source = fetch_source(args.ref) if args.ref else args.source
-        generated, skipped = build(source, resolve_ref(source, args.ref))
+        generated, pipeline, skipped = build(source, resolve_ref(source, args.ref))
     except SyncError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -610,6 +766,20 @@ def main() -> int:
             target.write_text(content, encoding="utf-8")
             print(f"  {'~' if current else '+'} {name}")
 
+    # Fuera de `agents/`: ese directorio lo escanea Claude Code buscando
+    # subagentes, y un .json ahí adentro no pinta nada.
+    pipeline_path = args.out.parent / "pipeline.json"
+    have = pipeline_path.read_text(encoding="utf-8") if pipeline_path.exists() else ""
+    if have == pipeline:
+        print("  = pipeline.json")
+    else:
+        drift = True
+        if args.check:
+            print("  ≠ pipeline.json")
+        else:
+            pipeline_path.write_text(pipeline, encoding="utf-8")
+            print(f"  {'~' if have else '+'} pipeline.json")
+
     for stale in sorted(args.out.glob("*.md")):
         if stale.name not in generated:
             drift = True
@@ -625,7 +795,7 @@ def main() -> int:
     if args.check:
         print("drift" if drift else "sin drift")
         return 1 if drift else 0
-    print(f"{len(generated)} agentes en {args.out}")
+    print(f"{len(generated)} agentes en {args.out} + pipeline.json")
     return 0
 
 
