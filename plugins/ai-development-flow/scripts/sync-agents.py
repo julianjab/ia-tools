@@ -148,6 +148,25 @@ def fetch_source(ref: str) -> Path:
     return roots[0]
 
 
+def resolve_ref(source: Path, ref: str | None) -> str:
+    """Etiqueta de procedencia para el header de cada `.md`.
+
+    Tiene que dar lo MISMO para el clon local parado en `main` que para
+    `--ref main`: si no, `--check` desde el clon reporta drift por una línea de
+    comentario y el chequeo deja de servir como gate.
+    """
+    if ref:
+        return ref
+    proc = subprocess.run(
+        ["git", "-C", str(source), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    branch = proc.stdout.strip()
+    return branch if proc.returncode == 0 and branch not in ("", "HEAD") else "local"
+
+
 def load_definitions(source: Path) -> list[tuple[Path, dict[str, Any]]]:
     agents_dir = source / AGENTS_SUBPATH
     if not agents_dir.is_dir():
@@ -486,6 +505,19 @@ def build(source: Path, ref: str) -> tuple[dict[str, str], list[str]]:
     return generated, skipped
 
 
+def without_provenance(text: str) -> str:
+    """El `.md` sin la línea de procedencia.
+
+    `--check` pregunta si el CONTENIDO quedó viejo, y el ref no es contenido:
+    el mismo commit regenerado desde un clon parado en una rama feature da un
+    header distinto y un diff idéntico. Compararlo haría fallar el gate por
+    dónde tenías parado el clon.
+    """
+    return "\n".join(
+        line for line in text.split("\n") if not line.startswith("# Fuente:")
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
@@ -500,7 +532,7 @@ def main() -> int:
 
     try:
         source = fetch_source(args.ref) if args.ref else args.source
-        generated, skipped = build(source, args.ref or "local")
+        generated, skipped = build(source, resolve_ref(source, args.ref))
     except SyncError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -511,7 +543,12 @@ def main() -> int:
     for name, content in sorted(generated.items()):
         target = args.out / name
         current = target.read_text(encoding="utf-8") if target.exists() else ""
-        if current == content:
+        same = (
+            without_provenance(current) == without_provenance(content)
+            if args.check
+            else current == content
+        )
+        if same:
             print(f"  = {name}")
             continue
         drift = True
