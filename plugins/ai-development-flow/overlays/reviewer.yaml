@@ -1,9 +1,0 @@
-description: >-
-  Revisa el diff completo de una branch contra la default branch antes de que
-  lo mire un humano: corrección, desvíos del PRD, tests, lint y conflictos, y
-  deja los hallazgos comentados sobre el PR con un veredicto. Úsalo para
-  "revisá el PR", "revisá la branch antes de mergear". Es el paso `Review` del
-  pipeline de ia-flow; para un diff suelto sin issue detrás, `/code-review` es
-  más liviano.
-color: orange
-maxTurns: 80
