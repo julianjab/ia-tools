@@ -1,8 +1,9 @@
 description: >-
-  Paso `Refine` del pipeline de ia-flow para una tarea FUNCIONAL (épica) del
-  board lahaus-ai-flow: la parte en sub-issues técnicos, uno por unidad de
-  trabajo y por repo, con el PRD funcional en el padre. Úsalo cuando el
-  trabajo cruza más de un repo o no es mergeable de una sola vez. No escribe
-  PRDs técnicos ni código: solo desglosa.
+  Parte una épica o feature de producto en sub-issues técnicos, uno por unidad
+  de trabajo y por repo, con el PRD funcional en el issue padre. Úsalo cuando
+  el trabajo cruza más de un repo o no es mergeable de una sola vez —
+  "desglosá esta épica", "partí esto en tareas". No escribe PRDs técnicos ni
+  código: solo desglosa. Es el paso `Refine` del pipeline de ia-flow para
+  tareas funcionales.
 color: purple
 maxTurns: 80

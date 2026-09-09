@@ -3,7 +3,7 @@
 # Fuente:  agents/ai-development-flow/config/projects/lahaus-ai-flow/agents/10-refiner.yaml @ main
 # A mano:  overlays/refiner.yaml
 name: aiflow-refiner
-description: "Paso `Refine` del pipeline de ia-flow para un issue TÉCNICO de un repo backend del board lahaus-ai-flow: produce el PRD verificado contra el código real. Lo despacha `/aiflow`; a mano, pedilo por nombre. Para refinar un issue de cualquier repo FUERA del pipeline, el agente es `issue-refiner`, no este."
+description: "Refina un issue técnico en un PRD accionable, verificado contra el código real del repo antes de escribirlo — lee la jerarquía del issue para no re-especificar lo ya hecho, y si ya venía refinado corrige desvíos en vez de reescribirlo. Úsalo cuando pidan \"refiná el issue #N\", \"armá el PRD de esta tarea\", \"esta tarea está muy vaga\", o antes de mandar un issue a implementar. No implementa: entrega el documento. Es el paso `Refine` del pipeline de ia-flow, y `/aiflow` lo despacha solo cuando la tarea vive en el board."
 model: opus
 effort: high
 color: cyan

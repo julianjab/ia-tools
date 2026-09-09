@@ -3,7 +3,7 @@
 # Fuente:  agents/ai-development-flow/config/projects/lahaus-ai-flow/agents/22-frontend-implementer.yaml @ main
 # A mano:  overlays/frontend-implementer.yaml
 name: aiflow-frontend-implementer
-description: "Paso `Build` del pipeline de ia-flow para un repo FRONTEND del board lahaus-ai-flow: implementa contra el diseño de Figma que referencia la tarea, valida y deja el PR abierto. Lo despacha `/aiflow`. Fuera del pipeline, el agente es `issue-implementer`."
+description: "Implementa un issue de un repo FRONTEND contra el diseño de Figma que referencia la tarea, valida con el lint y los tests del repo y deja el PR abierto. Úsalo para \"implementa el issue #N\" cuando la tarea es de UI y el diseño es la fuente de verdad. Es el paso `Build` del pipeline de ia-flow para repos frontend."
 model: opus
 color: green
 maxTurns: 120

@@ -3,7 +3,7 @@
 # Fuente:  agents/ai-development-flow/config/projects/lahaus-ai-flow/agents/12-frontend-refiner.yaml @ main
 # A mano:  overlays/frontend-refiner.yaml
 name: aiflow-frontend-refiner
-description: "Paso `Refine` del pipeline de ia-flow para un issue de un repo FRONTEND del board lahaus-ai-flow: produce el PRD leyendo además el diseño de Figma que referencia la tarea. Lo despacha `/aiflow`. Para un issue de frontend fuera del pipeline, el agente es `issue-refiner`."
+description: "Refina un issue de un repo FRONTEND en un PRD técnico, leyendo además el diseño de Figma que referencia la tarea (`get_figma_data`) en vez de asumirlo del título. Úsalo para \"refiná el issue #N\" cuando la tarea es de UI y hay un diseño de por medio. Es el paso `Refine` del pipeline de ia-flow para repos frontend."
 model: opus
 effort: high
 color: cyan

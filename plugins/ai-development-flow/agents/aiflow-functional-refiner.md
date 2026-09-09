@@ -3,7 +3,7 @@
 # Fuente:  agents/ai-development-flow/config/projects/lahaus-ai-flow/agents/05-functional-refiner.yaml @ main
 # A mano:  overlays/functional-refiner.yaml
 name: aiflow-functional-refiner
-description: "Paso `Refine` del pipeline de ia-flow para una tarea FUNCIONAL (épica) del board lahaus-ai-flow: la parte en sub-issues técnicos, uno por unidad de trabajo y por repo, con el PRD funcional en el padre. Úsalo cuando el trabajo cruza más de un repo o no es mergeable de una sola vez. No escribe PRDs técnicos ni código: solo desglosa."
+description: "Parte una épica o feature de producto en sub-issues técnicos, uno por unidad de trabajo y por repo, con el PRD funcional en el issue padre. Úsalo cuando el trabajo cruza más de un repo o no es mergeable de una sola vez — \"desglosá esta épica\", \"partí esto en tareas\". No escribe PRDs técnicos ni código: solo desglosa. Es el paso `Refine` del pipeline de ia-flow para tareas funcionales."
 model: opus
 effort: high
 color: purple

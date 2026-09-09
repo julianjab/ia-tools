@@ -1,6 +1,6 @@
 {
   "name": "ai-development-flow",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Los agentes del pipeline de ia-flow (refiner, implementer, reviewer) transformados desde sus AgentDefinition YAML a subagentes de Claude Code.",
   "author": {
     "name": "Julian Buitrago",

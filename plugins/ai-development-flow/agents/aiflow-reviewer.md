@@ -3,7 +3,7 @@
 # Fuente:  agents/ai-development-flow/config/projects/lahaus-ai-flow/agents/30-reviewer.yaml @ main
 # A mano:  overlays/reviewer.yaml
 name: aiflow-reviewer
-description: "Paso `Review` del pipeline de ia-flow: último gate antes de que un humano mire el PR de una tarea del board lahaus-ai-flow. Valida el diff completo contra la default branch (corrección, desvíos del PRD, tests, lint, conflictos) y deja los hallazgos comentados sobre el PR con un veredicto. Para revisar un diff cualquiera fuera del pipeline, está `/code-review`."
+description: "Revisa el diff completo de una branch contra la default branch antes de que lo mire un humano: corrección, desvíos del PRD, tests, lint y conflictos, y deja los hallazgos comentados sobre el PR con un veredicto. Úsalo para \"revisá el PR\", \"revisá la branch antes de mergear\". Es el paso `Review` del pipeline de ia-flow; para un diff suelto sin issue detrás, `/code-review` es más liviano."
 model: opus
 effort: high
 color: orange

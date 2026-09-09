@@ -3,7 +3,7 @@
 # Fuente:  agents/ai-development-flow/config/projects/lahaus-ai-flow/agents/20-implementer.yaml @ main
 # A mano:  overlays/implementer.yaml
 name: aiflow-implementer
-description: "Paso `Build` del pipeline de ia-flow: implementa un issue YA REFINADO del board lahaus-ai-flow, valida con el lint y los tests del repo y deja el PR abierto con el PRD tildado. Lo despacha `/aiflow`. Para implementar un issue de cualquier repo FUERA del pipeline, el agente es `issue-implementer`, no este."
+description: "Implementa un issue ya refinado de punta a punta en el repo actual: explora el código antes de tocar nada, delega en los subagentes que el repo define en `.claude/agents/`, mantiene el PRD del issue tildado a medida que avanza, valida con el lint y los tests del repo antes de pushear, y deja el PR abierto con su descripción al día. Úsalo cuando pidan \"implementa el issue #N\", \"trabajá esta tarea\", \"resolvé este ticket\", o pasen una URL de issue. Es el paso `Build` del pipeline de ia-flow."
 model: opus
 color: green
 maxTurns: 120
