@@ -1,0 +1,12 @@
+{
+  "name": "ai-development-flow",
+  "version": "0.1.0",
+  "description": "Los agentes del pipeline de ia-flow (refiner, implementer, reviewer) transformados desde sus AgentDefinition YAML a subagentes de Claude Code.",
+  "author": {
+    "name": "Julian Buitrago",
+    "email": "julianbuitrago@lahaus.com"
+  },
+  "homepage": "https://github.com/julianjab/ia-tools",
+  "repository": "https://github.com/julianjab/ia-tools",
+  "license": "MIT"
+}
