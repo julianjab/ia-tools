@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Centralized AI toolbox: shared agents, pipeline skills, enforcement hooks, and the Slack bridge MCP server for development teams.",
-    "version": "2.2.1"
+    "version": "2.3.0"
   },
   "plugins": [
     {
@@ -19,7 +19,7 @@
     {
       "name": "slack-bridge",
       "source": "./plugins/slack-bridge",
-      "description": "Slack bridge MCP server: subscribe to channels, claim and reply to messages, read threads, receive channel thread replies without @mention, and react with emoji (\u2705/\u274c) as approval signals via daemon + MCP architecture.",
+      "description": "Slack bridge MCP server: subscribe to channels, claim and reply to messages, read threads, receive channel thread replies without @mention, and react with emoji (✅/❌) as approval signals via daemon + MCP architecture.",
       "category": "integration",
       "keywords": ["slack", "mcp", "messaging", "daemon", "reactions", "threads"]
     },
@@ -42,7 +42,7 @@
     {
       "name": "agent-harness",
       "source": "./plugins/agent-harness",
-      "description": "Composable pipeline (intake \u2192 repo-detect \u2192 repo-fetch \u2192 worktree \u2192 agent-scan \u2192 task-plan \u2192 dispatch) connected by a single state.yaml contract, with a per-session harness-events.log feeding the harness-engineering improvement loop. Workflow-agnostic: no role taxonomy, no ordering invariants, no Slack/tmux coupling.",
+      "description": "Composable pipeline (intake → repo-detect → repo-fetch → worktree → agent-scan → task-plan → dispatch) connected by a single state.yaml contract, with a per-session harness-events.log feeding the harness-engineering improvement loop. Workflow-agnostic: no role taxonomy, no ordering invariants, no Slack/tmux coupling.",
       "category": "workflow",
       "keywords": [
         "harness",
