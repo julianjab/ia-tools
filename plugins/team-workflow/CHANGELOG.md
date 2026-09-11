@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.3.0...team-workflow-v2.4.0) (2026-09-11)
+
+
+### Features
+
+* **pr-review:** no bloquear en consola ante preconditions fallidas ([b5166bd](https://github.com/julianjab/ia-tools/commit/b5166bd4f29fd60af7128a1b8df7bbe48ebcd2eb))
+
 ## [2.3.0](https://github.com/julianjab/ia-tools/compare/team-workflow-v2.2.1...team-workflow-v2.3.0) (2026-09-09)
 
 
