@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /** Directorios que `fs_grep`/`fs_list` recursivos nunca bajan — ruido pesado o binario, nunca
@@ -41,7 +41,21 @@ async function resolveRealPath(
       }
       return finalPath;
     } catch (err) {
-      if (!isEnoent(err) || current === baseDirLexical) throw err;
+      if (!isEnoent(err)) throw err;
+      // `realpath` tira ENOENT tanto si `current` no existe DE VERDAD (walk-up legítimo — el
+      // caso de `fs_write` a un archivo nuevo) como si `current` es un symlink ROTO que SÍ
+      // existe como entrada pero apunta a un target que no existe — los dos casos dan el mismo
+      // error, pero sólo el primero es seguro para seguir subiendo. `lstat` (que NO sigue el
+      // link) distingue: si encuentra algo ahí, es un symlink roto — nunca confiable (podría
+      // apuntar a cualquier lado, y `fs_write` lo seguiría al escribir), se rechaza directo en
+      // vez de tratarlo como "todavía no existe".
+      const brokenSymlink = await lstat(current)
+        .then(() => true)
+        .catch(() => false);
+      if (brokenSymlink) {
+        throw new Error(`fs-tools: "${originalInput}" pasa por un symlink roto — rechazado`);
+      }
+      if (current === baseDirLexical) throw err;
       suffix = suffix ? join(basename(current), suffix) : basename(current);
       current = dirname(current);
     }
