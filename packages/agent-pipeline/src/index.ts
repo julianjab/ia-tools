@@ -13,6 +13,8 @@ export { ERROR_EXIT, SUCCESS_EXIT, exitSet } from './agent/AgentDefinition.js';
 export { Agent } from './agent/Agent.js';
 export type { Provider, ProviderRunContext, ProviderRunOutput } from './agent/Provider.js';
 export { ProviderRegistry, providerRegistry } from './agent/Provider.js';
+export type { ToolInputSchema } from './agent/SchemaTool.js';
+export { SchemaTool } from './agent/SchemaTool.js';
 export type { ToolConstructor } from './agent/ToolRegistry.js';
 export { ToolRegistry } from './agent/ToolRegistry.js';
 
