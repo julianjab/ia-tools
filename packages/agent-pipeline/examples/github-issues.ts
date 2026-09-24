@@ -32,7 +32,7 @@ const agents = new AgentRegistry()
     functionAgent<{ actionable: boolean; label: string }>('triage', (input) => {
       const payload = input.event.payload as GithubIssuePayload;
       const isBug = /bug|crash|error/i.test(payload.title);
-      return { output: { actionable: isBug, label: isBug ? 'bug' : 'question' }, exit: 'success' };
+      return { actionable: isBug, label: isBug ? 'bug' : 'question' };
     }),
   )
   .register(

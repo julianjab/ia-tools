@@ -75,9 +75,9 @@ import { AgentAction, AgentRegistry, Engine, EventBus, Pipeline, StaticPipelineS
 
 const agents = new AgentRegistry()
   .register(functionAgent('triage', (input) => ({
-    output: { actionable: (input.event.payload as any).title.includes('bug') },
+    actionable: (input.event.payload as any).title.includes('bug'),
   })))
-  .register(functionAgent('fix', async () => ({ output: 'PR abierto' })));
+  .register(functionAgent('fix', async () => 'PR abierto'));
 
 const pipeline = new Pipeline({
   id: 'github-bug-triage',
