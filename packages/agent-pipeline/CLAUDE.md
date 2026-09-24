@@ -12,9 +12,9 @@ Es **contrato puro, sin I/O**: interfaces y clases sin dependencias runtime (`Do
 que existe un `prompt`, `systemPrompts`, `exits`; eso es dominio, no infra, porque es
 TypeScript puro sin `fetch` ni credenciales. La línea real es **contrato vs. implementación
 con I/O real**: un `Provider` CONCRETO que le pega a la API de Anthropic/OpenAI/lo que sea
-(hace `fetch`, lee `process.env`, maneja retries) es infra — vive en `examples/providers/`,
-nunca en `src/`. Antes de agregar algo acá, preguntate: ¿esto compila sin tocar la red ni el
-filesystem? Si la respuesta es no, va en `examples/` como ilustración.
+(hace `fetch`, lee `process.env`, maneja retries) es infra — vive en su propio paquete
+(`@ia-tools/provider-anthropic`), nunca en `src/` de ESTE paquete. Antes de agregar algo acá,
+preguntate: ¿esto compila sin tocar la red ni el filesystem? Si la respuesta es no, no va acá.
 
 ## Estructura
 
@@ -43,11 +43,13 @@ src/
 │   └── tests/
 ├── index.ts
 └── tests/                index.test.ts
-examples/         Los tres casos de uso que motivaron el paquete (no se compilan a dist/)
-├── providers/anthropic-provider.ts   ÚNICA implementación real de Provider — hace fetch
-├── tools/                             lógica de negocio de las tools del travel-planner
-└── apps/                              las tres apps armadas con Pipeline+Agent+Provider real
 ```
+
+Los examples (los tres casos de uso que motivaron el paquete) NO viven acá — ver
+"Por qué los examples no viven adentro de este paquete" en `README.md`. Viven en
+`ia-tools/examples/` (raíz del monorepo, gitignoreado), porque combinan este paquete con
+`@ia-tools/provider-anthropic`, y ese paquete depende de éste — meterlos adentro crearía una
+dependencia cíclica entre workspaces de pnpm.
 
 ### `Runnable` — la base única de `Pipeline.do[]`
 
@@ -82,14 +84,12 @@ que corresponda (ej. `src/pipeline/actions/tests/EmitAction.test.ts` importa
 ## TypeScript — dos tsconfig, dos propósitos
 
 - **`tsconfig.json`** — el que usa el editor y `pnpm typecheck` (`tsc --noEmit`, sin `-p`).
-  Incluye `src` (que ya trae sus `tests/` anidados) Y `examples`: todo el código del
-  paquete se tipa, aunque sólo `src/` se publique. `noEmit: true` porque este archivo
-  nunca genera output.
+  Incluye sólo `src` (que ya trae sus `tests/` anidados) — no hay `examples/` acá, ver
+  arriba por qué. `noEmit: true` porque este archivo nunca genera output.
 - **`tsconfig.build.json`** — el que usa `pnpm build` (`tsc -p tsconfig.build.json`).
   Incluye `src` con `rootDir: "src"` y `outDir: "dist"`, pero EXCLUYE explícitamente
   `src/**/tests/**` — sin ese exclude, cada `tests/` anidado (al estar dentro de `src/`)
-  terminaría compilado dentro de `dist/`. `examples/` nunca entra porque ni siquiera está
-  en `include`.
+  terminaría compilado dentro de `dist/`.
 
 Si agregás una opción de compilador nueva, pensá en cuál de los dos (o los dos)
 corresponde: algo que afecta el output publicado va en `tsconfig.build.json`; algo que
@@ -117,4 +117,4 @@ pnpm --filter @ia-tools/agent-pipeline build
 
 Los tres tienen que estar en verde antes de commitear (regla global del repo, ver
 `~/.claude/CLAUDE.md` del usuario). `pnpm build` importa: valida que `tsconfig.build.json`
-sigue compilando sólo lo publicable, sin arrastrar ningún `tests/` anidado ni `examples/`.
+sigue compilando sólo lo publicable, sin arrastrar ningún `tests/` anidado.

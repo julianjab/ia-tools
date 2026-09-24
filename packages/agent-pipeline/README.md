@@ -131,7 +131,8 @@ await bus.publish(createEvent('github.issue.opened', { title: 'crash on login (b
 
 ## Los tres casos que motivaron esto
 
-Ver `examples/`:
+Viven en `ia-tools/examples/` (raíz del monorepo, gitignoreado — no en `packages/agent-pipeline/`,
+ver la nota de dependencias cíclicas más abajo):
 
 - `apps/github-issue-triage.ts` — un webhook de GitHub se traduce a `github.issue.opened`;
   un pipeline hace triage con un `Agent` real (Anthropic) y despacha un fix determinístico.
@@ -140,9 +141,20 @@ Ver `examples/`:
 - `apps/travel-planner.ts` — un pedido de viaje (`travel.trip.requested`) corre un `Agent`
   con dos tools reales (vuelos, hoteles) y arma una recomendación — el mismo `Engine`, cero
   código nuevo, sólo otro `Pipeline`.
-- `providers/anthropic-provider.ts`/`tools/` — la única infra del ejemplo (el `Provider` de
-  Anthropic hace `fetch` real contra la Messages API; las tools son lógica de negocio mock).
-  `AgentDefinitionProps`/`Agent`/`Provider`/`ProviderRegistry` SÍ están en `src/` — son
-  contrato puro, sin I/O (ver la sección de `Agent` más arriba).
+- `tools/` — lógica de negocio mock de las tools del travel-planner.
 
-Correlos con `npx tsx examples/apps/<archivo>.ts` (necesitan `ANTHROPIC_API_KEY`).
+El `Provider` real de Anthropic es `@ia-tools/provider-anthropic` (paquete propio, no vive acá —
+ver su README). `AgentDefinitionProps`/`Agent`/`Provider`/`ProviderRegistry` SÍ están en `src/`
+de ESTE paquete — son contrato puro, sin I/O (ver la sección de `Agent` más arriba).
+
+Correlos desde la raíz de `ia-tools` con `npx tsx examples/apps/<archivo>.ts` (necesitan
+`ANTHROPIC_API_KEY`, y que `agent-pipeline`/`provider-anthropic` estén buildeados).
+
+### Por qué los examples no viven adentro de este paquete
+
+`@ia-tools/provider-anthropic` depende de `agent-pipeline` (implementa su `Provider`). Si un
+example que usa AMBOS paquetes viviera dentro de `agent-pipeline/examples/`, este paquete
+necesitaría a su vez depender de `provider-anthropic` (aunque sea sólo en `devDependencies`) —
+eso es una dependencia cíclica entre workspaces de pnpm, que rompe el orden de `pnpm -r build`.
+Por eso esos tres examples viven en un tercer lugar (`ia-tools/examples/`, gitignoreado) que
+depende de los dos sin que ninguno dependa del otro.

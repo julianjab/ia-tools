@@ -53,3 +53,7 @@ agents_bck/
 
 # tool runtime artifacts
 plugins/team-workflow/.in_use/
+
+# Local playground — demo apps combining published packages (ej. agent-pipeline +
+# provider-anthropic) without making either package depend on the other. Never committed.
+/examples/
