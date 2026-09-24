@@ -35,12 +35,22 @@ export function createEvent<TPayload = Record<string, unknown>>(
   };
 }
 
-/** Evento derivado de otro (EmitAction, AgentAction con emitOn: 'exit') — hereda profundidad + 1. */
+/**
+ * Evento derivado de otro (EmitAction, AgentAction con emitOn: 'exit') — hereda profundidad + 1
+ * y, salvo que se pase un `scope` explícito, también el `scope` del padre. Sin esto, un
+ * Pipeline con `scope: { repo: 'x' }` nunca reacciona a un evento derivado de otro Pipeline
+ * sobre ESE mismo repo — encadenar pipelines con scope (el caso de uso central) se rompía en
+ * silencio.
+ */
 export function deriveEvent<TPayload = Record<string, unknown>>(
   parent: DomainEvent,
   type: string,
   payload: TPayload,
   opts: Omit<CreateEventOptions, 'depth'> = {},
 ): DomainEvent<TPayload> {
-  return createEvent(type, payload, { ...opts, depth: parent.depth + 1 });
+  return createEvent(type, payload, {
+    ...opts,
+    scope: opts.scope ?? parent.scope,
+    depth: parent.depth + 1,
+  });
 }

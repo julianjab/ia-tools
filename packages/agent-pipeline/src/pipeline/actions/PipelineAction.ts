@@ -4,7 +4,7 @@ import type { DomainEvent } from '../../events/DomainEvent.js';
 import type { EventBus } from '../../events/EventBus.js';
 
 export interface PipelineExecutionContext {
-  event: DomainEvent;
+  event: DomainEvent<any>;
   /** Outputs acumulados de los pasos anteriores DE ESTE Pipeline, por `id`. */
   steps: Record<string, unknown>;
   bus: EventBus;

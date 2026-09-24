@@ -1,7 +1,9 @@
 import type { DomainEvent } from '../events/DomainEvent.js';
 
 export interface AgentRunInput {
-  event: DomainEvent;
+  // `DomainEvent<any>`: el Agent es quien conoce la forma real del payload de su dominio
+  // (GithubIssuePayload, SlackMessagePayload, ...) — el harness no se la impone.
+  event: DomainEvent<any>;
   /** Outputs de los pasos anteriores del mismo Pipeline, por su `id`. */
   steps: Record<string, unknown>;
   /** Instrucción específica de ESTE paso (la trae AgentAction, no el Agent). */

@@ -1,6 +1,12 @@
 import type { DomainEvent } from './DomainEvent.js';
 
-export type EventHandler = (event: DomainEvent) => void | Promise<void>;
+/**
+ * Devuelve `unknown` (no `void`) a propósito: un handler puede devolver algo con sentido
+ * propio (`Engine.dispatch` devuelve `DispatchOutcome`) y `publish` no lo mira — sólo
+ * necesita poder esperar la promesa si el handler devuelve una. `void` acá bloquearía esa
+ * devolución (TS no aplica su regla de "cualquier cosa cae en void" adentro de un `Promise<T>`).
+ */
+export type EventHandler = (event: DomainEvent<any>) => unknown;
 export type Unsubscribe = () => void;
 
 /**
@@ -22,7 +28,7 @@ export class EventBus {
   }
 
   /** Corre los handlers de `event.type` y los de '*' — en paralelo, sin cortar en el primer error. */
-  async publish(event: DomainEvent): Promise<void> {
+  async publish(event: DomainEvent<any>): Promise<void> {
     const handlers = [...(this.handlers.get(event.type) ?? []), ...(this.handlers.get('*') ?? [])];
     // `Promise.resolve().then(...)` — no `handler(event)` directo — porque un handler SÍNCRONO
     // que tira (no uno que devuelve una promesa rechazada) escaparía del `.map` antes de

@@ -46,14 +46,18 @@ export class Pipeline {
     this.do = props.do;
   }
 
-  matches(event: DomainEvent): boolean {
+  // `DomainEvent<any>`, no el `DomainEvent` a secas (que resuelve a `DomainEvent<Record<string,
+  // unknown>>`): el Engine/Pipeline no le exige forma al payload de cada evento — eso es cosa
+  // de cada Agent tipado que lo consume — así que forzar el genérico por defecto acá rechazaría
+  // cualquier evento creado con un payload propio (`createEvent<GithubIssuePayload>(...)`).
+  matches(event: DomainEvent<any>): boolean {
     if (!this.enabled) return false;
     if (!this.on.includes(event.type)) return false;
     if (!this.matchesScope(event)) return false;
     return Condition.evaluateAll(this.when, event.payload);
   }
 
-  private matchesScope(event: DomainEvent): boolean {
+  private matchesScope(event: DomainEvent<any>): boolean {
     if (this.scope == null) return true;
     return Object.entries(this.scope).every(([key, value]) => event.scope?.[key] === value);
   }

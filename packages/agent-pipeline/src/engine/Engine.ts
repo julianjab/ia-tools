@@ -34,29 +34,44 @@ export class Engine {
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH;
   }
 
-  /** Suscribe el Engine a todo el bus. Llamalo una vez al bootear la app. */
+  /**
+   * Suscribe el Engine a todo el bus. Llamalo una vez al bootear la app.
+   *
+   * A diferencia de una llamada directa a `dispatch`, acá no hay quien reciba la promesa —
+   * por eso SE LA DEVOLVEMOS al handler en vez de descartarla con `void`: `EventBus.publish`
+   * la junta con las de los demás handlers vía `Promise.allSettled` y agrupa cualquier
+   * rechazo en un `AggregateError` que sí llega a quien llamó `publish`. Descartarla acá
+   * (como hacía la versión anterior) dejaba un unhandled rejection cada vez que un Agent, un
+   * `AgentAction` con `agentId` inválido o un `HttpAction` con respuesta no-2xx tiraban — en
+   * Node eso termina el proceso.
+   */
   start(): Unsubscribe {
-    return this.bus.subscribe('*', (event) => {
-      void this.dispatch(event);
-    });
+    return this.bus.subscribe('*', (event) => this.dispatch(event));
   }
 
   /**
    * Evalúa los Pipelines contra `event` y corre los que matchean: TODAS las no-exclusive
    * matcheadas en paralelo (son independientes); si alguna matcheada es `exclusive`, en
-   * cambio corre SÓLO la de mayor prioridad (menor `position`) entre las exclusive.
+   * cambio corre SÓLO la de mayor prioridad (menor `position`) entre las exclusive — MÁS
+   * cualquier pipeline (exclusive o no) de prioridad todavía mayor que esa (position aún
+   * menor), que no queda bloqueada por una exclusive de menor prioridad que ella misma.
    */
-  async dispatch(event: DomainEvent): Promise<DispatchOutcome> {
+  async dispatch(event: DomainEvent<any>): Promise<DispatchOutcome> {
     if (event.depth >= this.maxEventDepth) return 'skipped';
 
     const pipelines = await this.pipelines.list();
     const matched = pipelines.filter((pipeline) => pipeline.matches(event));
     if (matched.length === 0) return 'skipped';
 
-    const exclusive = matched
+    const winningExclusive = matched
       .filter((pipeline) => pipeline.exclusive)
       .sort((a, b) => a.position - b.position)[0];
-    const toRun = exclusive ? [exclusive] : matched.filter((pipeline) => !pipeline.exclusive);
+    const toRun = winningExclusive
+      ? matched.filter(
+          (pipeline) =>
+            pipeline === winningExclusive || pipeline.position < winningExclusive.position,
+        )
+      : matched;
     if (toRun.length === 0) return 'skipped';
 
     await Promise.all(
