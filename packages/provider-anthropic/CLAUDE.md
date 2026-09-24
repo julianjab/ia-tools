@@ -40,6 +40,13 @@ Si necesitás agregar algo que es puramente "cómo le hablamos a la API" (un hea
 de retry distinto), va en `AnthropicClient`. Si es "cómo interpretamos la respuesta para un
 `Agent`" (un `stop_reason` nuevo, cómo se arma el loop de tools), va en `AnthropicProvider`.
 
+`AnthropicClient.send` soporta streaming incremental vía `onDelta` (llamado con cada
+`text_delta`/`thinking_delta`, no el acumulado) — vive en `sse.ts`
+(`readAnthropicSseStream(res, onDelta)`), no en `AnthropicProvider`: éste necesita el `content`
+completo para resolver `stop_reason`/tool_use/exit, así que expone observabilidad batch
+(`onToolCall`/`onToolResult`) pero no un `onDelta` propio. Un caller que quiera texto en vivo
+(un chat) usa `AnthropicClient` directo — ver `README.md` y `examples/apps/chat.ts`.
+
 ## Ciclo de dependencias con `agent-pipeline` — por qué los examples NO viven acá ni ahí
 
 Este paquete depende de `@ia-tools/agent-pipeline` (implementa su `Provider`). Si

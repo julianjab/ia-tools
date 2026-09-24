@@ -4,7 +4,23 @@
  * `ia-flow/packages/ai-providers/src/anthropic-api/provider.ts`, sin el logging incremental de
  * MCP (este paquete no tiene logger; ver `AnthropicProviderOptions.onToolCall/onToolResult` en
  * `AnthropicProvider.ts` para observabilidad batch al final del response).
+ *
+ * `onDelta` (opcional) es el único hook incremental: se llama con cada `text_delta`/
+ * `thinking_delta` a medida que llega, ANTES de que el response termine de reensamblarse — es
+ * lo que le permite a un caller (ej. un chat) mostrar texto en vivo en vez de esperar el
+ * response completo. El valor de retorno de `readAnthropicSseStream` sigue siendo el mismo
+ * objeto reensamblado de siempre; `onDelta` es aparte, no lo reemplaza.
  */
+
+export interface AnthropicStreamDelta {
+  /** Índice del content block (`content[]`) al que pertenece este delta. */
+  index: number;
+  type: 'text' | 'thinking';
+  /** El fragmento nuevo — NO el acumulado hasta ahora. */
+  delta: string;
+}
+
+export type AnthropicDeltaHandler = (delta: AnthropicStreamDelta) => void;
 
 interface SseFrame {
   eventType: string;
@@ -43,18 +59,25 @@ function applyContentBlockDelta(
   evt: Record<string, unknown>,
   blocks: Array<Record<string, unknown>>,
   pendingToolJson: string[],
+  onDelta: AnthropicDeltaHandler | undefined,
 ): void {
   const idx = evt.index as number;
   const block = blocks[idx];
   const delta = evt.delta as Record<string, unknown> | undefined;
   if (!block || !delta) return;
-  if (delta.type === 'text_delta') block.text = ((block.text as string) ?? '') + delta.text;
-  else if (delta.type === 'thinking_delta')
-    block.thinking = ((block.thinking as string) ?? '') + delta.thinking;
-  else if (delta.type === 'signature_delta')
+  if (delta.type === 'text_delta') {
+    const text = delta.text as string;
+    block.text = ((block.text as string) ?? '') + text;
+    onDelta?.({ index: idx, type: 'text', delta: text });
+  } else if (delta.type === 'thinking_delta') {
+    const thinking = delta.thinking as string;
+    block.thinking = ((block.thinking as string) ?? '') + thinking;
+    onDelta?.({ index: idx, type: 'thinking', delta: thinking });
+  } else if (delta.type === 'signature_delta') {
     block.signature = ((block.signature as string) ?? '') + delta.signature;
-  else if (delta.type === 'input_json_delta')
+  } else if (delta.type === 'input_json_delta') {
     pendingToolJson[idx] = (pendingToolJson[idx] ?? '') + (delta.partial_json as string);
+  }
 }
 
 function applyContentBlockStop(
@@ -85,6 +108,7 @@ function applySseEvent(
   message: Record<string, unknown>,
   blocks: Array<Record<string, unknown>>,
   pendingToolJson: string[],
+  onDelta: AnthropicDeltaHandler | undefined,
 ): void {
   const evt = JSON.parse(data) as Record<string, unknown>;
   switch (eventType) {
@@ -95,7 +119,7 @@ function applySseEvent(
       applyContentBlockStart(evt, blocks, pendingToolJson);
       break;
     case 'content_block_delta':
-      applyContentBlockDelta(evt, blocks, pendingToolJson);
+      applyContentBlockDelta(evt, blocks, pendingToolJson, onDelta);
       break;
     case 'content_block_stop':
       applyContentBlockStop(evt, blocks, pendingToolJson);
@@ -111,7 +135,10 @@ function applySseEvent(
   }
 }
 
-export async function readAnthropicSseStream(res: Response): Promise<Record<string, unknown>> {
+export async function readAnthropicSseStream(
+  res: Response,
+  onDelta?: AnthropicDeltaHandler,
+): Promise<Record<string, unknown>> {
   if (!res.body) throw new Error('Anthropic API streaming response sin body');
 
   const reader = res.body.getReader();
@@ -131,7 +158,7 @@ export async function readAnthropicSseStream(res: Response): Promise<Record<stri
     for (const raw of events) {
       if (!raw.trim()) continue;
       const { eventType, data } = parseSseFrame(raw);
-      if (data) applySseEvent(eventType, data, message, blocks, pendingToolJson);
+      if (data) applySseEvent(eventType, data, message, blocks, pendingToolJson, onDelta);
     }
   }
 

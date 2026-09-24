@@ -39,9 +39,10 @@ en el entorno (el OAuth token gana si están los dos).
 ## Las dos clases
 
 ```
-AnthropicClient    auth + headers + retry con backoff + reensamblado de streaming SSE.
-                    No sabe nada de tools ni de loops — es lo que hablaría CUALQUIER caller
-                    (un clasificador liviano, un script). Se puede usar sola.
+AnthropicClient    auth + headers + retry con backoff + reensamblado de streaming SSE, con
+                    streaming INCREMENTAL opcional (`onDelta`). No sabe nada de tools ni de
+                    loops — es lo que hablaría CUALQUIER caller (un chat, un clasificador
+                    liviano, un script). Se puede usar sola.
 
 AnthropicProvider   implementa Provider (agent-pipeline). Compone un AnthropicClient y le
                     agrega el loop de tool_use, MCP remoto, thinking/task budgets y
@@ -74,6 +75,32 @@ new Agent({
   providerConfig: { model: 'claude-haiku-4-5-20251001', maxTokens: 512, effort: 'low' },
 });
 ```
+
+## Streaming incremental — `AnthropicClient.send`, no `AnthropicProvider`
+
+`AnthropicProvider.run` sigue devolviendo el response completo recién al final (necesita
+`content` entero para resolver `exit`/tool_use). Para un caso que sí quiere texto en vivo —
+un chat — usá `AnthropicClient` directo, con `onDelta`:
+
+```ts
+import { AnthropicClient } from '@ia-tools/provider-anthropic';
+
+const client = new AnthropicClient({}); // toma ANTHROPIC_API_KEY del entorno
+
+const response = await client.send(
+  { model: 'claude-sonnet-5', max_tokens: 1024, messages: [{ role: 'user', content: 'Hola' }] },
+  {
+    onDelta: (delta) => {
+      if (delta.type === 'text') process.stdout.write(delta.delta); // fragmento, no acumulado
+    },
+  },
+);
+// `response` sigue siendo el mismo objeto reensamblado de siempre — onDelta es un canal aparte.
+```
+
+`onDelta` se llama con `text_delta`/`thinking_delta` a medida que llegan por SSE; se ignora si
+`stream: false` (no hay nada que leer incremental). Ver `examples/apps/chat.ts` (raíz de
+`ia-tools`) para un chat de terminal completo con esto + tools + MCP remoto opcional.
 
 ## MCP remoto
 

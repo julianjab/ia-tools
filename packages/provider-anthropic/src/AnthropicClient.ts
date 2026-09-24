@@ -1,4 +1,6 @@
-import { readAnthropicSseStream } from './sse.js';
+import { type AnthropicDeltaHandler, readAnthropicSseStream } from './sse.js';
+
+export type { AnthropicDeltaHandler, AnthropicStreamDelta } from './sse.js';
 
 /**
  * Cliente delgado de la Anthropic Messages API: auth + headers + retry con backoff +
@@ -61,6 +63,13 @@ export interface AnthropicSendOptions {
   extraBetas?: string[];
   /** Override puntual de `maxRetries` para este `send`. */
   maxRetries?: number;
+  /** Streaming incremental: se llama con cada fragmento de texto/thinking A MEDIDA que llega
+   *  (no el acumulado), antes de que el response termine de reensamblarse — es lo que le
+   *  permite a un caller (ej. un chat) mostrar la respuesta escribiéndose en vivo en vez de
+   *  esperar el turno completo. Ignorado si `stream` es `false` (no hay SSE del que leer
+   *  deltas). El valor que `send` devuelve sigue siendo el mismo response reensamblado de
+   *  siempre — `onDelta` es un canal aparte, no lo reemplaza. */
+  onDelta?: AnthropicDeltaHandler;
 }
 
 /** HTTP statuses que vale la pena reintentar: rate limiting y fallas transitorias upstream.
@@ -149,7 +158,7 @@ export class AnthropicClient {
       throw new Error(`AnthropicClient: Anthropic API → ${res.status}: ${text}`);
     }
     return useStream
-      ? ((await readAnthropicSseStream(res)) as unknown as AnthropicMessagesResponse)
+      ? ((await readAnthropicSseStream(res, opts.onDelta)) as unknown as AnthropicMessagesResponse)
       : ((await res.json()) as AnthropicMessagesResponse);
   }
 

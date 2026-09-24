@@ -1,9 +1,11 @@
 export type {
   AnthropicClientOptions,
   AnthropicContentBlock,
+  AnthropicDeltaHandler,
   AnthropicMessagesResponse,
   AnthropicRetryInfo,
   AnthropicSendOptions,
+  AnthropicStreamDelta,
 } from './AnthropicClient.js';
 export { AnthropicClient, backoffMs } from './AnthropicClient.js';
 export type {
