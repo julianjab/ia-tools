@@ -46,23 +46,25 @@ describe('SchemaTool', () => {
     expect(await tool.handler({ text: 'ab', times: 2 })).toBe('abab');
   });
 
-  it('throws a readable error and skips execute when a required field is missing', () => {
+  it('rejects with a readable error and skips execute when a required field is missing', async () => {
     const tool = new EchoTool();
 
-    expect(() => tool.handler({})).toThrow(/echo: input inválido[\s\S]*→ at text/);
+    await expect(tool.handler({})).rejects.toThrow(/echo: input inválido[\s\S]*→ at text/);
     expect(tool.calls).toBe(0);
   });
 
-  it('rejects keys the schema does not declare', () => {
+  it('rejects keys the schema does not declare', async () => {
     const tool = new EchoTool();
 
-    expect(() => tool.handler({ text: 'a', extra: 1 })).toThrow(/Unrecognized key: "extra"/);
+    await expect(tool.handler({ text: 'a', extra: 1 })).rejects.toThrow(
+      /Unrecognized key: "extra"/,
+    );
     expect(tool.calls).toBe(0);
   });
 
-  it('rejects a non-object input', () => {
+  it('rejects a non-object input', async () => {
     const tool = new EchoTool();
 
-    expect(() => tool.handler(undefined)).toThrow(/echo: input inválido/);
+    await expect(tool.handler(undefined)).rejects.toThrow(/echo: input inválido/);
   });
 });
