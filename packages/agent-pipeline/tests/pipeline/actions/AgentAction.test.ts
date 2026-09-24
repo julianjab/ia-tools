@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentRegistry } from '../../../src/agent/AgentRegistry.js';
-import { functionAgent } from '../../../src/agent/FunctionAgent.js';
+import { functionAgent, withExit } from '../../../src/agent/FunctionAgent.js';
 import { createEvent } from '../../../src/events/DomainEvent.js';
 import { EventBus } from '../../../src/events/EventBus.js';
 import { AgentAction } from '../../../src/pipeline/actions/AgentAction.js';
@@ -64,7 +64,7 @@ describe('AgentAction', () => {
 
   it('emits a derived event named by emitOn(exit), merging object output with agentId', async () => {
     const agents = new AgentRegistry().register(
-      functionAgent('a', () => ({ output: { label: 'bug' }, exit: 'triaged' })),
+      functionAgent('a', () => withExit({ label: 'bug' }, 'triaged')),
     );
     const bus = new EventBus();
     const publishSpy = vi.spyOn(bus, 'publish');
@@ -97,6 +97,18 @@ describe('AgentAction', () => {
     await new AgentAction({ agentId: 'a', emitOn: () => undefined }).run(makeCtx(agents, bus));
 
     expect(publishSpy).not.toHaveBeenCalled();
+  });
+
+  it('a downstream publish failure propagates and aborts this step, even though the agent already ran (documented coupling)', async () => {
+    const agents = new AgentRegistry().register(functionAgent('a', () => 'ok'));
+    const bus = new EventBus();
+    bus.subscribe('derived', () => {
+      throw new Error('downstream boom');
+    });
+
+    await expect(
+      new AgentAction({ agentId: 'a', emitOn: () => 'derived' }).run(makeCtx(agents, bus)),
+    ).rejects.toThrow(AggregateError);
   });
 
   it('defaults exit to "success" when resolving emitOn', async () => {

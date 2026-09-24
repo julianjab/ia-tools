@@ -75,4 +75,32 @@ describe('PipelineAction', () => {
     const action = new NoopAction({});
     await expect(action.run(makeCtx())).resolves.toBe('ran');
   });
+
+  it('shouldRun does not crash when the payload is not an object (still evaluates against `steps`)', () => {
+    const action = new NoopAction({
+      when: Condition.fromRows([
+        { field: 'steps.triage.output.actionable', op: 'eq', value: true },
+      ]),
+    });
+    const ctx: PipelineExecutionContext = {
+      event: createEvent('t', 'a plain string payload' as unknown as Record<string, unknown>),
+      steps: { triage: { output: { actionable: true } } },
+      bus: new EventBus(),
+      agents: new AgentRegistry(),
+      pipelineId: 'p1',
+    };
+    expect(action.shouldRun(ctx)).toBe(true);
+  });
+
+  it('the reserved `steps` key shadows a same-named field on the payload (documented, not a bug)', () => {
+    const action = new NoopAction({
+      when: Condition.fromRows([
+        { field: 'steps.triage.output.actionable', op: 'eq', value: true },
+      ]),
+    });
+    // Un payload de dominio que también trae una clave `steps` (ej. un itinerario con
+    // escalas) queda tapado por `ctx.steps` — ver el comentario de `evaluateWhen`.
+    const ctx = makeCtx({ steps: ['layover-mad'] }, { triage: { output: { actionable: true } } });
+    expect(action.shouldRun(ctx)).toBe(true);
+  });
 });

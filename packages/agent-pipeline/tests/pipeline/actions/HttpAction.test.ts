@@ -15,14 +15,20 @@ function makeCtx(): PipelineExecutionContext {
   };
 }
 
-function jsonResponse(body: unknown, ok = true, status = 200) {
+function textResponse(
+  body: string,
+  opts: { ok?: boolean; status?: number; contentType?: string } = {},
+) {
   return {
-    ok,
-    status,
-    headers: new Headers({ 'content-type': 'application/json' }),
-    json: async () => body,
-    text: async () => JSON.stringify(body),
+    ok: opts.ok ?? true,
+    status: opts.status ?? 200,
+    headers: new Headers({ 'content-type': opts.contentType ?? 'application/json' }),
+    text: async () => body,
   } as Response;
+}
+
+function jsonResponse(body: unknown, opts: { ok?: boolean; status?: number } = {}) {
+  return textResponse(JSON.stringify(body), opts);
 }
 
 afterEach(() => {
@@ -40,6 +46,7 @@ describe('HttpAction', () => {
       method: 'GET',
       headers: { 'content-type': 'application/json' },
       body: undefined,
+      signal: expect.any(AbortSignal),
     });
     expect(result).toEqual({ ok: true });
   });
@@ -62,32 +69,106 @@ describe('HttpAction', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer x' },
       body: JSON.stringify({ steps: ctx.steps }),
+      signal: expect.any(AbortSignal),
     });
   });
 
   it('returns text when the response is not application/json', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'text/plain' }),
-        json: async () => {
-          throw new Error('should not be called');
-        },
-        text: async () => 'plain body',
-      }),
+      vi.fn().mockResolvedValue(textResponse('plain body', { contentType: 'text/plain' })),
     );
 
     const result = await new HttpAction({ url: 'https://api.example.com' }).run(makeCtx());
     expect(result).toBe('plain body');
   });
 
-  it('throws with the status code when the response is not ok', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: 'nope' }, false, 500)));
+  it('throws with the status code and a body snippet when the response is not ok', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ error: 'nope' }, { ok: false, status: 500 })),
+    );
 
     await expect(
       new HttpAction({ url: 'https://api.example.com', method: 'POST' }).run(makeCtx()),
-    ).rejects.toThrow('HttpAction: POST https://api.example.com → 500');
+    ).rejects.toThrow('HttpAction: POST https://api.example.com → 500: {"error":"nope"}');
+  });
+
+  it('a non-ok response with an empty body does not crash trying to parse it as JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(textResponse('', { ok: false, status: 502 })));
+
+    await expect(new HttpAction({ url: 'https://api.example.com' }).run(makeCtx())).rejects.toThrow(
+      'HttpAction: GET https://api.example.com → 502',
+    );
+  });
+
+  it('a non-ok response with an HTML body (proxy error page) surfaces the status, not a JSON parse error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(textResponse('<html>Bad Gateway</html>', { ok: false, status: 502 })),
+    );
+
+    await expect(new HttpAction({ url: 'https://api.example.com' }).run(makeCtx())).rejects.toThrow(
+      /502: <html>Bad Gateway<\/html>/,
+    );
+  });
+
+  it('a 204-style empty body on a successful response resolves to undefined instead of throwing on JSON.parse', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(textResponse('', { status: 204 })));
+
+    const result = await new HttpAction({ url: 'https://api.example.com' }).run(makeCtx());
+    expect(result).toBeUndefined();
+  });
+
+  it('never sends a body on GET, even if one was configured — fetch throws a TypeError otherwise', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new HttpAction({ url: 'https://api.example.com', method: 'GET', body: { x: 1 } }).run(
+      makeCtx(),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.com',
+      expect.objectContaining({ method: 'GET', body: undefined }),
+    );
+  });
+
+  it('never sends a body on DELETE either', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new HttpAction({ url: 'https://api.example.com', method: 'DELETE', body: { x: 1 } }).run(
+      makeCtx(),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.com',
+      expect.objectContaining({ method: 'DELETE', body: undefined }),
+    );
+  });
+
+  it('aborts the request once timeoutMs elapses, so a hung host cannot block the pipeline forever', async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => {
+      capturedSignal = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () =>
+          reject(new DOMException('aborted', 'AbortError')),
+        );
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const run = new HttpAction({ url: 'https://api.example.com', timeoutMs: 50 }).run(makeCtx());
+    const assertion = expect(run).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+
+    expect(capturedSignal?.aborted).toBe(true);
+    vi.useRealTimers();
   });
 });

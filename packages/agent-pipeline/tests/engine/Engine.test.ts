@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AgentRegistry } from '../../src/agent/AgentRegistry.js';
-import { functionAgent } from '../../src/agent/FunctionAgent.js';
+import { functionAgent, withExit } from '../../src/agent/FunctionAgent.js';
 import { Condition } from '../../src/condition/Condition.js';
 import { DEFAULT_MAX_EVENT_DEPTH, Engine } from '../../src/engine/Engine.js';
 import { StaticPipelineSource } from '../../src/engine/PipelineSource.js';
@@ -45,12 +45,13 @@ describe('Engine.dispatch', () => {
   it('dispatches a matching pipeline and chains steps through ctx.steps', async () => {
     const agents = new AgentRegistry()
       .register(
-        functionAgent('triage', (input) => ({
-          output: { actionable: (input.event.payload as { title: string }).title.includes('bug') },
-          exit: 'success',
-        })),
+        functionAgent('triage', (input) =>
+          withExit({
+            actionable: (input.event.payload as { title: string }).title.includes('bug'),
+          }),
+        ),
       )
-      .register(functionAgent('fix', () => ({ output: 'patched', exit: 'success' })));
+      .register(functionAgent('fix', () => withExit('patched')));
 
     const seen: unknown[] = [];
     const pipeline = new Pipeline({
@@ -274,6 +275,58 @@ describe('Engine.dispatch', () => {
     const stop = engine.start();
     await expect(bus.publish(createEvent('a', {}))).rejects.toThrow(AggregateError);
     stop();
+  });
+
+  it('a failing pipeline does not stop sibling pipelines from running, and ALL failures surface', async () => {
+    const ranPipelines: string[] = [];
+    const failFast = new Pipeline({
+      id: 'fail-fast',
+      on: ['a'],
+      do: [
+        new FunctionAction({
+          fn: () => {
+            throw new Error('fail-fast boom');
+          },
+        }),
+      ],
+    });
+    const slowThenFails = new Pipeline({
+      id: 'slow-then-fails',
+      on: ['a'],
+      do: [
+        new FunctionAction({
+          fn: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            throw new Error('slow boom');
+          },
+        }),
+      ],
+    });
+    const succeeds = new Pipeline({
+      id: 'succeeds',
+      on: ['a'],
+      do: [new FunctionAction({ fn: () => ranPipelines.push('succeeds') })],
+    });
+
+    const engine = new Engine({
+      bus: new EventBus(),
+      agents: new AgentRegistry(),
+      pipelines: new StaticPipelineSource([failFast, slowThenFails, succeeds]),
+    });
+
+    let thrown: unknown;
+    try {
+      await engine.dispatch(createEvent('a', {}));
+    } catch (err) {
+      thrown = err;
+    }
+
+    // El pipeline que no falla corrió igual — un fallo en otro no lo cortó a mitad de camino.
+    expect(ranPipelines).toEqual(['succeeds']);
+    // Y el error agregado trae LOS DOS fallos, no sólo el primero que ganó la carrera.
+    expect(thrown).toBeInstanceOf(AggregateError);
+    const messages = (thrown as AggregateError).errors.map((e: Error) => e.message).sort();
+    expect(messages).toEqual(['fail-fast boom', 'slow boom']);
   });
 
   it('start() returns an unsubscribe that stops future dispatches', async () => {

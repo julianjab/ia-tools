@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { functionAgent } from '../../src/agent/FunctionAgent.js';
+import { functionAgent, withExit } from '../../src/agent/FunctionAgent.js';
 import { createEvent } from '../../src/events/DomainEvent.js';
 
 describe('functionAgent', () => {
@@ -9,10 +9,17 @@ describe('functionAgent', () => {
     expect(result).toEqual({ output: 'hello', exit: 'success' });
   });
 
-  it('passes through an explicit AgentRunOutput unchanged', async () => {
-    const agent = functionAgent('shaped', () => ({ output: { x: 1 }, exit: 'needs_review' }));
+  it('passes through an explicit withExit() output unchanged', async () => {
+    const agent = functionAgent('shaped', () => withExit({ x: 1 }, 'needs_review'));
     const result = await agent.run({ event: createEvent('t', {}), steps: {} });
-    expect(result).toEqual({ output: { x: 1 }, exit: 'needs_review' });
+    expect(result.output).toEqual({ x: 1 });
+    expect(result.exit).toBe('needs_review');
+  });
+
+  it('withExit defaults exit to "success"', async () => {
+    const agent = functionAgent('shaped', () => withExit('patched'));
+    const result = await agent.run({ event: createEvent('t', {}), steps: {} });
+    expect(result).toEqual({ output: 'patched', exit: 'success' });
   });
 
   it('supports an async function', async () => {
@@ -29,10 +36,20 @@ describe('functionAgent', () => {
     expect(agent.id).toBe('my-id');
   });
 
-  it('does not mistake a plain object output for an AgentRunOutput unless it has "output"', async () => {
+  it('does not mistake a plain object output for an AgentRunOutput', async () => {
     const agent = functionAgent<{ label: string }>('object-output', () => ({ label: 'bug' }));
     const result = await agent.run({ event: createEvent('t', {}), steps: {} });
     expect(result).toEqual({ output: { label: 'bug' }, exit: 'success' });
+  });
+
+  it('a domain object that happens to have its own "output" key is NOT mistaken for an AgentRunOutput', async () => {
+    // Antes de la marca por Symbol, cualquier objeto de dominio con una clave `output`
+    // (plausible: `{ output: 'usd', amountCents: 500 }`) se confundía con el AgentRunOutput
+    // real y perdía el resto de sus campos. Sin `withExit`, ahora se envuelve tal cual.
+    const domainOutput = { output: 'usd', amountCents: 500 };
+    const agent = functionAgent('currency', () => domainOutput);
+    const result = await agent.run({ event: createEvent('t', {}), steps: {} });
+    expect(result).toEqual({ output: domainOutput, exit: 'success' });
   });
 
   it('forwards the run input (event/steps/brief) to the function', async () => {
