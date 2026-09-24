@@ -2,6 +2,7 @@ packages:
   - plugins/slack-bridge
   - packages/agent-pipeline
   - packages/provider-anthropic
+  - packages/github
   # Gitignored local playground (see .gitignore) — pnpm just skips this entry on a fresh
   # clone where the directory doesn't exist yet.
   - examples
