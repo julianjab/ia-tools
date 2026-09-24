@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import * as lib from './index.js';
+import * as lib from '../src/index.js';
 
 describe('package entrypoint', () => {
   it('exports the harness building blocks', () => {

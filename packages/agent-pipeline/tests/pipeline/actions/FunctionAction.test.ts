@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../../agent/AgentRegistry.js';
-import { createEvent } from '../../events/DomainEvent.js';
-import { EventBus } from '../../events/EventBus.js';
-import { FunctionAction } from './FunctionAction.js';
-import type { PipelineExecutionContext } from './PipelineAction.js';
+import { AgentRegistry } from '../../../src/agent/AgentRegistry.js';
+import { createEvent } from '../../../src/events/DomainEvent.js';
+import { EventBus } from '../../../src/events/EventBus.js';
+import { FunctionAction } from '../../../src/pipeline/actions/FunctionAction.js';
+import type { PipelineExecutionContext } from '../../../src/pipeline/actions/PipelineAction.js';
 
 function makeCtx(): PipelineExecutionContext {
   return {

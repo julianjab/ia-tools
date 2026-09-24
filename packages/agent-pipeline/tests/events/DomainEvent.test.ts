@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEvent, deriveEvent } from './DomainEvent.js';
+import { createEvent, deriveEvent } from '../../src/events/DomainEvent.js';
 
 describe('createEvent', () => {
   it('defaults depth to 0 and stamps occurredAt', () => {
@@ -37,5 +37,23 @@ describe('deriveEvent', () => {
     const parent = createEvent('a', {});
     const child = deriveEvent(parent, 'b', {}, { scope: { tripId: 't1' } });
     expect(child.scope).toEqual({ tripId: 't1' });
+  });
+
+  it('inherits the parent scope when no explicit scope is given', () => {
+    const parent = createEvent('a', {}, { scope: { repo: 'x' } });
+    const child = deriveEvent(parent, 'b', {});
+    expect(child.scope).toEqual({ repo: 'x' });
+  });
+
+  it('an explicit scope wins over the inherited one, even an empty object', () => {
+    const parent = createEvent('a', {}, { scope: { repo: 'x' } });
+    const child = deriveEvent(parent, 'b', {}, { scope: {} });
+    expect(child.scope).toEqual({});
+  });
+
+  it('stays undefined when neither the parent nor the derived event declare a scope', () => {
+    const parent = createEvent('a', {});
+    const child = deriveEvent(parent, 'b', {});
+    expect(child.scope).toBeUndefined();
   });
 });

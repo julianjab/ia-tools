@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../agent/AgentRegistry.js';
-import { functionAgent } from '../agent/FunctionAgent.js';
-import { Condition } from '../condition/Condition.js';
-import { createEvent } from '../events/DomainEvent.js';
-import { EventBus } from '../events/EventBus.js';
-import { Pipeline } from '../pipeline/Pipeline.js';
-import { AgentAction } from '../pipeline/actions/AgentAction.js';
-import { EmitAction } from '../pipeline/actions/EmitAction.js';
-import { FunctionAction } from '../pipeline/actions/FunctionAction.js';
-import { DEFAULT_MAX_EVENT_DEPTH, Engine } from './Engine.js';
-import { StaticPipelineSource } from './PipelineSource.js';
+import { AgentRegistry } from '../../src/agent/AgentRegistry.js';
+import { functionAgent } from '../../src/agent/FunctionAgent.js';
+import { Condition } from '../../src/condition/Condition.js';
+import { DEFAULT_MAX_EVENT_DEPTH, Engine } from '../../src/engine/Engine.js';
+import { StaticPipelineSource } from '../../src/engine/PipelineSource.js';
+import { createEvent } from '../../src/events/DomainEvent.js';
+import { EventBus } from '../../src/events/EventBus.js';
+import { Pipeline } from '../../src/pipeline/Pipeline.js';
+import { AgentAction } from '../../src/pipeline/actions/AgentAction.js';
+import { EmitAction } from '../../src/pipeline/actions/EmitAction.js';
+import { FunctionAction } from '../../src/pipeline/actions/FunctionAction.js';
 
 describe('Engine.dispatch', () => {
   it('returns "skipped" when no pipeline matches the event type', async () => {
@@ -135,7 +135,7 @@ describe('Engine.dispatch', () => {
     expect(ranPipelines.sort()).toEqual(['p1', 'p2']);
   });
 
-  it('an exclusive pipeline runs alone, chosen by lowest position, and suppresses non-exclusive matches', async () => {
+  it('the winning exclusive pipeline (lowest position) suppresses exclusive AND non-exclusive matches of equal-or-lower priority', async () => {
     const ranPipelines: string[] = [];
     const low = new Pipeline({
       id: 'low',
@@ -148,23 +148,50 @@ describe('Engine.dispatch', () => {
       id: 'high',
       on: ['x'],
       exclusive: true,
-      position: 0,
+      position: 5,
       do: [new FunctionAction({ fn: () => ranPipelines.push('high') })],
     });
-    const nonExclusive = new Pipeline({
-      id: 'non-exclusive',
+    const nonExclusiveLowerPriority = new Pipeline({
+      id: 'non-exclusive-lower',
       on: ['x'],
-      do: [new FunctionAction({ fn: () => ranPipelines.push('non-exclusive') })],
+      position: 5,
+      do: [new FunctionAction({ fn: () => ranPipelines.push('non-exclusive-lower') })],
     });
 
     const engine = new Engine({
       bus: new EventBus(),
       agents: new AgentRegistry(),
-      pipelines: new StaticPipelineSource([low, high, nonExclusive]),
+      pipelines: new StaticPipelineSource([low, high, nonExclusiveLowerPriority]),
     });
     await engine.dispatch(createEvent('x', {}));
 
     expect(ranPipelines).toEqual(['high']);
+  });
+
+  it('a pipeline with HIGHER priority (lower position) than the winning exclusive still runs alongside it', async () => {
+    const ranPipelines: string[] = [];
+    const exclusive = new Pipeline({
+      id: 'exclusive',
+      on: ['x'],
+      exclusive: true,
+      position: 5,
+      do: [new FunctionAction({ fn: () => ranPipelines.push('exclusive') })],
+    });
+    const higherPriority = new Pipeline({
+      id: 'higher-priority',
+      on: ['x'],
+      position: 0,
+      do: [new FunctionAction({ fn: () => ranPipelines.push('higher-priority') })],
+    });
+
+    const engine = new Engine({
+      bus: new EventBus(),
+      agents: new AgentRegistry(),
+      pipelines: new StaticPipelineSource([exclusive, higherPriority]),
+    });
+    await engine.dispatch(createEvent('x', {}));
+
+    expect(ranPipelines.sort()).toEqual(['exclusive', 'higher-priority']);
   });
 
   it('start() subscribes to the bus so a plain publish triggers a dispatch', async () => {
@@ -223,6 +250,30 @@ describe('Engine.dispatch', () => {
     // depth 0 (inicial) + 3 derivados (depth 1,2,3) llegan a publish; el dispatch en
     // depth 3 ve `depth >= maxEventDepth` y no deriva un cuarto — la cadena no es infinita.
     expect(pingCount).toBe(4);
+  });
+
+  it('start() returns the dispatch promise to the bus, so a pipeline error surfaces via publish() instead of an unhandled rejection', async () => {
+    const bus = new EventBus();
+    const pipeline = new Pipeline({
+      id: 'boom',
+      on: ['a'],
+      do: [
+        new FunctionAction({
+          fn: () => {
+            throw new Error('agent exploded');
+          },
+        }),
+      ],
+    });
+    const engine = new Engine({
+      bus,
+      agents: new AgentRegistry(),
+      pipelines: new StaticPipelineSource([pipeline]),
+    });
+
+    const stop = engine.start();
+    await expect(bus.publish(createEvent('a', {}))).rejects.toThrow(AggregateError);
+    stop();
   });
 
   it('start() returns an unsubscribe that stops future dispatches', async () => {

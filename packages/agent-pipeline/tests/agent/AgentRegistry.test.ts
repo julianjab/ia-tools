@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from './AgentRegistry.js';
-import { functionAgent } from './FunctionAgent.js';
+import { AgentRegistry } from '../../src/agent/AgentRegistry.js';
+import { functionAgent } from '../../src/agent/FunctionAgent.js';
 
 describe('AgentRegistry', () => {
   it('resolves a registered agent by id', () => {

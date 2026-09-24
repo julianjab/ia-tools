@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../../agent/AgentRegistry.js';
-import { Condition } from '../../condition/Condition.js';
-import { createEvent } from '../../events/DomainEvent.js';
-import { EventBus } from '../../events/EventBus.js';
-import { PipelineAction, type PipelineExecutionContext } from './PipelineAction.js';
+import { AgentRegistry } from '../../../src/agent/AgentRegistry.js';
+import { Condition } from '../../../src/condition/Condition.js';
+import { createEvent } from '../../../src/events/DomainEvent.js';
+import { EventBus } from '../../../src/events/EventBus.js';
+import {
+  PipelineAction,
+  type PipelineExecutionContext,
+} from '../../../src/pipeline/actions/PipelineAction.js';
 
 class NoopAction extends PipelineAction {
   async run(_ctx: PipelineExecutionContext): Promise<unknown> {

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../agent/AgentRegistry.js';
-import { functionAgent } from '../agent/FunctionAgent.js';
-import { Condition } from '../condition/Condition.js';
-import { createEvent } from '../events/DomainEvent.js';
-import { EventBus } from '../events/EventBus.js';
-import { Pipeline, isAgentAction } from './Pipeline.js';
-import { AgentAction } from './actions/AgentAction.js';
-import { FunctionAction } from './actions/FunctionAction.js';
+import { AgentRegistry } from '../../src/agent/AgentRegistry.js';
+import { functionAgent } from '../../src/agent/FunctionAgent.js';
+import { Condition } from '../../src/condition/Condition.js';
+import { createEvent } from '../../src/events/DomainEvent.js';
+import { EventBus } from '../../src/events/EventBus.js';
+import { Pipeline, isAgentAction } from '../../src/pipeline/Pipeline.js';
+import { AgentAction } from '../../src/pipeline/actions/AgentAction.js';
+import { FunctionAction } from '../../src/pipeline/actions/FunctionAction.js';
 
 describe('Pipeline.matches', () => {
   it('requires enabled', () => {

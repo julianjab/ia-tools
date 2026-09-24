@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEvent } from './DomainEvent.js';
-import { EventBus } from './EventBus.js';
+import { createEvent } from '../../src/events/DomainEvent.js';
+import { EventBus } from '../../src/events/EventBus.js';
 
 describe('EventBus', () => {
   it('delivers an event to a handler subscribed on its exact type', async () => {
