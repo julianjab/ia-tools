@@ -78,9 +78,29 @@ export function anthropicProvider(options: AnthropicProviderOptions): Provider {
         }
         const data = (await response.json()) as AnthropicMessagesResponse;
 
-        if (data.stop_reason !== 'tool_use') {
+        if (data.stop_reason === 'max_tokens') {
+          // Se quedó sin tokens a mitad de la respuesta — `text` puede venir vacío (si el
+          // corte cayó dentro de un `tool_use`) o parcial. NO es un resultado del agente
+          // (nadie decidió terminar así), así que el outcome es 'truncated' — el mismo que
+          // `agent.ts` ya trata como NO_TRANSITION_OUTCOMES: `matchExit` no aplica ninguna
+          // transición para esto, en vez de que un texto cortado a la mitad se lea como
+          // 'success' y dispare igual la transición normal.
+          const text = data.content.find((block) => block.type === 'text')?.text ?? '';
+          return { outcome: 'truncated', summary: text };
+        }
+
+        if (data.stop_reason === 'end_turn' || data.stop_reason === 'stop_sequence') {
           const text = data.content.find((block) => block.type === 'text')?.text ?? '';
           return { outcome: options.resolveOutcome?.(text) ?? 'success', summary: text };
+        }
+
+        if (data.stop_reason !== 'tool_use') {
+          // `null`, o cualquier otro stop_reason que la API llegue a agregar — no lo
+          // adivinamos como éxito. Mejor un error explícito que un run que se reporta bien
+          // sin haber terminado como se esperaba.
+          throw new Error(
+            `anthropicProvider(${options.id}): stop_reason inesperado "${data.stop_reason}"`,
+          );
         }
 
         // El modelo pidió correr tools — las ejecutamos TODAS las que pidió en esta vuelta
