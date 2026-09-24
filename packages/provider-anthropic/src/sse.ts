@@ -149,17 +149,29 @@ export async function readAnthropicSseStream(
   const blocks: Array<Record<string, unknown>> = [];
   const pendingToolJson: string[] = [];
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split('\n\n');
-    buffer = events.pop() ?? '';
-    for (const raw of events) {
-      if (!raw.trim()) continue;
-      const { eventType, data } = parseSseFrame(raw);
-      if (data) applySseEvent(eventType, data, message, blocks, pendingToolJson, onDelta);
+  // `onDelta` es código del CALLER corriendo adentro de este loop — a diferencia del resto de
+  // `applySseEvent`, puede tirar (ej. `process.stdout.write` sobre un pipe cerrado). Sin este
+  // try/finally, esa excepción salía del loop dejando el reader sin liberar y la conexión HTTP
+  // abierta hasta que el GC la juntara, perdiendo además el response ya reensamblado aunque la
+  // API haya respondido bien.
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() ?? '';
+      for (const raw of events) {
+        if (!raw.trim()) continue;
+        const { eventType, data } = parseSseFrame(raw);
+        if (data) applySseEvent(eventType, data, message, blocks, pendingToolJson, onDelta);
+      }
     }
+  } catch (err) {
+    await reader.cancel(err).catch(() => {});
+    throw err;
+  } finally {
+    reader.releaseLock();
   }
 
   message.content = blocks;
