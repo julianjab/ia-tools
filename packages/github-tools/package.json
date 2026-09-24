@@ -1,0 +1,31 @@
+{
+  "name": "@ia-tools/github-tools",
+  "version": "0.1.0",
+  "description": "Tool[] de agent-pipeline respaldadas por la REST API de GitHub — leer/comentar/etiquetar issues, buscar issues. Puente entre @ia-tools/github (auth+client) y @ia-tools/agent-pipeline (el tipo Tool)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-tools/agent-pipeline": "workspace:*",
+    "@ia-tools/github": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}
