@@ -315,11 +315,20 @@ export class AnthropicProvider implements Provider {
         return { outcome: opts.resolveOutcome?.(text) ?? 'success', summary: text };
       }
 
+      if (data.stop_reason === 'pause_turn') {
+        // El modelo se pausó a MITAD de turno — no es una pausa entre turnos (eso sería
+        // `end_turn`/`tool_use` normal), es el mecanismo que usa la API para runs largos con
+        // tools server-side (MCP remoto, extended thinking): el turno sigue, así que se
+        // reenvía la conversación con el contenido parcial agregado, sin turno de usuario de
+        // por medio, y el modelo continúa desde donde quedó. Cuenta contra `maxToolRounds`
+        // igual que una vuelta de tool_use, para no quedar colgado si nunca converge.
+        messages = [...messages, { role: 'assistant', content: data.content }];
+        continue;
+      }
+
       if (data.stop_reason !== 'tool_use') {
-        // `pause_turn`, `null`, o cualquier otro stop_reason que la API llegue a agregar — no
-        // se adivina como éxito. Reanudar un `pause_turn` necesita el mismo mecanismo de
-        // checkpoint/resume que un run pausado (ver `onCheckpoint`/`resumeMessages`), que este
-        // paquete no orquesta automáticamente dentro de una sola llamada a `run`.
+        // `null`, o cualquier otro stop_reason que la API llegue a agregar — no se adivina
+        // como éxito.
         throw new Error(
           `AnthropicProvider(${opts.id}): stop_reason inesperado "${data.stop_reason}"`,
         );

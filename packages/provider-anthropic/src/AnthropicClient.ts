@@ -91,18 +91,36 @@ function sleep(ms: number): Promise<void> {
 export class AnthropicClient {
   constructor(private readonly options: AnthropicClientOptions = {}) {}
 
+  /** Resuelve qué credencial usar. Una credencial EXPLÍCITA (pasada en las opciones) siempre
+   *  gana sobre el entorno, y sólo la del tipo explícito se considera — si pasás `apiKey` y el
+   *  proceso además tiene `CLAUDE_CODE_OAUTH_TOKEN` seteado (el caso normal corriendo dentro de
+   *  Claude Code), el Bearer del entorno NO debe pisar la key que pediste explícitamente. Sólo
+   *  cuando NINGUNA de las dos vino explícita se cae al entorno, con el mismo orden que ia-flow
+   *  (`CLAUDE_CODE_OAUTH_TOKEN` antes que `ANTHROPIC_API_KEY`). */
+  private resolveAuth(): { oauthToken?: string; apiKey?: string } {
+    if (this.options.oauthToken) return { oauthToken: this.options.oauthToken };
+    if (this.options.apiKey) return { apiKey: this.options.apiKey };
+    return {
+      oauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    };
+  }
+
   private buildHeaders(extraBetas: string[]): Record<string, string> {
-    const apiKey = this.options.apiKey ?? process.env.ANTHROPIC_API_KEY;
-    const oauthToken = this.options.oauthToken ?? process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    const { oauthToken, apiKey } = this.resolveAuth();
     const auth: Record<string, string> = {};
-    if (oauthToken) auth.Authorization = `Bearer ${oauthToken}`;
-    else if (apiKey) auth['x-api-key'] = apiKey;
-    else {
+    const betas = new Set<string>(this.options.anthropicBeta ?? []);
+    if (oauthToken) {
+      auth.Authorization = `Bearer ${oauthToken}`;
+      // La Messages API rechaza un Bearer OAuth sin esta beta.
+      betas.add('oauth-2025-04-20');
+    } else if (apiKey) {
+      auth['x-api-key'] = apiKey;
+    } else {
       throw new Error(
         'AnthropicClient: falta credencial — pasá apiKey/oauthToken o seteá ANTHROPIC_API_KEY/CLAUDE_CODE_OAUTH_TOKEN',
       );
     }
-    const betas = new Set<string>(this.options.anthropicBeta ?? []);
     for (const beta of extraBetas) betas.add(beta);
     const headers: Record<string, string> = {
       'content-type': 'application/json',
