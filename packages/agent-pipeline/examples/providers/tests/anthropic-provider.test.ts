@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderRunContext } from '../../agent.js';
 import { anthropicProvider } from '../anthropic-provider.js';
 
-function textResponse(text: string, stopReason: 'end_turn' = 'end_turn') {
+function textResponse(
+  text: string,
+  stopReason: 'end_turn' | 'stop_sequence' | 'max_tokens' | null = 'end_turn',
+) {
   return {
     ok: true,
     json: async () => ({ content: [{ type: 'text', text }], stop_reason: stopReason }),
@@ -59,6 +62,48 @@ describe('anthropicProvider', () => {
 
     expect(result).toEqual({ outcome: 'success', summary: 'hola' });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats stop_sequence the same as end_turn — resolveOutcome applies, outcome defaults to success', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(textResponse('hola', 'stop_sequence'));
+    const provider = anthropicProvider({
+      id: 'a',
+      model: 'claude-x',
+      apiKey: 'test-key',
+      fetchImpl,
+    });
+
+    const result = await provider.run(makeCtx());
+    expect(result).toEqual({ outcome: 'success', summary: 'hola' });
+  });
+
+  it('a max_tokens cutoff resolves to outcome "truncated" — NOT resolveOutcome/success', async () => {
+    const resolveOutcome = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue(textResponse('respuesta a medi', 'max_tokens'));
+    const provider = anthropicProvider({
+      id: 'a',
+      model: 'claude-x',
+      apiKey: 'test-key',
+      fetchImpl,
+      resolveOutcome,
+    });
+
+    const result = await provider.run(makeCtx());
+
+    expect(result).toEqual({ outcome: 'truncated', summary: 'respuesta a medi' });
+    expect(resolveOutcome).not.toHaveBeenCalled();
+  });
+
+  it('an unexpected/null stop_reason throws instead of being read as success', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(textResponse('', null));
+    const provider = anthropicProvider({
+      id: 'a',
+      model: 'claude-x',
+      apiKey: 'test-key',
+      fetchImpl,
+    });
+
+    await expect(provider.run(makeCtx())).rejects.toThrow(/stop_reason inesperado/);
   });
 
   it('resolveOutcome derives the outcome from the final text', async () => {
