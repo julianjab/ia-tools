@@ -1,5 +1,5 @@
 import type { Tool } from '@ia-tools/agent-pipeline';
-import type { GithubClient } from '@ia-tools/github';
+import type { GithubClient } from '@ia-tools/github-api';
 
 export interface GetIssueInput {
   owner: string;

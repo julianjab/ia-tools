@@ -1,7 +1,7 @@
 {
-  "name": "@ia-tools/github",
+  "name": "@ia-tools/github-webhook",
   "version": "0.1.0",
-  "description": "Auth de GitHub (login de usuario o de GitHub App) + verificación/traducción de webhooks a eventos — standalone, sin depender de ningún engine",
+  "description": "Verificación de firma de webhooks de GitHub + primitivos puros para que la app escriba su propio traductor payload → evento — standalone, cero dependencias runtime",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

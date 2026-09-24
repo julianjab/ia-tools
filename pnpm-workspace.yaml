@@ -2,8 +2,9 @@ packages:
   - plugins/slack-bridge
   - packages/agent-pipeline
   - packages/provider-anthropic
-  - packages/github
-  - packages/github-tools
+  # auth/, webhook/, api/, tools/ — cuatro paquetes propios dentro de una sola carpeta github/,
+  # en vez de carpetas por-funcionalidad dentro de un solo paquete.
+  - packages/github/*
   # Gitignored local playground (see .gitignore) — pnpm just skips this entry on a fresh
   # clone where the directory doesn't exist yet.
   - examples

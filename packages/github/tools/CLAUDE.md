@@ -1,14 +1,16 @@
 # @ia-tools/github-tools
 
-Puente entre `@ia-tools/github` y `@ia-tools/agent-pipeline`. Ver `README.md` para el contrato
-de uso; esto es guía específica para trabajar en el código del paquete.
+Puente entre `@ia-tools/github-api` y `@ia-tools/agent-pipeline`. Ver `README.md` para el
+contrato de uso; esto es guía específica para trabajar en el código del paquete.
 
-## Por qué este paquete y no uno de los otros dos
+## Por qué este paquete y no uno de los otros
 
-`@ia-tools/github` no puede definir `Tool[]` — no depende de `agent-pipeline` (es standalone a
-propósito, ver su CLAUDE.md). `agent-pipeline` no puede saber hablar con la REST API de GitHub —
-es contrato puro, sin I/O. Este paquete es el único punto que importa los dos: `GithubClient`
-(de `github`) + el tipo `Tool` (de `agent-pipeline`).
+`@ia-tools/github-api` no puede definir `Tool[]` — no depende de `agent-pipeline` (es standalone
+a propósito). `agent-pipeline` no puede saber hablar con la REST API de GitHub — es contrato
+puro, sin I/O. Este paquete es el único punto que importa los dos: `GithubClient` (de
+`github-api`) + el tipo `Tool` (de `agent-pipeline`). Vive en `packages/github/tools/` —
+hermano de `auth/`, `webhook/` y `api/` dentro de la misma carpeta `github/`, pero como
+`package.json` propio, no como subcarpeta de ninguno de los otros tres.
 
 ## Estructura
 
@@ -19,9 +21,10 @@ src/
 └── tests/
 ```
 
-Package chico, sin subcarpetas por funcionalidad (a diferencia de `@ia-tools/github`) — sólo
-hay una funcionalidad: envolver un `GithubClient` en `Tool[]`. Si esto crece (más tools, o
-tools que agrupen por dominio — issues vs. PRs vs. releases), ahí sí conviene subdividir.
+Package chico, sin subcarpetas por funcionalidad (a diferencia de `github-api`/`github-auth`/
+`github-webhook`) — sólo hay una funcionalidad: envolver un `GithubClient` en `Tool[]`. Si esto
+crece (más tools, o tools que agrupen por dominio — issues vs. PRs vs. releases), ahí sí conviene
+subdividir.
 
 ## Agregar una tool nueva
 

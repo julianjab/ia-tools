@@ -1,8 +1,8 @@
 # @ia-tools/github-tools
 
-`Tool[]` de [`@ia-tools/agent-pipeline`](../agent-pipeline) respaldadas por la REST API de
+`Tool[]` de [`@ia-tools/agent-pipeline`](../../agent-pipeline) respaldadas por la REST API de
 GitHub — leer un issue, comentar, agregar labels, buscar issues. Es el ÚNICO puente entre
-[`@ia-tools/github`](../github) (auth + client, no sabe qué es un `Agent`) y `agent-pipeline`
+[`@ia-tools/github-api`](../api) (el client, no sabe qué es un `Agent`) y `agent-pipeline`
 (el tipo `Tool`, no sabe hablar con GitHub) — ninguno de los dos se conoce entre sí.
 
 ## Instalar (dentro del monorepo)
@@ -16,7 +16,8 @@ pnpm --filter @ia-tools/github-tools test
 
 ```ts
 import { Agent } from '@ia-tools/agent-pipeline';
-import { GithubClient, GithubTokenAuth } from '@ia-tools/github';
+import { GithubTokenAuth } from '@ia-tools/github-auth';
+import { GithubClient } from '@ia-tools/github-api';
 import { GithubTools } from '@ia-tools/github-tools';
 
 const client = new GithubClient({ auth: new GithubTokenAuth(process.env.GITHUB_TOKEN!) });
@@ -44,9 +45,9 @@ Un error de la API (404, 401, rate limit) hace que el `handler` tire — `Anthro
 convierte eso en un `tool_result` con `is_error: true` en vez de tumbar el run entero (ver
 `provider-anthropic`), así que las tools acá no necesitan su propio try/catch defensivo.
 
-## Por qué es un paquete propio y no vive en `@ia-tools/github`
+## Por qué es un paquete propio y no vive en `@ia-tools/github-api`
 
-`@ia-tools/github` es standalone a propósito (cero dependencia de `agent-pipeline`, usable por
-cualquier engine). El tipo `Tool` es vocabulario de `agent-pipeline`, así que envolver
-`GithubClient` en `Tool[]` necesita conocer los dos — de ahí que sea un tercer paquete, no que
-uno de los dos importe al otro.
+`@ia-tools/github-api` es standalone a propósito (cero dependencia de `agent-pipeline`, usable
+por cualquier engine). El tipo `Tool` es vocabulario de `agent-pipeline`, así que envolver
+`GithubClient` en `Tool[]` necesita conocer los dos — de ahí que sea un cuarto paquete, no que
+uno de los otros importe al que le falta.

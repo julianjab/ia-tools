@@ -1,4 +1,4 @@
-import type { GithubAuth } from '../auth/GithubAuth.js';
+import type { GithubAuth } from '@ia-tools/github-auth';
 
 const GITHUB_API_URL = 'https://api.github.com';
 const GITHUB_API_VERSION = '2022-11-28';
