@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Condition } from '../../condition/Condition.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
@@ -216,6 +216,38 @@ describe('Agent', () => {
     expect(published).toEqual(['agent.triaged']);
   });
 
+  it('a truncated/cancelled outcome (no exit) never calls emitOn, even though it defines one', async () => {
+    const registry = registerFakeProvider('fake', async () => ({ outcome: 'truncated' }));
+    const bus = new EventBus();
+    const published: string[] = [];
+    bus.subscribe('*', (event) => {
+      published.push(event.type);
+    });
+    const emitOn = vi.fn(() => 'agent.success');
+
+    const agent = new Agent({ id: 'x', provider: 'fake', prompt: 'p', emitOn }, registry);
+    await agent.run({ ...ctxFor(), bus });
+
+    expect(emitOn).not.toHaveBeenCalled();
+    expect(published).toEqual([]);
+  });
+
+  it('an unmapped outcome with no exits.error fallback (no exit) never calls emitOn', async () => {
+    const registry = registerFakeProvider('fake', async () => ({ outcome: 'weird' }));
+    const bus = new EventBus();
+    const published: string[] = [];
+    bus.subscribe('*', (event) => {
+      published.push(event.type);
+    });
+    const emitOn = vi.fn(() => 'agent.success');
+
+    const agent = new Agent({ id: 'x', provider: 'fake', prompt: 'p', emitOn }, registry);
+    await agent.run({ ...ctxFor(), bus });
+
+    expect(emitOn).not.toHaveBeenCalled();
+    expect(published).toEqual([]);
+  });
+
   it('without emitOn, nothing gets published', async () => {
     const registry = registerFakeProvider('fake', async () => ({ outcome: SUCCESS_EXIT }));
     const bus = new EventBus();
@@ -238,7 +270,13 @@ describe('Agent', () => {
     });
 
     const agent = new Agent(
-      { id: 'x', provider: 'fake', prompt: 'p', emitOn: () => 'derived' },
+      {
+        id: 'x',
+        provider: 'fake',
+        prompt: 'p',
+        exits: { [SUCCESS_EXIT]: 'success' },
+        emitOn: () => 'derived',
+      },
       registry,
     );
 
