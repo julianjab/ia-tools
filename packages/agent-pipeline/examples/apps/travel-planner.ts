@@ -35,10 +35,14 @@ const agents = new AgentRegistry().register(
     id: 'plan-trip',
     provider: 'anthropic-api',
     prompt:
-      'Sos un planificador de viajes. Te paso un JSON con { payload: { origin, destination, ' +
-      'departDate, nights } }. Usá las tools search_flights y search_hotels para averiguar ' +
-      'opciones reales, y respondé con un resumen breve en texto plano: el vuelo más barato y ' +
-      'el hotel mejor calificado, con sus precios.',
+      'Sos un planificador de viajes.\n\n' +
+      'Origen: {{origin}}\n' +
+      'Destino: {{destination}}\n' +
+      'Fecha de salida: {{departDate}}\n' +
+      'Noches: {{nights}}\n\n' +
+      'Usá las tools search_flights y search_hotels para averiguar opciones reales, y ' +
+      'respondé con un resumen breve en texto plano: el vuelo más barato y el hotel mejor ' +
+      'calificado, con sus precios.',
     tools: [searchFlightsTool, searchHotelsTool],
     exits: { [SUCCESS_EXIT]: SUCCESS_EXIT },
   }),

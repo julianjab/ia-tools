@@ -41,7 +41,9 @@ const agents = new AgentRegistry()
       id: 'triage',
       provider: 'anthropic-api',
       prompt:
-        'Sos un triager de issues de GitHub. Te paso un JSON con { payload: { title, body } }. ' +
+        'Sos un triager de issues de GitHub.\n\n' +
+        'Título: {{title}}\n' +
+        'Descripción: {{body}}\n\n' +
         'Respondé EXACTAMENTE "actionable" si describe un bug/crash accionable, o ' +
         '"not-actionable" en cualquier otro caso. Sin explicación, sin puntuación extra.',
       // Identity mapping: `resolveOutcome` (arriba) ya deja el outcome en el valor final —

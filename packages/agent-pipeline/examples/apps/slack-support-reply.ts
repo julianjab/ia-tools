@@ -34,8 +34,10 @@ const agents = new AgentRegistry().register(
     id: 'answer-question',
     provider: 'anthropic-api',
     prompt:
-      'Sos soporte de una app de finanzas personales. Te paso un JSON con { payload: { text, ' +
-      'user } }. Respondé la pregunta del usuario en 1-2 oraciones, tono cordial, en español.',
+      'Sos soporte de una app de finanzas personales.\n\n' +
+      'Usuario: {{user}}\n' +
+      'Pregunta: {{text}}\n\n' +
+      'Respondé la pregunta en 1-2 oraciones, tono cordial, en español.',
     exits: { [SUCCESS_EXIT]: SUCCESS_EXIT },
   }),
 );

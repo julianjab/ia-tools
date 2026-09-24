@@ -93,10 +93,29 @@ export function anthropicProvider(options: AnthropicProviderOptions): Provider {
           content: await Promise.all(
             toolUseBlocks.map(async (block) => {
               const tool = ctx.tools.find((t: Tool) => t.name === block.name);
-              const result = tool
-                ? await tool.handler(block.input)
-                : `Error: no existe una tool registrada con nombre "${block.name}"`;
-              return { type: 'tool_result', tool_use_id: block.id, content: String(result) };
+              if (tool == null) {
+                return {
+                  type: 'tool_result',
+                  tool_use_id: block.id,
+                  content: `Error: no existe una tool registrada con nombre "${block.name}"`,
+                  is_error: true,
+                };
+              }
+              // Un `handler` que tira (input inválido, la API de negocio de abajo falla) no
+              // puede tumbar el loop entero — el modelo tiene que verlo como un `tool_result`
+              // con `is_error: true` para poder corregirse (reintentar con otro input, avisar
+              // al usuario), en vez de que el run entero termine en una excepción no manejada.
+              try {
+                const result = await tool.handler(block.input);
+                return { type: 'tool_result', tool_use_id: block.id, content: String(result) };
+              } catch (err) {
+                return {
+                  type: 'tool_result',
+                  tool_use_id: block.id,
+                  content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+                  is_error: true,
+                };
+              }
             }),
           ),
         });
