@@ -8,7 +8,7 @@ completo; esto es guía específica para trabajar en el código del paquete.
 
 Es **contrato puro, sin I/O**: interfaces y clases sin dependencias runtime (`DomainEvent`,
 `EventBus`, `Condition`, `Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`,
-`Provider`, `ProviderRegistry`). La regla NO es "nada que mencione un LLM" — `Agent` sabe
+`Provider`, `ProviderRegistry`, `ToolRegistry`). La regla NO es "nada que mencione un LLM" — `Agent` sabe
 que existe un `prompt`, `systemPrompts`, `exits`; eso es dominio, no infra, porque es
 TypeScript puro sin `fetch` ni credenciales. La línea real es **contrato vs. implementación
 con I/O real**: un `Provider` CONCRETO que le pega a la API de Anthropic/OpenAI/lo que sea
@@ -24,7 +24,8 @@ src/
 │   ├── Agent.ts             clase concreta — un Runnable respaldado por un LLM
 │   ├── AgentDefinition.ts   AgentDefinitionProps + tipos (SystemPromptRef, Tool, AgentExit, ...)
 │   ├── Provider.ts          Provider (interfaz) + ProviderRegistry + providerRegistry (singleton)
-│   └── tests/               Agent.test.ts, AgentDefinition.test.ts, Provider.test.ts
+│   ├── ToolRegistry.ts      base genérica de registry de Tool con AUTO-REGISTRO por clase
+│   └── tests/               Agent.test.ts, AgentDefinition.test.ts, Provider.test.ts, ToolRegistry.test.ts
 ├── condition/
 │   ├── Condition.ts, Conditional.ts
 │   └── tests/
@@ -106,6 +107,33 @@ es conocimiento de cada `Agent` de dominio (`GithubIssuePayload`, `SlackMessageP
 con `createEvent<TripRequestPayload>(...)` dejaría de ser asignable a las firmas internas
 del motor — que es justo el caso de uso central del paquete. Si tocás una de esas firmas,
 mantené `DomainEvent<any>`.
+
+## `ToolRegistry<TArgs>` — auto-registro de `Tool` por clase, no un array a mano
+
+Nace de portar `@ia-tools/github-tools` (y después `fs-tools`) a clases: cada dominio de tools
+(GitHub, filesystem, lo que sea) tiene su propio registry (`GithubToolRegistry`,
+`FsToolRegistry`) que resuelve tools por nombre — mismo contrato que `ProviderRegistry`
+(`get`/`resolve`), pero para tools que un consumidor NO instancia a mano, sino que se
+auto-registran al definirse.
+
+El patrón: una tool concreta extiende una clase base DEL DOMINIO (`GithubTool`, `FsTool` — no
+viven acá, cada paquete de tools define la suya con SU lógica compartida) y llama
+`SuRegistry.register(SuTool)` al final de su propio archivo; un barrel `tools/index.ts` importa
+todos esos archivos (dispara el registro); `new SuRegistry(...)` instancia recién ahí todo lo
+registrado. Agregar una tool nueva nunca toca la lógica de construcción del registry.
+
+**El único punto no-obvio**: `protected static registeredTools` se declara en la base
+(`ToolRegistry`) pero cada subclase concreta TIENE QUE redeclararlo (`protected static
+registeredTools: ToolConstructor<[TusArgs]>[] = [];`) — un `static` de la base es una única
+propiedad compartida por prototype chain; sin la redeclaración, dos dominios distintos
+terminarían empujando a la MISMA lista. El test que lo prueba (`ToolRegistry.test.ts`, "dos
+subclases que redeclaran su propio registeredTools NUNCA comparten lista") es el que hay que
+mirar si esto se rompe.
+
+`static register()` usa `this.registeredTools` con `this` POLIMÓRFICO a propósito (la subclase
+real que llamó `.register`) — de ahí el `biome-ignore lint/complexity/noThisInStatic` puntual:
+el fix automático de biome ("usar el nombre de la clase") rompería justo el aislamiento que
+este diseño busca.
 
 ## Antes de tocar código
 
