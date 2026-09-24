@@ -52,4 +52,24 @@ describe('fs_grep', () => {
 
     expect(matches).toEqual([{ file: join('sub', 'x.ts'), line: 1, text: 'needle' }]);
   });
+
+  it('salta líneas más largas que el tope — nunca corre el regex contra ellas', async () => {
+    const longLine = `${'x'.repeat(3000)}needle`;
+    await writeFile(join(baseDir, 'a.ts'), `${longLine}\nneedle corto\n`, 'utf-8');
+    const tool = new FsGrepTool(baseDir);
+
+    const matches = JSON.parse(await tool.handler({ pattern: 'needle' }));
+
+    expect(matches).toEqual([{ file: 'a.ts', line: 2, text: 'needle corto' }]);
+  });
+
+  it('salta archivos más grandes que el tope', async () => {
+    await writeFile(join(baseDir, 'huge.ts'), `${'x'.repeat(3 * 1024 * 1024)}needle`, 'utf-8');
+    await writeFile(join(baseDir, 'small.ts'), 'needle', 'utf-8');
+    const tool = new FsGrepTool(baseDir);
+
+    const matches = JSON.parse(await tool.handler({ pattern: 'needle' }));
+
+    expect(matches).toEqual([{ file: 'small.ts', line: 1, text: 'needle' }]);
+  });
 });

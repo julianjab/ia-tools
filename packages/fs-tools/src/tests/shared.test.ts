@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,8 +8,11 @@ let baseDir: string;
 let outsideDir: string;
 
 beforeEach(async () => {
-  baseDir = await mkdtemp(join(tmpdir(), 'fs-tools-shared-base-'));
-  outsideDir = await mkdtemp(join(tmpdir(), 'fs-tools-shared-outside-'));
+  // realpath: en macOS $TMPDIR resuelve bajo un symlink (/tmp -> /private/tmp); resolveSafePath
+  // ahora devuelve el path YA resuelto (ver "mitigación TOCTOU" en shared.ts), así que hay que
+  // comparar contra eso, no contra el string crudo que devuelve mkdtemp.
+  baseDir = await realpath(await mkdtemp(join(tmpdir(), 'fs-tools-shared-base-')));
+  outsideDir = await realpath(await mkdtemp(join(tmpdir(), 'fs-tools-shared-outside-')));
 });
 
 afterEach(async () => {
@@ -66,6 +69,8 @@ describe('resolveSafePath', () => {
     await writeFile(join(baseDir, 'real.txt'), 'x', 'utf-8');
     await symlink(join(baseDir, 'real.txt'), join(baseDir, 'alias.txt'));
 
-    await expect(resolveSafePath(baseDir, 'alias.txt')).resolves.toBe(join(baseDir, 'alias.txt'));
+    // Devuelve el path REAL (el symlink resuelto), no el lexical del symlink — ver la nota de
+    // "mitigación TOCTOU" en resolveRealPath.
+    await expect(resolveSafePath(baseDir, 'alias.txt')).resolves.toBe(join(baseDir, 'real.txt'));
   });
 });
