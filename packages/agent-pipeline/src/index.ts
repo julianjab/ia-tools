@@ -6,6 +6,8 @@ export { functionAgent, withExit } from './agent/FunctionAgent.js';
 
 export type { ConditionOp, ConditionRow } from './condition/Condition.js';
 export { Condition } from './condition/Condition.js';
+export type { ConditionalProps } from './condition/Conditional.js';
+export { Conditional } from './condition/Conditional.js';
 
 export type { CreateEventOptions, DomainEvent } from './events/DomainEvent.js';
 export { createEvent, deriveEvent } from './events/DomainEvent.js';

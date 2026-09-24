@@ -1,13 +1,12 @@
-import { Condition } from '../condition/Condition.js';
+import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import { AgentAction } from './actions/AgentAction.js';
 import type { PipelineAction, PipelineExecutionContext } from './actions/PipelineAction.js';
 
-export interface PipelineProps {
+export interface PipelineProps extends ConditionalProps {
   id: string;
   /** Tipos de DomainEvent que este pipeline escucha — al menos uno. */
   on: string[];
-  when?: Condition[];
   /**
    * Filtro sobre `event.scope` — cada clave presente acá tiene que matchear EXACTO en el
    * evento (fail-closed, igual que `Pipeline.matchesScope` de engine-v2, pero genérico:
@@ -25,10 +24,9 @@ export interface PipelineProps {
  * Filtra eventos y ejecuta su cadena de `do` en orden, acumulando el output de cada paso
  * nombrado en `ctx.steps` para que los pasos siguientes lo lean.
  */
-export class Pipeline {
+export class Pipeline extends Conditional {
   readonly id: string;
   readonly on: string[];
-  readonly when: Condition[];
   readonly scope?: Record<string, unknown>;
   readonly enabled: boolean;
   readonly position: number;
@@ -36,9 +34,9 @@ export class Pipeline {
   readonly do: PipelineAction[];
 
   constructor(props: PipelineProps) {
+    super(props);
     this.id = props.id;
     this.on = props.on;
-    this.when = props.when ?? [];
     this.scope = props.scope;
     this.enabled = props.enabled ?? true;
     this.position = props.position ?? 0;
@@ -54,7 +52,7 @@ export class Pipeline {
     if (!this.enabled) return false;
     if (!this.on.includes(event.type)) return false;
     if (!this.matchesScope(event)) return false;
-    return Condition.evaluateAll(this.when, event.payload);
+    return this.matchesConditions(event.payload);
   }
 
   private matchesScope(event: DomainEvent<any>): boolean {
