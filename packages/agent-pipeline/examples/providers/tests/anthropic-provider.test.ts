@@ -145,7 +145,50 @@ describe('anthropicProvider', () => {
     await provider.run(makeCtx());
 
     const secondCallBody = JSON.parse(fetchImpl.mock.calls[1][1].body);
-    expect(secondCallBody.messages[2].content[0].content).toMatch(/no existe una tool/);
+    expect(secondCallBody.messages[2].content[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'tu_1',
+      content: 'Error: no existe una tool registrada con nombre "unknown_tool"',
+      is_error: true,
+    });
+  });
+
+  it('a tool handler that throws sends an is_error tool_result instead of crashing the loop', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(toolUseResponse('flaky', 'tu_1', {}))
+      .mockResolvedValueOnce(textResponse('recovered'));
+
+    const provider = anthropicProvider({
+      id: 'a',
+      model: 'claude-x',
+      apiKey: 'test-key',
+      fetchImpl,
+    });
+
+    const result = await provider.run(
+      makeCtx({
+        tools: [
+          {
+            name: 'flaky',
+            description: '',
+            inputSchema: {},
+            handler: () => {
+              throw new Error('input inválido');
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toEqual({ outcome: 'success', summary: 'recovered' });
+    const secondCallBody = JSON.parse(fetchImpl.mock.calls[1][1].body);
+    expect(secondCallBody.messages[2].content[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'tu_1',
+      content: 'Error: input inválido',
+      is_error: true,
+    });
   });
 
   it('throws once maxToolRounds is exceeded without converging', async () => {
