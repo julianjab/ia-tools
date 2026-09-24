@@ -1,27 +1,71 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveSafePath } from '../shared.js';
 
-const baseDir = '/tmp/fs-tools-test-base';
+let baseDir: string;
+let outsideDir: string;
+
+beforeEach(async () => {
+  baseDir = await mkdtemp(join(tmpdir(), 'fs-tools-shared-base-'));
+  outsideDir = await mkdtemp(join(tmpdir(), 'fs-tools-shared-outside-'));
+});
+
+afterEach(async () => {
+  await rm(baseDir, { recursive: true, force: true });
+  await rm(outsideDir, { recursive: true, force: true });
+});
 
 describe('resolveSafePath', () => {
-  it('resuelve un path relativo dentro de baseDir', () => {
-    expect(resolveSafePath(baseDir, 'src/index.ts')).toBe(join(baseDir, 'src/index.ts'));
+  it('resuelve un path relativo dentro de baseDir', async () => {
+    await writeFile(join(baseDir, 'a.txt'), 'x', 'utf-8');
+    expect(await resolveSafePath(baseDir, 'a.txt')).toBe(join(baseDir, 'a.txt'));
   });
 
-  it('resuelve "." a baseDir mismo', () => {
-    expect(resolveSafePath(baseDir, '.')).toBe(join(baseDir));
+  it('resuelve "." a baseDir mismo', async () => {
+    expect(await resolveSafePath(baseDir, '.')).toBe(join(baseDir));
   });
 
-  it('rechaza un path absoluto', () => {
-    expect(() => resolveSafePath(baseDir, '/etc/passwd')).toThrow('absoluto');
+  it('rechaza un path absoluto', async () => {
+    await expect(resolveSafePath(baseDir, '/etc/passwd')).rejects.toThrow('absoluto');
   });
 
-  it('rechaza un path traversal que se escapa de baseDir', () => {
-    expect(() => resolveSafePath(baseDir, '../../etc/passwd')).toThrow('fuera de baseDir');
+  it('rechaza un path traversal que se escapa de baseDir', async () => {
+    await expect(resolveSafePath(baseDir, '../../etc/passwd')).rejects.toThrow('fuera de baseDir');
   });
 
-  it('rechaza un traversal disfrazado dentro de un subpath', () => {
-    expect(() => resolveSafePath(baseDir, 'src/../../secrets')).toThrow('fuera de baseDir');
+  it('rechaza un traversal disfrazado dentro de un subpath', async () => {
+    await expect(resolveSafePath(baseDir, 'src/../../secrets')).rejects.toThrow('fuera de baseDir');
+  });
+
+  it('permite un path a un archivo que todavía no existe (caso fs_write)', async () => {
+    expect(await resolveSafePath(baseDir, 'nuevo.txt')).toBe(join(baseDir, 'nuevo.txt'));
+  });
+
+  it('permite un path anidado donde ningún ancestro existe todavía', async () => {
+    expect(await resolveSafePath(baseDir, 'a/b/c.txt')).toBe(join(baseDir, 'a/b/c.txt'));
+  });
+
+  it('rechaza un symlink DENTRO de baseDir que apunta a un archivo afuera', async () => {
+    await writeFile(join(outsideDir, 'secret.txt'), 'shh', 'utf-8');
+    await symlink(join(outsideDir, 'secret.txt'), join(baseDir, 'link.txt'));
+
+    await expect(resolveSafePath(baseDir, 'link.txt')).rejects.toThrow('symlink');
+  });
+
+  it('rechaza un path DENTRO de un symlink a directorio que apunta afuera', async () => {
+    await mkdir(join(outsideDir, 'nested'));
+    await writeFile(join(outsideDir, 'nested', 'secret.txt'), 'shh', 'utf-8');
+    await symlink(outsideDir, join(baseDir, 'link-dir'));
+
+    await expect(resolveSafePath(baseDir, 'link-dir/nested/secret.txt')).rejects.toThrow('symlink');
+  });
+
+  it('permite un symlink que apunta a otro lugar DENTRO de baseDir', async () => {
+    await writeFile(join(baseDir, 'real.txt'), 'x', 'utf-8');
+    await symlink(join(baseDir, 'real.txt'), join(baseDir, 'alias.txt'));
+
+    await expect(resolveSafePath(baseDir, 'alias.txt')).resolves.toBe(join(baseDir, 'alias.txt'));
   });
 });
