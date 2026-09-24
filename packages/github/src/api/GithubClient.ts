@@ -19,11 +19,17 @@ export class GithubClient {
   constructor(private readonly options: GithubClientOptions) {}
 
   /** `path` relativo a `https://api.github.com` (ej. `/repos/o/r/issues/1`) o una URL absoluta
-   *  (para seguir un `Link` header de paginación tal cual). */
+   *  (para seguir un `Link` header de paginación tal cual) — en los dos casos, el resultado
+   *  tiene que resolver al host de la API de GitHub. Sin este chequeo, un path armado con datos
+   *  de afuera (el modelo, un `Link` header manipulado) podía mandar el `Authorization: Bearer
+   *  <token>` a CUALQUIER host. */
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     const token = await this.options.auth.getToken();
     const fetchImpl = this.options.fetchImpl ?? fetch;
-    const url = path.startsWith('http') ? path : `${GITHUB_API_URL}${path}`;
+    const url = new URL(path, GITHUB_API_URL);
+    if (url.origin !== GITHUB_API_URL) {
+      throw new Error(`GithubClient: URL fuera de la API de GitHub: "${url}"`);
+    }
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
@@ -31,7 +37,7 @@ export class GithubClient {
       ...(init.body ? { 'content-type': 'application/json' } : {}),
       ...(init.headers as Record<string, string> | undefined),
     };
-    return fetchImpl(url, { ...init, headers });
+    return fetchImpl(url.toString(), { ...init, headers });
   }
 
   /** Como `request`, pero ya decodificado y con el 4xx/5xx convertido en excepción — el caso

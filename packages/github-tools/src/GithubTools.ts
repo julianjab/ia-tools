@@ -35,6 +35,35 @@ interface GithubIssueApiShape {
   labels: Array<{ name: string } | string>;
 }
 
+// Nombres de owner/repo de GitHub: alfanumérico + `.`/`-`/`_`, nunca arrancan con esos tres.
+// Sin esto, `owner`/`repo` —que vienen del MODELO, no de un caller de confianza— podían llevar
+// un `../../orgs/otra-org/...` y hacer que `fetch` resuelva el path fuera de `/repos/o/r/...`,
+// pegándole con el mismo token a un endpoint que el caller nunca pidió.
+const SAFE_REPO_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+
+function assertSafeSegment(label: string, value: string): string {
+  if (!SAFE_REPO_SEGMENT.test(value)) {
+    throw new Error(`GithubTools: "${label}" inválido: "${value}"`);
+  }
+  return encodeURIComponent(value);
+}
+
+function assertIssueNumber(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`GithubTools: "number" tiene que ser un entero positivo, vino "${value}"`);
+  }
+  return value;
+}
+
+/** Arma `/repos/{owner}/{repo}/issues/{number}` (+ `suffix`), validando y encodeando cada
+ *  segmento — el único lugar que construye estos paths, para que ninguna tool nueva se olvide. */
+function issuePath(owner: string, repo: string, number: number, suffix = ''): string {
+  const safeOwner = assertSafeSegment('owner', owner);
+  const safeRepo = assertSafeSegment('repo', repo);
+  const safeNumber = assertIssueNumber(number);
+  return `/repos/${safeOwner}/${safeRepo}/issues/${safeNumber}${suffix}`;
+}
+
 function summarizeIssue(issue: GithubIssueApiShape): string {
   const labels = issue.labels.map((label) => (typeof label === 'string' ? label : label.name));
   return JSON.stringify({
@@ -72,7 +101,7 @@ export class GithubTools {
       },
       handler: async (input) => {
         const issue = await this.client.requestJson<GithubIssueApiShape>(
-          `/repos/${input.owner}/${input.repo}/issues/${input.number}`,
+          issuePath(input.owner, input.repo, input.number),
         );
         return summarizeIssue(issue);
       },
@@ -95,7 +124,7 @@ export class GithubTools {
       },
       handler: async (input) => {
         const comment = await this.client.requestJson<{ id: number; html_url: string }>(
-          `/repos/${input.owner}/${input.repo}/issues/${input.number}/comments`,
+          issuePath(input.owner, input.repo, input.number, '/comments'),
           { method: 'POST', body: JSON.stringify({ body: input.body }) },
         );
         return `Comentario publicado: ${comment.html_url}`;
@@ -119,7 +148,7 @@ export class GithubTools {
       },
       handler: async (input) => {
         const updated = await this.client.requestJson<Array<{ name: string }>>(
-          `/repos/${input.owner}/${input.repo}/issues/${input.number}/labels`,
+          issuePath(input.owner, input.repo, input.number, '/labels'),
           { method: 'POST', body: JSON.stringify({ labels: input.labels }) },
         );
         return `Labels actuales: ${updated.map((label) => label.name).join(', ')}`;
