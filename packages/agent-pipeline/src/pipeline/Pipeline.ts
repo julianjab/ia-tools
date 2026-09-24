@@ -1,7 +1,7 @@
+import { Agent } from '../agent/Agent.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
-import { AgentAction } from './actions/AgentAction.js';
-import type { PipelineAction, PipelineExecutionContext } from './actions/PipelineAction.js';
+import type { PipelineExecutionContext, Runnable } from './Runnable.js';
 
 export interface PipelineProps extends ConditionalProps {
   id: string;
@@ -17,7 +17,7 @@ export interface PipelineProps extends ConditionalProps {
   position?: number;
   /** Si matchea, impide que corran los pipelines de menor prioridad para este evento. */
   exclusive?: boolean;
-  do: PipelineAction[];
+  do: Runnable[];
 }
 
 /**
@@ -31,7 +31,7 @@ export class Pipeline extends Conditional {
   readonly enabled: boolean;
   readonly position: number;
   readonly exclusive: boolean;
-  readonly do: PipelineAction[];
+  readonly do: Runnable[];
 
   constructor(props: PipelineProps) {
     super(props);
@@ -80,7 +80,8 @@ export class Pipeline extends Conditional {
   }
 }
 
-/** Type guard útil para quien construye pipelines dinámicamente desde config. */
-export function isAgentAction(action: PipelineAction): action is AgentAction {
-  return action instanceof AgentAction;
+/** Type guard útil para quien construye pipelines dinámicamente desde config — distingue un
+ *  paso respaldado por LLM de un `Runnable` genérico (Emit/Http/Function). */
+export function isAgent(step: Runnable): step is Agent {
+  return step instanceof Agent;
 }

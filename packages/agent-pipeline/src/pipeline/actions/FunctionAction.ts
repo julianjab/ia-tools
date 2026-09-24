@@ -1,10 +1,6 @@
-import {
-  PipelineAction,
-  type PipelineActionProps,
-  type PipelineExecutionContext,
-} from './PipelineAction.js';
+import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
 
-export interface FunctionActionProps extends PipelineActionProps {
+export interface FunctionActionProps extends RunnableProps {
   fn: (ctx: PipelineExecutionContext) => Promise<unknown> | unknown;
 }
 
@@ -14,7 +10,7 @@ export interface FunctionActionProps extends PipelineActionProps {
  * shell de por medio: es código TypeScript normal, así que no hereda el riesgo de comandos
  * arbitrarios ni necesita una allow-list de env vars.
  */
-export class FunctionAction extends PipelineAction {
+export class FunctionAction extends Runnable {
   readonly fn: FunctionActionProps['fn'];
 
   constructor(props: FunctionActionProps) {

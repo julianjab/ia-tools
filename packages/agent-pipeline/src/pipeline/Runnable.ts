@@ -1,18 +1,16 @@
-import type { AgentSource } from '../../agent/AgentRegistry.js';
-import { Conditional, type ConditionalProps } from '../../condition/Conditional.js';
-import type { DomainEvent } from '../../events/DomainEvent.js';
-import type { EventBus } from '../../events/EventBus.js';
+import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
+import type { DomainEvent } from '../events/DomainEvent.js';
+import type { EventBus } from '../events/EventBus.js';
 
 export interface PipelineExecutionContext {
   event: DomainEvent<any>;
   /** Outputs acumulados de los pasos anteriores DE ESTE Pipeline, por `id`. */
   steps: Record<string, unknown>;
   bus: EventBus;
-  agents: AgentSource;
   pipelineId: string;
 }
 
-export interface PipelineActionProps extends ConditionalProps {
+export interface RunnableProps extends ConditionalProps {
   /** Nombre del paso — si se setea, su output queda en `ctx.steps[id]` para pasos siguientes. */
   id?: string;
   /** Si el paso tira, seguir con el siguiente en vez de abortar el Pipeline. */
@@ -20,15 +18,22 @@ export interface PipelineActionProps extends ConditionalProps {
 }
 
 /**
- * Base de toda entrada de `Pipeline.do`. Cada paso ve el `PipelineExecutionContext`
+ * Base de todo lo que vive en `Pipeline.do[]`. Cada paso ve el `PipelineExecutionContext`
  * completo (no sólo el output del paso anterior) — así un paso puede leer
  * `ctx.steps.triage.output` de cualquier paso nombrado antes, no sólo del inmediato anterior.
+ *
+ * Contrato único: `EmitAction`/`HttpAction`/`FunctionAction` extienden esto para pasos
+ * genéricos, y `Agent` (`../agent/Agent.js`) también — un agente respaldado por un LLM se
+ * pone directo en `do[]`, sin un paso intermedio que lo resuelva por id. Antes de esto había
+ * dos contratos separados (`PipelineAction` acá, `Agent { id, run(AgentRunInput) }` en
+ * `agent/`) con un `AgentAction` puenteándolos vía `AgentRegistry` — la indirección no
+ * compraba nada que un import directo del `Agent` ya no diera, así que se colapsó en uno.
  */
-export abstract class PipelineAction extends Conditional {
+export abstract class Runnable extends Conditional {
   readonly id?: string;
   readonly continueOnError: boolean;
 
-  constructor(props: PipelineActionProps) {
+  constructor(props: RunnableProps) {
     super(props);
     this.id = props.id;
     this.continueOnError = props.continueOnError ?? false;

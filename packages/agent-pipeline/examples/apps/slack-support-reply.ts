@@ -6,17 +6,17 @@
  * Correr (desde packages/agent-pipeline): `ANTHROPIC_API_KEY=sk-... npx tsx examples/apps/slack-support-reply.ts`
  */
 import {
-  AgentAction,
-  AgentRegistry,
+  Agent,
   Condition,
   Engine,
   EventBus,
   FunctionAction,
   Pipeline,
+  SUCCESS_EXIT,
   StaticPipelineSource,
   createEvent,
+  providerRegistry,
 } from '../../src/index.js';
-import { SUCCESS_EXIT, agent, providerRegistry } from '../agent.js';
 import { anthropicProvider } from '../providers/anthropic-provider.js';
 
 interface SlackMessagePayload {
@@ -29,19 +29,6 @@ providerRegistry.register(
   anthropicProvider({ id: 'anthropic-api', model: 'claude-haiku-4-5-20251001' }),
 );
 
-const agents = new AgentRegistry().register(
-  agent({
-    id: 'answer-question',
-    provider: 'anthropic-api',
-    prompt:
-      'Sos soporte de una app de finanzas personales.\n\n' +
-      'Usuario: {{user}}\n' +
-      'Pregunta: {{text}}\n\n' +
-      'Respondé la pregunta en 1-2 oraciones, tono cordial, en español.',
-    exits: { [SUCCESS_EXIT]: SUCCESS_EXIT },
-  }),
-);
-
 const pipeline = new Pipeline({
   id: 'slack-support-triage',
   on: ['slack.message'],
@@ -49,7 +36,16 @@ const pipeline = new Pipeline({
   // Sólo responde si el mensaje termina en "?" — cualquier otro texto lo ignora.
   when: Condition.fromRows([{ field: 'text', op: 'contains', value: '?' }]),
   do: [
-    new AgentAction({ id: 'reply', agentId: 'answer-question' }),
+    new Agent({
+      id: 'reply',
+      provider: 'anthropic-api',
+      prompt:
+        'Sos soporte de una app de finanzas personales.\n\n' +
+        'Usuario: {{user}}\n' +
+        'Pregunta: {{text}}\n\n' +
+        'Respondé la pregunta en 1-2 oraciones, tono cordial, en español.',
+      exits: { [SUCCESS_EXIT]: SUCCESS_EXIT },
+    }),
     new FunctionAction({
       fn: (ctx) => {
         const reply = ctx.steps.reply as { output: { summary?: string } };
@@ -61,7 +57,7 @@ const pipeline = new Pipeline({
 
 async function main() {
   const bus = new EventBus();
-  const engine = new Engine({ bus, agents, pipelines: new StaticPipelineSource([pipeline]) });
+  const engine = new Engine({ bus, pipelines: new StaticPipelineSource([pipeline]) });
   engine.start();
 
   const event = createEvent<SlackMessagePayload>(

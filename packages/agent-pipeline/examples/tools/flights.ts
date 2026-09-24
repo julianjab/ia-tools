@@ -1,4 +1,4 @@
-import type { Tool } from '../agent.js';
+import type { Tool } from '../../src/index.js';
 
 export interface FlightSearchInput {
   origin: string;

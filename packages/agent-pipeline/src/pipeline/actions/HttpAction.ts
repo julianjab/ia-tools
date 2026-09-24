@@ -1,12 +1,8 @@
-import {
-  PipelineAction,
-  type PipelineActionProps,
-  type PipelineExecutionContext,
-} from './PipelineAction.js';
+import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
 
 const BODYLESS_METHODS = new Set(['GET', 'DELETE']);
 
-export interface HttpActionProps extends PipelineActionProps {
+export interface HttpActionProps extends RunnableProps {
   url: string | ((ctx: PipelineExecutionContext) => string);
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers?: Record<string, string> | ((ctx: PipelineExecutionContext) => Record<string, string>);
@@ -24,7 +20,7 @@ export interface HttpActionProps extends PipelineActionProps {
  * config — así no hay superficie para mandar un token a una URL arbitraria por config mal
  * escrita.
  */
-export class HttpAction extends PipelineAction {
+export class HttpAction extends Runnable {
   readonly url: HttpActionProps['url'];
   readonly method: NonNullable<HttpActionProps['method']>;
   readonly headers?: HttpActionProps['headers'];

@@ -1,18 +1,14 @@
 import { deriveEvent } from '../../events/DomainEvent.js';
-import {
-  PipelineAction,
-  type PipelineActionProps,
-  type PipelineExecutionContext,
-} from './PipelineAction.js';
+import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
 
-export interface EmitActionProps extends PipelineActionProps {
+export interface EmitActionProps extends RunnableProps {
   type: string;
   payload?: Record<string, unknown> | ((ctx: PipelineExecutionContext) => Record<string, unknown>);
 }
 
 /** Publica un DomainEvent derivado — sin llamar a ningún Agent. Útil para "traducir" un paso
  *  en un evento que otro Pipeline escucha, sin acoplar los dos directamente. */
-export class EmitAction extends PipelineAction {
+export class EmitAction extends Runnable {
   readonly type: string;
   readonly payload?: EmitActionProps['payload'];
 

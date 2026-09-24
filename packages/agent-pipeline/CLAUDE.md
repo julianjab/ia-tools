@@ -6,41 +6,62 @@ completo; esto es guía específica para trabajar en el código del paquete.
 
 ## Qué es y qué NO es este paquete
 
-Es **sólo dominio**: interfaces y clases puras (`DomainEvent`, `EventBus`, `Condition`,
-`Agent`, `Pipeline`, `Engine`). No define nada atado a infraestructura — ni un provider de
-LLM concreto, ni un cliente HTTP a un servicio externo, ni una credencial. Eso es
-responsabilidad de quien consume la lib: cada app trae su propio `Agent` (con
-`functionAgent` como wrapper mínimo, o una clase propia) que adentro llama a lo que
-necesite. Antes de agregar algo acá, preguntate: ¿esto es una pieza del harness (le sirve
-a cualquier dominio) o es infraestructura de un caso de uso puntual? Si es lo segundo, va
-en `examples/` como ilustración, nunca en `src/`.
+Es **contrato puro, sin I/O**: interfaces y clases sin dependencias runtime (`DomainEvent`,
+`EventBus`, `Condition`, `Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`,
+`Provider`, `ProviderRegistry`). La regla NO es "nada que mencione un LLM" — `Agent` sabe
+que existe un `prompt`, `systemPrompts`, `exits`; eso es dominio, no infra, porque es
+TypeScript puro sin `fetch` ni credenciales. La línea real es **contrato vs. implementación
+con I/O real**: un `Provider` CONCRETO que le pega a la API de Anthropic/OpenAI/lo que sea
+(hace `fetch`, lee `process.env`, maneja retries) es infra — vive en `examples/providers/`,
+nunca en `src/`. Antes de agregar algo acá, preguntate: ¿esto compila sin tocar la red ni el
+filesystem? Si la respuesta es no, va en `examples/` como ilustración.
 
 ## Estructura
 
 ```
 src/
 ├── agent/
-│   ├── Agent.ts, AgentRegistry.ts, FunctionAgent.ts
-│   └── tests/            Agent.test.ts, AgentRegistry.test.ts, FunctionAgent.test.ts
+│   ├── Agent.ts             clase concreta — un Runnable respaldado por un LLM
+│   ├── AgentDefinition.ts   AgentDefinitionProps + tipos (SystemPromptRef, Tool, AgentExit, ...)
+│   ├── Provider.ts          Provider (interfaz) + ProviderRegistry + providerRegistry (singleton)
+│   └── tests/               Agent.test.ts, AgentDefinition.test.ts, Provider.test.ts
 ├── condition/
-│   ├── Condition.ts
-│   └── tests/            Condition.test.ts
+│   ├── Condition.ts, Conditional.ts
+│   └── tests/
 ├── events/
 │   ├── DomainEvent.ts, EventBus.ts
-│   └── tests/            DomainEvent.test.ts, EventBus.test.ts
+│   └── tests/
 ├── pipeline/
 │   ├── Pipeline.ts
-│   ├── tests/            Pipeline.test.ts
+│   ├── Runnable.ts          base de todo lo que vive en Pipeline.do[]
+│   ├── tests/
 │   └── actions/
-│       ├── AgentAction.ts, EmitAction.ts, HttpAction.ts, FunctionAction.ts, PipelineAction.ts
-│       └── tests/        un *.test.ts por acción
+│       ├── EmitAction.ts, HttpAction.ts, FunctionAction.ts
+│       └── tests/
 ├── engine/
 │   ├── Engine.ts, PipelineSource.ts
-│   └── tests/            Engine.test.ts, PipelineSource.test.ts
+│   └── tests/
 ├── index.ts
 └── tests/                index.test.ts
 examples/         Los tres casos de uso que motivaron el paquete (no se compilan a dist/)
+├── providers/anthropic-provider.ts   ÚNICA implementación real de Provider — hace fetch
+├── tools/                             lógica de negocio de las tools del travel-planner
+└── apps/                              las tres apps armadas con Pipeline+Agent+Provider real
 ```
+
+### `Runnable` — la base única de `Pipeline.do[]`
+
+Antes había dos contratos separados: `PipelineAction` (lo que vivía en `do[]`) y `Agent`
+(resuelto por id vía un `AgentRegistry`, puenteado por un `AgentAction`). Se colapsaron en
+uno: `Runnable` es la base, `EmitAction`/`HttpAction`/`FunctionAction` la extienden para
+pasos genéricos, y `Agent` la extiende directo para pasos respaldados por LLM — sin
+indirección de por medio. `AgentAction`, `AgentRegistry` y `functionAgent` ya NO EXISTEN:
+reusar el mismo agente en dos pipelines es, como con cualquier otro objeto TS, importar la
+misma instancia dos veces; un paso determinístico nombrado es un `FunctionAction` (con su
+propio `when`/`id`), no un "agente" fingido.
+
+`isAgent(step)` (en `Pipeline.ts`) es el type guard para distinguir un `Agent` de un
+`Runnable` genérico dentro de un `do[]` construido dinámicamente.
 
 ## Tests — en un `tests/` DENTRO de cada carpeta, no colocados ni en un árbol aparte
 
@@ -52,8 +73,8 @@ prueba `src/agent/Agent.ts`; un archivo nuevo en `src/foo/Bar.ts` implica crear
 
 El import al módulo que prueba es siempre `../Bar.js` (un nivel arriba de `tests/`, directo
 al hermano); un import a OTRO módulo del paquete sale desde ahí con la profundidad relativa
-que corresponda (ej. `src/pipeline/actions/tests/AgentAction.test.ts` importa
-`../../../agent/FunctionAgent.js`). Nunca importa desde otro archivo de test.
+que corresponda (ej. `src/pipeline/actions/tests/EmitAction.test.ts` importa
+`../../../events/DomainEvent.js`). Nunca importa desde otro archivo de test.
 
 `vitest.config.ts` mira `src/**/tests/**/*.test.ts`. Correr con `pnpm test` (o
 `vitest run` / `vitest` desde este directorio).

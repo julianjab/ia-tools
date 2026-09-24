@@ -1,9 +1,10 @@
 /**
- * Provider de Anthropic — implementa `Provider` (`../agent.js`). Sabe hablar el protocolo de
- * la Messages API (headers, el loop de tool-calling, `tool_result`); no sabe nada de qué
- * agente lo está usando ni de negocio — eso vive en `AgentDefinitionProps` y en cada `Tool`.
+ * Provider de Anthropic — implementa `Provider` (`@ia-tools/agent-pipeline`). Sabe hablar el
+ * protocolo de la Messages API (headers, el loop de tool-calling, `tool_result`); no sabe
+ * nada de qué agente lo está usando ni de negocio — eso vive en `AgentDefinitionProps` y en
+ * cada `Tool`.
  */
-import type { Provider, ProviderRunContext, ProviderRunOutput, Tool } from '../agent.js';
+import type { Provider, ProviderRunContext, ProviderRunOutput, Tool } from '../../src/index.js';
 
 export interface AnthropicProviderOptions {
   /** Id con el que se registra — lo que cada AgentDefinition pone en `provider: '...'`. */

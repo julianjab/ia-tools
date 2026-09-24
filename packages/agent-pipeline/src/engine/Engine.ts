@@ -1,16 +1,14 @@
-import type { AgentSource } from '../agent/AgentRegistry.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { PipelineSource } from './PipelineSource.js';
 
-/** Tope de la cadena de derivación de eventos (EmitAction, AgentAction.emitOn). Sin esto un
+/** Tope de la cadena de derivación de eventos (EmitAction, Agent.emitOn). Sin esto un
  *  Pipeline que se re-emite a sí mismo —directo o vía un ciclo de N pipelines— no tiene fondo. */
 export const DEFAULT_MAX_EVENT_DEPTH = 10;
 
 export interface EngineOptions {
   bus: EventBus;
   pipelines: PipelineSource;
-  agents: AgentSource;
   maxEventDepth?: number;
 }
 
@@ -24,13 +22,11 @@ export type DispatchOutcome = 'dispatched' | 'skipped';
 export class Engine {
   private readonly bus: EventBus;
   private readonly pipelines: PipelineSource;
-  private readonly agents: AgentSource;
   private readonly maxEventDepth: number;
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus;
     this.pipelines = opts.pipelines;
-    this.agents = opts.agents;
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH;
   }
 
@@ -41,9 +37,9 @@ export class Engine {
    * por eso SE LA DEVOLVEMOS al handler en vez de descartarla con `void`: `EventBus.publish`
    * la junta con las de los demás handlers vía `Promise.allSettled` y agrupa cualquier
    * rechazo en un `AggregateError` que sí llega a quien llamó `publish`. Descartarla acá
-   * (como hacía la versión anterior) dejaba un unhandled rejection cada vez que un Agent, un
-   * `AgentAction` con `agentId` inválido o un `HttpAction` con respuesta no-2xx tiraban — en
-   * Node eso termina el proceso.
+   * (como hacía la versión anterior) dejaba un unhandled rejection cada vez que un `Agent`
+   * con `provider` desconocido o un `HttpAction` con respuesta no-2xx tiraban — en Node eso
+   * termina el proceso.
    */
   start(): Unsubscribe {
     return this.bus.subscribe('*', (event) => this.dispatch(event));
@@ -84,7 +80,6 @@ export class Engine {
           event,
           steps: {},
           bus: this.bus,
-          agents: this.agents,
           pipelineId: pipeline.id,
         }),
       ),

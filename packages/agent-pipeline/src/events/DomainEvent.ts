@@ -11,7 +11,7 @@ export interface DomainEvent<TPayload = Record<string, unknown>> {
    */
   scope?: Record<string, unknown>;
   occurredAt: string;
-  /** Profundidad de la cadena de derivación (EmitAction / AgentAction con emitOn). */
+  /** Profundidad de la cadena de derivación (EmitAction / Agent con emitOn). */
   depth: number;
 }
 
@@ -36,7 +36,7 @@ export function createEvent<TPayload = Record<string, unknown>>(
 }
 
 /**
- * Evento derivado de otro (EmitAction, AgentAction con emitOn: 'exit') — hereda profundidad + 1
+ * Evento derivado de otro (EmitAction, Agent con emitOn: 'exit') — hereda profundidad + 1
  * y, salvo que se pase un `scope` explícito, también el `scope` del padre. Sin esto, un
  * Pipeline con `scope: { repo: 'x' }` nunca reacciona a un evento derivado de otro Pipeline
  * sobre ESE mismo repo — encadenar pipelines con scope (el caso de uso central) se rompía en

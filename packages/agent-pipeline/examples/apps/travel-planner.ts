@@ -6,16 +6,16 @@
  * Correr (desde packages/agent-pipeline): `ANTHROPIC_API_KEY=sk-... npx tsx examples/apps/travel-planner.ts`
  */
 import {
-  AgentAction,
-  AgentRegistry,
+  Agent,
   Engine,
   EventBus,
   FunctionAction,
   Pipeline,
+  SUCCESS_EXIT,
   StaticPipelineSource,
   createEvent,
+  providerRegistry,
 } from '../../src/index.js';
-import { SUCCESS_EXIT, agent, providerRegistry } from '../agent.js';
 import { anthropicProvider } from '../providers/anthropic-provider.js';
 import { searchFlightsTool } from '../tools/flights.js';
 import { searchHotelsTool } from '../tools/hotels.js';
@@ -30,29 +30,25 @@ interface TripRequestPayload {
 
 providerRegistry.register(anthropicProvider({ id: 'anthropic-api', model: 'claude-sonnet-5' }));
 
-const agents = new AgentRegistry().register(
-  agent({
-    id: 'plan-trip',
-    provider: 'anthropic-api',
-    prompt:
-      'Sos un planificador de viajes.\n\n' +
-      'Origen: {{origin}}\n' +
-      'Destino: {{destination}}\n' +
-      'Fecha de salida: {{departDate}}\n' +
-      'Noches: {{nights}}\n\n' +
-      'Usá las tools search_flights y search_hotels para averiguar opciones reales, y ' +
-      'respondé con un resumen breve en texto plano: el vuelo más barato y el hotel mejor ' +
-      'calificado, con sus precios.',
-    tools: [searchFlightsTool, searchHotelsTool],
-    exits: { [SUCCESS_EXIT]: SUCCESS_EXIT },
-  }),
-);
-
 const pipeline = new Pipeline({
   id: 'trip-planner',
   on: ['travel.trip.requested'],
   do: [
-    new AgentAction({ id: 'plan', agentId: 'plan-trip' }),
+    new Agent({
+      id: 'plan',
+      provider: 'anthropic-api',
+      prompt:
+        'Sos un planificador de viajes.\n\n' +
+        'Origen: {{origin}}\n' +
+        'Destino: {{destination}}\n' +
+        'Fecha de salida: {{departDate}}\n' +
+        'Noches: {{nights}}\n\n' +
+        'Usá las tools search_flights y search_hotels para averiguar opciones reales, y ' +
+        'respondé con un resumen breve en texto plano: el vuelo más barato y el hotel mejor ' +
+        'calificado, con sus precios.',
+      tools: [searchFlightsTool, searchHotelsTool],
+      exits: { [SUCCESS_EXIT]: SUCCESS_EXIT },
+    }),
     new FunctionAction({
       fn: (ctx) => {
         const plan = ctx.steps.plan as { output: { summary?: string } };
@@ -64,7 +60,7 @@ const pipeline = new Pipeline({
 
 async function main() {
   const bus = new EventBus();
-  const engine = new Engine({ bus, agents, pipelines: new StaticPipelineSource([pipeline]) });
+  const engine = new Engine({ bus, pipelines: new StaticPipelineSource([pipeline]) });
   engine.start();
 
   const event = createEvent<TripRequestPayload>('travel.trip.requested', {
