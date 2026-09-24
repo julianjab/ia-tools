@@ -74,12 +74,25 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   'rm',
   'rm *',
   'dd *',
+  // Push forzado/directo a la default branch — varias posiciones de flag y formas de
+  // referenciarla, PERO sigue siendo un matcher posicional: `git -C . push -u origin main`
+  // (flags intercaladas en otro orden) no está cubierto. Ver README → "Límites honestos".
   'git push --force* *',
   'git push -f *',
   'git push * --force* *',
   'git push * -f *',
   'git push * main',
+  'git push * main *',
   'git push * master',
+  'git push * master *',
+  'git push * HEAD:main',
+  'git push * HEAD:main *',
+  'git push * HEAD:master',
+  'git push * HEAD:master *',
+  'git -C * push * main',
+  'git -C * push * main *',
+  'git -C * push * master',
+  'git -C * push * master *',
   'git reset --hard *',
   'git clean *',
   'env',
@@ -91,4 +104,26 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   'ssh *',
   'scp *',
   'nc *',
+  // Intérpretes de propósito general — con uno de estos permitido, todo el resto de la lista es
+  // decorativo (`python -c "import os; os.system(...)"` corre cualquier cosa). Denegados por
+  // default; un caller que necesite correrlos arma su propia policy con el flag/subset que use.
+  'python',
+  'python *',
+  'python3',
+  'python3 *',
+  'node',
+  'node *',
+  'ruby',
+  'ruby *',
+  'perl',
+  'perl *',
+  'npx *',
+  // Vías de ejecución indirecta — corren un comando arbitrario en su propio argumento, así que
+  // ningún patrón de arriba los ve.
+  'xargs',
+  'xargs *',
+  'find * -exec*',
+  'find * -exec* *',
+  'find * -delete',
+  'find * -delete *',
 ];

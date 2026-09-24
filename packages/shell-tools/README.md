@@ -57,20 +57,28 @@ tanto `bash` solo como `bash -c algo`); un token que termina en `*` (`--force*`)
 match de ESE token puntual.
 
 `DEFAULT_DENY_PATTERNS` es un subset curado — shells anidados, `rm`, `sudo`/`su`, push
-forzado/directo a `main`/`master`, credenciales del entorno (`env`, `printenv`), y
-`curl`/`wget`/`ssh`/`scp`/`nc` como canales de exfiltración obvios. **No es exhaustivo** — el
-deny-list real de producción tiene 200+ líneas con variantes posicionales para cubrir 2-3 flags
-delante de cada comando (ver el comentario en `BashPolicy.ts`). Un caller que necesite esa
-cobertura arma su propio `BashPolicy`.
+forzado/directo a `main`/`master` (incluyendo `HEAD:main`, flags después del nombre de la
+branch, y `git -C <dir> push`), credenciales del entorno (`env`, `printenv`), intérpretes
+(`python`/`python3`/`node`/`ruby`/`perl`/`npx`), ejecución indirecta (`xargs`, `find -exec`/
+`-delete`), y `curl`/`wget`/`ssh`/`scp`/`nc` como canales de exfiltración obvios. **No es
+exhaustivo** — el deny-list real de producción tiene 200+ líneas con variantes posicionales para
+cubrir 2-3 flags delante de cada comando (ver el comentario en `BashPolicy.ts`). Un caller que
+necesite esa cobertura arma su propio `BashPolicy`.
 
 ## Límites honestos de este matcher
 
 - Es POSICIONAL, no un parser de flags: cubre las formas más obvias en las posiciones que mira,
-  no todas las variantes de reordenar flags.
-- Con intérpretes permitidos (`python`, `node`, `ruby` — no vienen en `DEFAULT_DENY_PATTERNS`, un
-  caller los agrega si corresponde), el deny-list es fricción, no un sandbox: `python -c
-  "import os; os.system(...)"` corre lo que sea. La contención real es DÓNDE corre el proceso
-  (una imagen sin credenciales, un usuario de mínimo privilegio), no esta lista.
+  no todas las variantes de reordenar flags — `git -C . push -u origin main` (flags intercaladas
+  en otro orden del que cubre `DEFAULT_DENY_PATTERNS`) puede colarse. Cerrar esto de verdad pide
+  normalizar argv (parsear flags) antes de matchear, no está hecho acá.
+- Los intérpretes SÍ están en `DEFAULT_DENY_PATTERNS` por default, pero si un caller los habilita
+  (los saca de su propio `deny`, o define un `allow` que los incluye) el deny-list pasa a ser
+  fricción, no un sandbox: `python -c "import os; os.system(...)"` corre lo que sea. La
+  contención real es DÓNDE corre el proceso (una imagen sin credenciales, un usuario de mínimo
+  privilegio), no esta lista.
+- `resolveSafePath`/`fs-tools` y esta policy son capas independientes: `bash_run` puede crear un
+  symlink (`ln -s ~/.ssh k`) que después una tool de `fs-tools` seguiría si no filtrara
+  symlinks — cada capa asume que la otra hace su parte, ninguna sustituye a la otra.
 
 ## Qué NO es este paquete
 
