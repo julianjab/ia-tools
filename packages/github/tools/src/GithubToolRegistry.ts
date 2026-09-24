@@ -1,54 +1,28 @@
-import type { Tool } from '@ia-tools/agent-pipeline';
+import { type ToolConstructor, ToolRegistry } from '@ia-tools/agent-pipeline';
 import type { GithubClient } from '@ia-tools/github-api';
-import { createAddLabelsTool } from './tools/addLabels.js';
-import { createCommentIssueTool } from './tools/commentIssue.js';
-import { createGetIssueTool } from './tools/getIssue.js';
-import { createSearchIssuesTool } from './tools/searchIssues.js';
+import { AddLabelsTool, CommentIssueTool, GetIssueTool, SearchIssuesTool } from './tools/index.js';
 
 /**
  * Le da acceso a un `Agent` a las tools de GitHub por NOMBRE (`"github_get_issue"`, no un
- * método/import por tool) — mismo patrón que `ProviderRegistry` de `agent-pipeline`: construye
- * todas las tools una vez (atadas al `GithubClient` que le pasás) y las resuelve por `name`.
- * Pensado para el caso en que la lista de tools de un agente viene de config (YAML/JSON, un
- * array de strings) en vez de código TS que importa cada `create*Tool` a mano.
+ * método/import por tool). Auto-instanciación por clase vía `ToolRegistry` (agent-pipeline):
+ * agregar una tool nueva es crear el archivo (extiende `GithubTool`) y sumar UNA línea
+ * `GithubToolRegistry.register(SuClase)` acá abajo — nunca se toca el constructor de esta
+ * clase ni `ToolRegistry`.
+ *
+ * El registro NO vive repartido en cada archivo de tool (que sería lo más "auto" posible) a
+ * propósito: un tool file que hiciera `import { GithubToolRegistry } from
+ * '../GithubToolRegistry.js'` para auto-registrarse crearía una dependencia circular real con
+ * ESTE módulo (que a su vez necesita importar los archivos de tools) — y en ESM un ciclo así
+ * cae en TDZ: `GithubToolRegistry` todavía no está inicializada en el módulo cuando el archivo
+ * de la tool, importado en medio de la evaluación de ESTE archivo, intenta usarla. Centralizar
+ * el `.register(...)` acá evita el ciclo sin perder el resto del auto-registro (nadie mantiene
+ * a mano el array de instancias ni la lógica de construcción).
  */
-export class GithubToolRegistry {
-  private readonly tools: Map<string, Tool>;
-
-  constructor(client: GithubClient) {
-    const all = [
-      createGetIssueTool(client),
-      createCommentIssueTool(client),
-      createAddLabelsTool(client),
-      createSearchIssuesTool(client),
-    ];
-    this.tools = new Map(all.map((tool) => [tool.name, tool]));
-  }
-
-  /** Tira si `name` no matchea ninguna tool registrada — fail-fast en vez de que un `Agent` se
-   *  entere recién en runtime, a mitad de un dispatch, de que le configuraron un nombre mal
-   *  escrito. */
-  get(name: string): Tool {
-    const tool = this.tools.get(name);
-    if (!tool) {
-      throw new Error(
-        `GithubToolRegistry: no existe una tool "${name}" — disponibles: ${this.names().join(', ')}`,
-      );
-    }
-    return tool;
-  }
-
-  names(): string[] {
-    return [...this.tools.keys()];
-  }
-
-  all(): Tool[] {
-    return [...this.tools.values()];
-  }
-
-  /** Resuelve una lista de nombres a sus `Tool` — el caso de uso central: `AgentDefinitionProps.tools`
-   *  a partir de `string[]` de config, sin que el caller importe cada `create*Tool` uno por uno. */
-  resolve(names: string[]): Tool[] {
-    return names.map((name) => this.get(name));
-  }
+export class GithubToolRegistry extends ToolRegistry<[GithubClient]> {
+  protected static registeredTools: ToolConstructor<[GithubClient]>[] = [];
 }
+
+GithubToolRegistry.register(GetIssueTool);
+GithubToolRegistry.register(CommentIssueTool);
+GithubToolRegistry.register(AddLabelsTool);
+GithubToolRegistry.register(SearchIssuesTool);

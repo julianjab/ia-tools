@@ -43,9 +43,9 @@ registry.get('github_get_issue'); // Tool — tira con mensaje útil si el nombr
 registry.resolve(['github_get_issue', 'github_add_labels']); // Tool[] en el orden pedido
 ```
 
-Cada `create*Tool(client)` (`createGetIssueTool`, `createCommentIssueTool`, `createAddLabelsTool`,
-`createSearchIssuesTool`) también se exporta suelto, por si una app quiere una sola tool sin pasar
-por el registry.
+Cada tool (`GetIssueTool`, `CommentIssueTool`, `AddLabelsTool`, `SearchIssuesTool`) también se
+exporta suelta, por si una app quiere una sola sin pasar por el registry: `new
+GetIssueTool(client)`.
 
 ## Las cuatro tools
 

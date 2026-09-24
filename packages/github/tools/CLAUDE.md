@@ -16,36 +16,55 @@ hermano de `auth/`, `webhook/` y `api/` dentro de la misma carpeta `github/`, pe
 
 ```
 src/
-├── shared.ts             GithubIssueApiShape, summarizeIssue(), issuePath() + validación
+├── shared.ts               GithubIssueApiShape, summarizeIssue(), issuePath() + validación
+├── GithubTool.ts            clase base abstracta — this.client, this.issuePath(), this.summarizeIssue()
 ├── tools/
-│   ├── getIssue.ts        createGetIssueTool(client)
-│   ├── commentIssue.ts    createCommentIssueTool(client)
-│   ├── addLabels.ts       createAddLabelsTool(client)
-│   ├── searchIssues.ts    createSearchIssuesTool(client)
-│   └── tests/             un .test.ts por tool
-├── GithubToolRegistry.ts  acceso por nombre — get()/names()/all()/resolve()
+│   ├── GetIssueTool.ts, CommentIssueTool.ts, AddLabelsTool.ts, SearchIssuesTool.ts
+│   ├── index.ts             barrel — re-exporta las 4 clases (API pública, no dispara registro)
+│   └── tests/               un .test.ts por tool
+├── GithubToolRegistry.ts    extiende ToolRegistry<[GithubClient]> de agent-pipeline + registra las 4
 ├── index.ts
-└── tests/                 shared.test.ts, GithubToolRegistry.test.ts, index.test.ts
+└── tests/                   shared.test.ts, GithubToolRegistry.test.ts, index.test.ts
 ```
 
-Una tool por archivo — cada una exporta una función `create*Tool(client): Tool<TInput>`, no un
-método de clase. `GithubToolRegistry` las instancia todas una vez y las indexa por `tool.name`,
-para que un agente (o una config declarativa, ej. YAML de pipeline) pueda pedir tools por string
-en vez de tener el import hardcodeado. Mismo patrón que `ProviderRegistry` en `agent-pipeline`.
+Una tool por archivo — cada una es una CLASE que extiende `GithubTool<TInput>` (constructor recibe
+el `GithubClient`, hereda `this.issuePath()`/`this.summarizeIssue()`), no una función factory.
+`GithubToolRegistry` extiende `ToolRegistry<[GithubClient]>` de `@ia-tools/agent-pipeline` — la
+lógica de `get()`/`names()`/`all()`/`resolve()` y de instanciar-todo-lo-registrado vive ahí, una
+sola vez, compartida con `@ia-tools/fs-tools` y cualquier otro dominio de tools futuro.
 
 ## Agregar una tool nueva
 
-1. Un archivo nuevo en `src/tools/`, exportando `create<Nombre>Tool(client: GithubClient): Tool<TInput>`
-   — `name`, `description`, `inputSchema` (JSON Schema que el modelo va a ver) y `handler` (async,
-   usa `client.requestJson`/`.request`).
-2. Sumalo al array de tools en el constructor de `GithubToolRegistry`.
-3. Sumalo a los exports de `index.ts`.
-4. Un `describe()` en `src/tools/tests/<nombre>.test.ts` con un `fetchImpl` fake — nunca pega a la
-   red real (mismo criterio que `provider-anthropic`/`github`).
-5. Si el endpoint devuelve un shape que ya usa otra tool (ej. un issue), reusá
-   `GithubIssueApiShape`/`summarizeIssue`/`issuePath` de `shared.ts` en vez de duplicar el parseo
-   o la validación de `owner`/`repo`/`number` (estos son inputs controlados por el modelo — sin
-   `issuePath()` un `repo: "../../orgs/other-org/repos"` se escapa del endpoint esperado).
+1. Un archivo nuevo en `src/tools/`, con una clase `class MiTool extends GithubTool<TInput> {
+   readonly name = '...'; readonly description = '...'; readonly inputSchema = {...}; async
+   handler(input) { ... } }`.
+2. Sumala a `src/tools/index.ts` (el barrel — export type + export de la clase).
+3. En `GithubToolRegistry.ts`: importala del barrel y agregá una línea
+   `GithubToolRegistry.register(MiTool);` al final del archivo — **no** hagas que la tool se
+   auto-registre importando `GithubToolRegistry` desde su propio archivo (ver la nota de abajo,
+   "Por qué el registro no vive en cada tool file").
+4. Sumala a los exports de `src/index.ts` (tipo + clase).
+5. Un `describe()` en `src/tools/tests/<Nombre>Tool.test.ts`, instanciando la clase directo
+   (`new MiTool(clientWith(fetchImpl))`) con un `fetchImpl` fake — nunca pega a la red real
+   (mismo criterio que `provider-anthropic`/`github`).
+6. Si el endpoint devuelve un shape que ya usa otra tool (ej. un issue), reusá
+   `this.issuePath()`/`this.summarizeIssue()` (heredados de `GithubTool`) en vez de duplicar el
+   parseo o la validación de `owner`/`repo`/`number` (estos son inputs controlados por el
+   modelo — sin `issuePath()` un `repo: "../../orgs/other-org/repos"` se escapa del endpoint
+   esperado).
+
+## Por qué el registro no vive en cada tool file
+
+La forma "más auto" sería que cada tool se auto-registrara al final de su propio archivo
+(`GithubToolRegistry.register(MiTool)` DENTRO de `MiTool.ts`) — se probó y se descartó: crea una
+dependencia circular real con `GithubToolRegistry.ts` (que a su vez necesita importar los
+archivos de tools para dispararlas). En ESM un ciclo así cae en TDZ — cuando el archivo de la
+tool, importado a mitad de la evaluación de `GithubToolRegistry.ts`, intenta usar
+`GithubToolRegistry`, la clase todavía no terminó de inicializarse en ese módulo. Centralizar
+el `.register(...)` en `GithubToolRegistry.ts` (una línea por tool, después de la declaración de
+la clase) evita el ciclo sin perder el resto: nadie mantiene a mano el array de INSTANCIAS ni la
+lógica de construcción — eso lo hace `ToolRegistry` (agent-pipeline) automáticamente a partir de
+las clases registradas.
 
 ## Contrato de errores — coincide con `AnthropicProvider`
 

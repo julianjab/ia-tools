@@ -1,9 +1,10 @@
+export { GithubTool } from './GithubTool.js';
 export { GithubToolRegistry } from './GithubToolRegistry.js';
-export type { AddLabelsInput } from './tools/addLabels.js';
-export { createAddLabelsTool } from './tools/addLabels.js';
-export type { CommentIssueInput } from './tools/commentIssue.js';
-export { createCommentIssueTool } from './tools/commentIssue.js';
-export type { GetIssueInput } from './tools/getIssue.js';
-export { createGetIssueTool } from './tools/getIssue.js';
-export type { SearchIssuesInput } from './tools/searchIssues.js';
-export { createSearchIssuesTool } from './tools/searchIssues.js';
+export type { AddLabelsInput } from './tools/AddLabelsTool.js';
+export { AddLabelsTool } from './tools/AddLabelsTool.js';
+export type { CommentIssueInput } from './tools/CommentIssueTool.js';
+export { CommentIssueTool } from './tools/CommentIssueTool.js';
+export type { GetIssueInput } from './tools/GetIssueTool.js';
+export { GetIssueTool } from './tools/GetIssueTool.js';
+export type { SearchIssuesInput } from './tools/SearchIssuesTool.js';
+export { SearchIssuesTool } from './tools/SearchIssuesTool.js';
