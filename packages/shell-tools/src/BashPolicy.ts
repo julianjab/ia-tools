@@ -1,0 +1,94 @@
+/**
+ * Matcher POSICIONAL de patrones tipo `git push * main` contra un argv ya tokenizado — mismo
+ * modelo que la policy real de `20-implementer.yaml` en ai-development-flow. Documentado ahí
+ * mismo como fricción, no como sandbox: un patrón cubre las formas más obvias en las
+ * posiciones que mira, no es un parser de flags. Ver `README.md` → "Límites honestos".
+ */
+
+export interface BashPolicy {
+  /** Default `['*']` — todo permitido salvo lo que matchee `deny`. */
+  allow?: string[];
+  /** `deny` siempre gana sobre `allow`, incluso si un patrón matchea ambos. */
+  deny: string[];
+}
+
+/** Split en tokens por whitespace, sin soportar comillas ni escapes — a propósito: `bash_run`
+ *  no corre shell, así que no hay quoting real que interpretar; un patrón de policy es texto
+ *  literal token a token, nunca una expresión. */
+function tokenize(pattern: string): string[] {
+  return pattern.split(/\s+/).filter((token) => token.length > 0);
+}
+
+/** `*` como último token del patrón = "cualquier cantidad de tokens desde acá, incluso cero".
+ *  Un `*` en medio del patrón matchea exactamente UN token cualquiera. Un token que termina en
+ *  `*` (ej. `--force*`) es un prefix match sobre ESE token puntual. */
+export function matchesPattern(argv: string[], pattern: string): boolean {
+  const patternTokens = tokenize(pattern);
+  if (patternTokens.length === 0) return false;
+
+  const trailingWildcard = patternTokens[patternTokens.length - 1] === '*';
+  const fixedTokens = trailingWildcard ? patternTokens.slice(0, -1) : patternTokens;
+
+  if (trailingWildcard) {
+    if (argv.length < fixedTokens.length) return false;
+  } else if (argv.length !== patternTokens.length) {
+    return false;
+  }
+
+  for (let i = 0; i < fixedTokens.length; i++) {
+    const patternToken = fixedTokens[i];
+    const argToken = argv[i];
+    if (patternToken === '*') continue;
+    if (patternToken.endsWith('*')) {
+      if (!argToken.startsWith(patternToken.slice(0, -1))) return false;
+    } else if (argToken !== patternToken) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function isDenied(argv: string[], policy: BashPolicy): string | undefined {
+  return policy.deny.find((pattern) => matchesPattern(argv, pattern));
+}
+
+export function isAllowed(argv: string[], policy: BashPolicy): boolean {
+  const allow = policy.allow ?? ['*'];
+  return allow.some((pattern) => matchesPattern(argv, pattern));
+}
+
+/**
+ * Subset curado, NO exhaustivo — a diferencia del deny-list real de producción (200+ líneas en
+ * `20-implementer.yaml`, con variantes posicionales para cubrir 2-3 flags delante de cada
+ * comando). Cubre las categorías más obvias: shells anidados, borrado masivo, escalación,
+ * push destructivo/forzado a `main`/`master`, credenciales del entorno, y exfiltración de red.
+ * Un caller que necesite la cobertura real la arma con su propio `BashPolicy` — este default
+ * es un punto de partida razonable, no una garantía de contención.
+ */
+export const DEFAULT_DENY_PATTERNS: string[] = [
+  'bash *',
+  'sh *',
+  'zsh *',
+  'sudo *',
+  'su *',
+  'rm',
+  'rm *',
+  'dd *',
+  'git push --force* *',
+  'git push -f *',
+  'git push * --force* *',
+  'git push * -f *',
+  'git push * main',
+  'git push * master',
+  'git reset --hard *',
+  'git clean *',
+  'env',
+  'env *',
+  'printenv',
+  'printenv *',
+  'curl *',
+  'wget *',
+  'ssh *',
+  'scp *',
+  'nc *',
+];
