@@ -65,6 +65,16 @@ describe('resolveSafePath', () => {
     await expect(resolveSafePath(baseDir, 'link-dir/nested/secret.txt')).rejects.toThrow('symlink');
   });
 
+  it('rechaza un symlink ROTO (apunta a un target que no existe) en vez de tratarlo como path nuevo', async () => {
+    // ln -s ~/.ssh/authorized_keys evil — el target no existe todavía, así que realpath(evil)
+    // tira ENOENT igual que un path genuinamente nuevo; sin lstat() de por medio, el walk-up
+    // lo trataría como "archivo nuevo dentro de baseDir" y fs_write escribiría siguiendo el
+    // link, afuera.
+    await symlink(join(outsideDir, 'no-existe-todavia.txt'), join(baseDir, 'evil.txt'));
+
+    await expect(resolveSafePath(baseDir, 'evil.txt')).rejects.toThrow('symlink roto');
+  });
+
   it('permite un symlink que apunta a otro lugar DENTRO de baseDir', async () => {
     await writeFile(join(baseDir, 'real.txt'), 'x', 'utf-8');
     await symlink(join(baseDir, 'real.txt'), join(baseDir, 'alias.txt'));
