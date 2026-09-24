@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../../agent/AgentRegistry.js';
-import { functionAgent } from '../../agent/FunctionAgent.js';
+import { Agent } from '../../agent/Agent.js';
+import { ProviderRegistry } from '../../agent/Provider.js';
 import { Condition } from '../../condition/Condition.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
-import { Pipeline, isAgentAction } from '../Pipeline.js';
-import { AgentAction } from '../actions/AgentAction.js';
+import { Pipeline, isAgent } from '../Pipeline.js';
 import { FunctionAction } from '../actions/FunctionAction.js';
+
+function fakeRegistry(outcome = 'success', summary = 'a-out') {
+  return new ProviderRegistry().register({
+    id: 'fake',
+    run: async () => ({ outcome, summary }),
+  });
+}
 
 describe('Pipeline.matches', () => {
   it('requires enabled', () => {
@@ -50,25 +56,31 @@ describe('Pipeline.execute', () => {
       event: createEvent('a', payload),
       steps: {},
       bus: new EventBus(),
-      agents: new AgentRegistry().register(functionAgent('agentA', () => 'a-out')),
       pipelineId: pipeline.id,
     };
   }
 
   it('accumulates named step outputs into ctx.steps', async () => {
+    const registry = fakeRegistry();
     const pipeline = new Pipeline({
       id: 'p',
       on: ['a'],
       do: [
-        new AgentAction({ id: 'first', agentId: 'agentA' }),
+        new Agent(
+          { id: 'first', provider: 'fake', prompt: 'p', exits: { success: 'success' } },
+          registry,
+        ),
         new FunctionAction({ id: 'second', fn: (ctx) => ctx.steps.first }),
       ],
     });
 
     const steps = await pipeline.execute(ctxFor(pipeline));
 
-    expect(steps.first).toEqual({ output: 'a-out', exit: 'success' });
-    expect(steps.second).toEqual({ output: 'a-out', exit: 'success' });
+    expect(steps.first).toEqual({
+      output: { outcome: 'success', summary: 'a-out' },
+      exit: 'success',
+    });
+    expect(steps.second).toEqual(steps.first);
   });
 
   it('sets ctx.pipelineId to its own id, overriding whatever was passed in', async () => {
@@ -153,11 +165,11 @@ describe('Pipeline.execute', () => {
   });
 });
 
-describe('isAgentAction', () => {
-  it('narrows a PipelineAction to AgentAction', () => {
-    const agentAction = new AgentAction({ agentId: 'x' });
+describe('isAgent', () => {
+  it('narrows a Runnable to Agent', () => {
+    const agent = new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, fakeRegistry());
     const functionAction = new FunctionAction({ fn: () => undefined });
-    expect(isAgentAction(agentAction)).toBe(true);
-    expect(isAgentAction(functionAction)).toBe(false);
+    expect(isAgent(agent)).toBe(true);
+    expect(isAgent(functionAction)).toBe(false);
   });
 });

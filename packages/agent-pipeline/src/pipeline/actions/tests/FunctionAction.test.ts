@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../../../agent/AgentRegistry.js';
 import { createEvent } from '../../../events/DomainEvent.js';
 import { EventBus } from '../../../events/EventBus.js';
+import type { PipelineExecutionContext } from '../../Runnable.js';
 import { FunctionAction } from '../FunctionAction.js';
-import type { PipelineExecutionContext } from '../PipelineAction.js';
 
 function makeCtx(): PipelineExecutionContext {
   return {
     event: createEvent('t', { a: 1 }),
     steps: {},
     bus: new EventBus(),
-    agents: new AgentRegistry(),
     pipelineId: 'p1',
   };
 }

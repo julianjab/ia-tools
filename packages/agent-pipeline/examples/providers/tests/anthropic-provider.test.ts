@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderRunContext } from '../../agent.js';
+import { EventBus, type ProviderRunContext } from '../../../src/index.js';
 import { anthropicProvider } from '../anthropic-provider.js';
 
 function textResponse(
@@ -31,7 +31,12 @@ function makeCtx(overrides: Partial<ProviderRunContext> = {}): ProviderRunContex
     providerConfig: {},
     mcpServers: [],
     tools: [],
-    input: { event: { type: 't', payload: {}, depth: 0, occurredAt: '' }, steps: {} },
+    ctx: {
+      event: { type: 't', payload: {}, depth: 0, occurredAt: '' },
+      steps: {},
+      bus: new EventBus(),
+      pipelineId: 'p1',
+    },
     ...overrides,
   };
 }

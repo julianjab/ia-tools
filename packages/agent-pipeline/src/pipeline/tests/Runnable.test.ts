@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../../../agent/AgentRegistry.js';
-import { Condition } from '../../../condition/Condition.js';
-import { createEvent } from '../../../events/DomainEvent.js';
-import { EventBus } from '../../../events/EventBus.js';
-import { PipelineAction, type PipelineExecutionContext } from '../PipelineAction.js';
+import { Condition } from '../../condition/Condition.js';
+import { createEvent } from '../../events/DomainEvent.js';
+import { EventBus } from '../../events/EventBus.js';
+import { type PipelineExecutionContext, Runnable } from '../Runnable.js';
 
-class NoopAction extends PipelineAction {
+class NoopAction extends Runnable {
   async run(_ctx: PipelineExecutionContext): Promise<unknown> {
     return 'ran';
   }
@@ -19,12 +18,11 @@ function makeCtx(
     event: createEvent('t', payload),
     steps,
     bus: new EventBus(),
-    agents: new AgentRegistry(),
     pipelineId: 'p1',
   };
 }
 
-describe('PipelineAction', () => {
+describe('Runnable', () => {
   it('defaults id/when/continueOnError', () => {
     const action = new NoopAction({});
     expect(action.id).toBeUndefined();
@@ -83,7 +81,6 @@ describe('PipelineAction', () => {
       event: createEvent('t', 'a plain string payload' as unknown as Record<string, unknown>),
       steps: { triage: { output: { actionable: true } } },
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelineId: 'p1',
     };
     expect(action.shouldRun(ctx)).toBe(true);

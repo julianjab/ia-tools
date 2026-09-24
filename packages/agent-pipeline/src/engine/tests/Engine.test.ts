@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../../agent/AgentRegistry.js';
-import { functionAgent, withExit } from '../../agent/FunctionAgent.js';
+import { Agent } from '../../agent/Agent.js';
+import { ProviderRegistry } from '../../agent/Provider.js';
 import { Condition } from '../../condition/Condition.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import { Pipeline } from '../../pipeline/Pipeline.js';
-import { AgentAction } from '../../pipeline/actions/AgentAction.js';
 import { EmitAction } from '../../pipeline/actions/EmitAction.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
 import { DEFAULT_MAX_EVENT_DEPTH, Engine } from '../Engine.js';
@@ -15,7 +14,6 @@ describe('Engine.dispatch', () => {
   it('returns "skipped" when no pipeline matches the event type', async () => {
     const engine = new Engine({
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([new Pipeline({ id: 'p', on: ['other'], do: [] })]),
     });
     expect(await engine.dispatch(createEvent('a', {}))).toBe('skipped');
@@ -24,7 +22,6 @@ describe('Engine.dispatch', () => {
   it('returns "skipped" once the event is at or past maxEventDepth', async () => {
     const engine = new Engine({
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([new Pipeline({ id: 'p', on: ['a'], do: [] })]),
       maxEventDepth: 2,
     });
@@ -34,7 +31,6 @@ describe('Engine.dispatch', () => {
   it('defaults maxEventDepth to DEFAULT_MAX_EVENT_DEPTH', async () => {
     const engine = new Engine({
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([new Pipeline({ id: 'p', on: ['a'], do: [] })]),
     });
     expect(await engine.dispatch(createEvent('a', {}, { depth: DEFAULT_MAX_EVENT_DEPTH }))).toBe(
@@ -43,69 +39,84 @@ describe('Engine.dispatch', () => {
   });
 
   it('dispatches a matching pipeline and chains steps through ctx.steps', async () => {
-    const agents = new AgentRegistry()
-      .register(
-        functionAgent('triage', (input) =>
-          withExit({
-            actionable: (input.event.payload as { title: string }).title.includes('bug'),
-          }),
-        ),
-      )
-      .register(functionAgent('fix', () => withExit('patched')));
+    const registry = new ProviderRegistry()
+      .register({
+        id: 'triage-provider',
+        run: async (ctx) => ({ outcome: 'success', summary: String(ctx.prompt.includes('bug')) }),
+      })
+      .register({
+        id: 'fix-provider',
+        run: async () => ({ outcome: 'success', summary: 'patched' }),
+      });
 
     const seen: unknown[] = [];
     const pipeline = new Pipeline({
       id: 'github-triage',
       on: ['github.issue.opened'],
       do: [
-        new AgentAction({ id: 'triage', agentId: 'triage' }),
-        new AgentAction({
-          id: 'fix',
-          agentId: 'fix',
-          when: Condition.fromRows([
-            { field: 'steps.triage.output.actionable', op: 'eq', value: true },
-          ]),
-        }),
+        new Agent(
+          {
+            id: 'triage',
+            provider: 'triage-provider',
+            prompt: '{{title}}',
+            exits: { success: 'success' },
+          },
+          registry,
+        ),
+        new Agent(
+          {
+            id: 'fix',
+            provider: 'fix-provider',
+            prompt: 'fix it',
+            exits: { success: 'success' },
+            when: Condition.fromRows([
+              { field: 'steps.triage.output.summary', op: 'eq', value: 'true' },
+            ]),
+          },
+          registry,
+        ),
         new FunctionAction({ fn: (ctx) => seen.push(ctx.steps.fix) }),
       ],
     });
 
     const engine = new Engine({
       bus: new EventBus(),
-      agents,
       pipelines: new StaticPipelineSource([pipeline]),
     });
     const outcome = await engine.dispatch(createEvent('github.issue.opened', { title: 'fix bug' }));
 
     expect(outcome).toBe('dispatched');
-    expect(seen).toEqual([{ output: 'patched', exit: 'success' }]);
+    expect(seen).toEqual([{ output: { outcome: 'success', summary: 'patched' }, exit: 'success' }]);
   });
 
   it('skips a step whose when does not match, and does not run its agent', async () => {
-    const agents = new AgentRegistry();
     let ran = false;
-    agents.register(
-      functionAgent('fix', () => {
+    const registry = new ProviderRegistry().register({
+      id: 'fix-provider',
+      run: async () => {
         ran = true;
-        return 'patched';
-      }),
-    );
+        return { outcome: 'success', summary: 'patched' };
+      },
+    });
 
     const pipeline = new Pipeline({
       id: 'github-triage',
       on: ['github.issue.opened'],
       do: [
-        new AgentAction({
-          id: 'fix',
-          agentId: 'fix',
-          when: Condition.fromRows([{ field: 'actionable', op: 'eq', value: true }]),
-        }),
+        new Agent(
+          {
+            id: 'fix',
+            provider: 'fix-provider',
+            prompt: 'fix it',
+            when: Condition.fromRows([{ field: 'actionable', op: 'eq', value: true }]),
+          },
+          registry,
+        ),
       ],
     });
 
     const engine = new Engine({
       bus: new EventBus(),
-      agents,
       pipelines: new StaticPipelineSource([pipeline]),
     });
     await engine.dispatch(createEvent('github.issue.opened', { actionable: false }));
@@ -128,7 +139,6 @@ describe('Engine.dispatch', () => {
 
     const engine = new Engine({
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([p1, p2]),
     });
     await engine.dispatch(createEvent('a', {}));
@@ -161,7 +171,6 @@ describe('Engine.dispatch', () => {
 
     const engine = new Engine({
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([low, high, nonExclusiveLowerPriority]),
     });
     await engine.dispatch(createEvent('x', {}));
@@ -187,7 +196,6 @@ describe('Engine.dispatch', () => {
 
     const engine = new Engine({
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([exclusive, higherPriority]),
     });
     await engine.dispatch(createEvent('x', {}));
@@ -211,7 +219,6 @@ describe('Engine.dispatch', () => {
     });
     const engine = new Engine({
       bus,
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([pipeline]),
     });
 
@@ -238,7 +245,6 @@ describe('Engine.dispatch', () => {
     });
     const engine = new Engine({
       bus,
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([pipeline]),
       maxEventDepth: 3,
     });
@@ -268,7 +274,6 @@ describe('Engine.dispatch', () => {
     });
     const engine = new Engine({
       bus,
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([pipeline]),
     });
 
@@ -310,7 +315,6 @@ describe('Engine.dispatch', () => {
 
     const engine = new Engine({
       bus: new EventBus(),
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([failFast, slowThenFails, succeeds]),
     });
 
@@ -345,7 +349,6 @@ describe('Engine.dispatch', () => {
     });
     const engine = new Engine({
       bus,
-      agents: new AgentRegistry(),
       pipelines: new StaticPipelineSource([pipeline]),
     });
 

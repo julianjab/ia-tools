@@ -4,34 +4,45 @@ import * as lib from '../index.js';
 describe('package entrypoint', () => {
   it('exports the harness building blocks', () => {
     expect(lib.Condition).toBeDefined();
+    expect(lib.Conditional).toBeDefined();
     expect(lib.EventBus).toBeDefined();
     expect(lib.createEvent).toBeTypeOf('function');
     expect(lib.deriveEvent).toBeTypeOf('function');
-    expect(lib.AgentRegistry).toBeDefined();
-    expect(lib.functionAgent).toBeTypeOf('function');
-    expect(lib.AgentAction).toBeDefined();
+    expect(lib.Agent).toBeDefined();
+    expect(lib.ProviderRegistry).toBeDefined();
+    expect(lib.providerRegistry).toBeDefined();
+    expect(lib.exitSet).toBeTypeOf('function');
+    expect(lib.SUCCESS_EXIT).toBe('success');
+    expect(lib.ERROR_EXIT).toBe('error');
     expect(lib.EmitAction).toBeDefined();
     expect(lib.FunctionAction).toBeDefined();
     expect(lib.HttpAction).toBeDefined();
-    expect(lib.PipelineAction).toBeDefined();
+    expect(lib.Runnable).toBeDefined();
     expect(lib.Pipeline).toBeDefined();
-    expect(lib.isAgentAction).toBeTypeOf('function');
+    expect(lib.isAgent).toBeTypeOf('function');
     expect(lib.Engine).toBeDefined();
     expect(lib.DEFAULT_MAX_EVENT_DEPTH).toBe(10);
     expect(lib.StaticPipelineSource).toBeDefined();
   });
 
   it('wires end-to-end through the public API only', async () => {
-    const agents = new lib.AgentRegistry().register(lib.functionAgent('echo', () => 'ok'));
+    const registry = new lib.ProviderRegistry().register({
+      id: 'echo-provider',
+      run: async () => ({ outcome: 'success', summary: 'ok' }),
+    });
     const pipeline = new lib.Pipeline({
       id: 'p',
       on: ['a'],
-      do: [new lib.AgentAction({ id: 'echo', agentId: 'echo' })],
+      do: [
+        new lib.Agent(
+          { id: 'echo', provider: 'echo-provider', prompt: 'p', exits: { success: 'success' } },
+          registry,
+        ),
+      ],
     });
     const bus = new lib.EventBus();
     const engine = new lib.Engine({
       bus,
-      agents,
       pipelines: new lib.StaticPipelineSource([pipeline]),
     });
 
