@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Condition } from '../../src/condition/Condition.js';
+import { Condition } from '../Condition.js';
 
 describe('Condition.evaluate', () => {
   it('eq / neq', () => {

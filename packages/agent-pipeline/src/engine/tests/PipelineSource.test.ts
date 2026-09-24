@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { StaticPipelineSource } from '../../src/engine/PipelineSource.js';
-import { Pipeline } from '../../src/pipeline/Pipeline.js';
+import { Pipeline } from '../../pipeline/Pipeline.js';
+import { StaticPipelineSource } from '../PipelineSource.js';
 
 describe('StaticPipelineSource', () => {
   it('list returns exactly the pipelines passed to the constructor', () => {

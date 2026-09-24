@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEvent, deriveEvent } from '../../src/events/DomainEvent.js';
+import { createEvent, deriveEvent } from '../DomainEvent.js';
 
 describe('createEvent', () => {
   it('defaults depth to 0 and stamps occurredAt', () => {

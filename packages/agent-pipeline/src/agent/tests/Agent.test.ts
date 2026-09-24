@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Agent, AgentRunInput } from '../../src/agent/Agent.js';
-import { createEvent } from '../../src/events/DomainEvent.js';
+import { createEvent } from '../../events/DomainEvent.js';
+import type { Agent, AgentRunInput } from '../Agent.js';
 
 describe('Agent contract', () => {
   it('a conforming implementation receives steps/brief and returns output+exit', async () => {

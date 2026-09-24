@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { functionAgent, withExit } from '../../src/agent/FunctionAgent.js';
-import { createEvent } from '../../src/events/DomainEvent.js';
+import { createEvent } from '../../events/DomainEvent.js';
+import { functionAgent, withExit } from '../FunctionAgent.js';
 
 describe('functionAgent', () => {
   it('wraps a plain return value as { output, exit: "success" }', async () => {

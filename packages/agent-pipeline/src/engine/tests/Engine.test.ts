@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { AgentRegistry } from '../../src/agent/AgentRegistry.js';
-import { functionAgent, withExit } from '../../src/agent/FunctionAgent.js';
-import { Condition } from '../../src/condition/Condition.js';
-import { DEFAULT_MAX_EVENT_DEPTH, Engine } from '../../src/engine/Engine.js';
-import { StaticPipelineSource } from '../../src/engine/PipelineSource.js';
-import { createEvent } from '../../src/events/DomainEvent.js';
-import { EventBus } from '../../src/events/EventBus.js';
-import { Pipeline } from '../../src/pipeline/Pipeline.js';
-import { AgentAction } from '../../src/pipeline/actions/AgentAction.js';
-import { EmitAction } from '../../src/pipeline/actions/EmitAction.js';
-import { FunctionAction } from '../../src/pipeline/actions/FunctionAction.js';
+import { AgentRegistry } from '../../agent/AgentRegistry.js';
+import { functionAgent, withExit } from '../../agent/FunctionAgent.js';
+import { Condition } from '../../condition/Condition.js';
+import { createEvent } from '../../events/DomainEvent.js';
+import { EventBus } from '../../events/EventBus.js';
+import { Pipeline } from '../../pipeline/Pipeline.js';
+import { AgentAction } from '../../pipeline/actions/AgentAction.js';
+import { EmitAction } from '../../pipeline/actions/EmitAction.js';
+import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
+import { DEFAULT_MAX_EVENT_DEPTH, Engine } from '../Engine.js';
+import { StaticPipelineSource } from '../PipelineSource.js';
 
 describe('Engine.dispatch', () => {
   it('returns "skipped" when no pipeline matches the event type', async () => {
