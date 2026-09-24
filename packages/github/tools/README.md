@@ -18,19 +18,34 @@ pnpm --filter @ia-tools/github-tools test
 import { Agent } from '@ia-tools/agent-pipeline';
 import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { GithubClient } from '@ia-tools/github-api';
-import { GithubTools } from '@ia-tools/github-tools';
+import { GithubToolRegistry } from '@ia-tools/github-tools';
 
 const client = new GithubClient({ auth: new GithubTokenAuth(process.env.GITHUB_TOKEN!) });
-const githubTools = new GithubTools(client);
+const registry = new GithubToolRegistry(client);
 
 const triage = new Agent({
   id: 'triage',
   provider: 'anthropic-api',
   prompt: 'Leé el issue #{{number}} de {{owner}}/{{repo}} y decidí si es un bug accionable.',
-  tools: githubTools.all(), // las 4 — o elegí una por una: githubTools.getIssue(), etc.
+  tools: registry.all(), // las 4 — o elegí por nombre: registry.resolve(['github_get_issue', ...])
   exits: { actionable: 'actionable', 'not-actionable': 'not-actionable' },
 });
 ```
+
+### Acceso por nombre
+
+`GithubToolRegistry` resuelve tools por string — útil cuando la lista de tools que un agente
+puede usar viene de config (ej. un YAML de pipeline) en vez de estar hardcodeada en el código:
+
+```ts
+registry.names(); // ['github_get_issue', 'github_comment_issue', 'github_add_labels', 'github_search_issues']
+registry.get('github_get_issue'); // Tool — tira con mensaje útil si el nombre no existe
+registry.resolve(['github_get_issue', 'github_add_labels']); // Tool[] en el orden pedido
+```
+
+Cada `create*Tool(client)` (`createGetIssueTool`, `createCommentIssueTool`, `createAddLabelsTool`,
+`createSearchIssuesTool`) también se exporta suelto, por si una app quiere una sola tool sin pasar
+por el registry.
 
 ## Las cuatro tools
 
@@ -41,7 +56,7 @@ const triage = new Agent({
 | `github_add_labels` | Agrega labels a un issue (no reemplaza las existentes) |
 | `github_search_issues` | Busca con la sintaxis de búsqueda de GitHub (`repo:o/r is:open label:bug`) |
 
-Un error de la API (404, 401, rate limit) hace que el `handler` tire — `AnthropicProvider` ya
+Un error de la API (404, 401, rate limit) hace que un `handler` tire — `AnthropicProvider` ya
 convierte eso en un `tool_result` con `is_error: true` en vez de tumbar el run entero (ver
 `provider-anthropic`), así que las tools acá no necesitan su propio try/catch defensivo.
 

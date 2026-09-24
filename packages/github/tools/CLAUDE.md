@@ -16,26 +16,36 @@ hermano de `auth/`, `webhook/` y `api/` dentro de la misma carpeta `github/`, pe
 
 ```
 src/
-├── GithubTools.ts   la clase — un método por tool + .all()
+├── shared.ts             GithubIssueApiShape, summarizeIssue(), issuePath() + validación
+├── tools/
+│   ├── getIssue.ts        createGetIssueTool(client)
+│   ├── commentIssue.ts    createCommentIssueTool(client)
+│   ├── addLabels.ts       createAddLabelsTool(client)
+│   ├── searchIssues.ts    createSearchIssuesTool(client)
+│   └── tests/             un .test.ts por tool
+├── GithubToolRegistry.ts  acceso por nombre — get()/names()/all()/resolve()
 ├── index.ts
-└── tests/
+└── tests/                 shared.test.ts, GithubToolRegistry.test.ts, index.test.ts
 ```
 
-Package chico, sin subcarpetas por funcionalidad (a diferencia de `github-api`/`github-auth`/
-`github-webhook`) — sólo hay una funcionalidad: envolver un `GithubClient` en `Tool[]`. Si esto
-crece (más tools, o tools que agrupen por dominio — issues vs. PRs vs. releases), ahí sí conviene
-subdividir.
+Una tool por archivo — cada una exporta una función `create*Tool(client): Tool<TInput>`, no un
+método de clase. `GithubToolRegistry` las instancia todas una vez y las indexa por `tool.name`,
+para que un agente (o una config declarativa, ej. YAML de pipeline) pueda pedir tools por string
+en vez de tener el import hardcodeado. Mismo patrón que `ProviderRegistry` en `agent-pipeline`.
 
 ## Agregar una tool nueva
 
-1. Un método en `GithubTools` que devuelve `Tool<TInput>` — `name`, `description`,
-   `inputSchema` (JSON Schema que el modelo va a ver) y `handler` (async, usa
-   `this.client.requestJson`/`.request`).
-2. Sumalo a `all()`.
-3. Un `describe()` en `GithubTools.test.ts` con un `fetchImpl` fake — nunca pega a la red real
-   (mismo criterio que `provider-anthropic`/`github`).
-4. Si el endpoint devuelve un shape que ya usa otra tool (ej. un issue), reusá
-   `GithubIssueApiShape`/`summarizeIssue` en vez de duplicar el parseo.
+1. Un archivo nuevo en `src/tools/`, exportando `create<Nombre>Tool(client: GithubClient): Tool<TInput>`
+   — `name`, `description`, `inputSchema` (JSON Schema que el modelo va a ver) y `handler` (async,
+   usa `client.requestJson`/`.request`).
+2. Sumalo al array de tools en el constructor de `GithubToolRegistry`.
+3. Sumalo a los exports de `index.ts`.
+4. Un `describe()` en `src/tools/tests/<nombre>.test.ts` con un `fetchImpl` fake — nunca pega a la
+   red real (mismo criterio que `provider-anthropic`/`github`).
+5. Si el endpoint devuelve un shape que ya usa otra tool (ej. un issue), reusá
+   `GithubIssueApiShape`/`summarizeIssue`/`issuePath` de `shared.ts` en vez de duplicar el parseo
+   o la validación de `owner`/`repo`/`number` (estos son inputs controlados por el modelo — sin
+   `issuePath()` un `repo: "../../orgs/other-org/repos"` se escapa del endpoint esperado).
 
 ## Contrato de errores — coincide con `AnthropicProvider`
 
