@@ -3,6 +3,19 @@
 Auth de GitHub + webhooks, standalone. Ver `README.md` para el contrato de uso; esto es guía
 específica para trabajar en el código del paquete.
 
+## `webhook/` expone primitivos, no un traductor con opinión
+
+Hubo una versión anterior con una clase `GithubWebhookTranslator` que decidía el mapeo
+`action` → nombre de evento (`opened` → `github.issue.opened`, etc.) DENTRO del paquete. Se
+sacó a propósito: ese mapeo es la pieza que une `@ia-tools/github` con el engine/vocabulario de
+eventos de CADA app — no algo que este paquete pueda decidir de una vez para todos. Lo que queda
+acá son los primitivos puros para que la app escriba su propio traductor como una función:
+`parseGithubIssuePayload`/`parseGithubIssueCommentPayload` (extraen campos, sin mirar `action`)
+y `createGithubWebhookEvent(type, payload, scope)` (arma la forma alrededor del `type` que la
+app eligió). Si te piden "agregar un evento nuevo" a este paquete, la respuesta casi siempre es
+"eso va en la función traductora de la app, no acá" — salvo que sea un campo del payload de
+GitHub que ninguna de las dos funciones de parseo todavía extrae.
+
 ## Por qué NO depende de `@ia-tools/agent-pipeline`
 
 A diferencia de `provider-anthropic` (que sí depende de `agent-pipeline`, porque implementa su
@@ -31,8 +44,9 @@ src/
 │   ├── GithubAppAuth.ts         login de GitHub App — JWT RS256 (node:crypto, sin deps) + cache
 │   └── tests/
 ├── webhook/
-│   ├── GithubWebhookVerifier.ts    HMAC-SHA256 timing-safe de x-hub-signature-256
-│   ├── GithubWebhookTranslator.ts  payload → GithubWebhookEvent (forma de DomainEvent, sin importarlo)
+│   ├── GithubWebhookVerifier.ts   HMAC-SHA256 timing-safe de x-hub-signature-256
+│   ├── GithubWebhookEvent.ts      forma de DomainEvent (sin importarlo) + createGithubWebhookEvent
+│   ├── GithubIssuePayload.ts      parseGithubIssuePayload/parseGithubIssueCommentPayload — puras
 │   └── tests/
 ├── api/
 │   ├── GithubClient.ts          fetch autenticado — toma cualquier GithubAuth (de auth/)
