@@ -47,4 +47,20 @@ describe('isDenied / isAllowed', () => {
     expect(isDenied(['git', 'push', 'origin', 'main'], policy)).toBeDefined();
     expect(isDenied(['git', 'status'], policy)).toBeUndefined();
   });
+
+  it('DEFAULT_DENY_PATTERNS cubre push a main/master con flags extra y HEAD:main', () => {
+    const policy = { deny: DEFAULT_DENY_PATTERNS };
+    expect(isDenied(['git', 'push', 'origin', 'main', '-f'], policy)).toBeDefined();
+    expect(isDenied(['git', 'push', 'origin', 'HEAD:main'], policy)).toBeDefined();
+    expect(isDenied(['git', '-C', '.', 'push', 'origin', 'main'], policy)).toBeDefined();
+  });
+
+  it('DEFAULT_DENY_PATTERNS deniega intérpretes y ejecución indirecta', () => {
+    const policy = { deny: DEFAULT_DENY_PATTERNS };
+    expect(isDenied(['python3', '-c', 'import os'], policy)).toBeDefined();
+    expect(isDenied(['node', '-e', 'x'], policy)).toBeDefined();
+    expect(isDenied(['xargs', 'rm'], policy)).toBeDefined();
+    expect(isDenied(['find', '.', '-delete'], policy)).toBeDefined();
+    expect(isDenied(['find', '.', '-exec', 'rm', '{}', ';'], policy)).toBeDefined();
+  });
 });

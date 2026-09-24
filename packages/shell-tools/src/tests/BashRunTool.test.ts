@@ -67,4 +67,24 @@ describe('bash_run', () => {
     expect(result.status).not.toBe('exit 0');
     expect(result.stderr.length).toBeGreaterThan(0);
   });
+
+  it('corta un comando que produce salida infinita apenas supera maxOutputBytes', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] }, maxOutputBytes: 32 });
+
+    const result = JSON.parse(await tool.handler({ command: 'yes' }));
+
+    expect(result.stdout.length).toBeLessThan(200); // truncado, no las decenas de MB que "yes" tiraría
+    expect(result.stdout).toContain('truncado');
+    expect(result.status).not.toBe('exit 0'); // lo matamos con SIGKILL, no terminó solo
+  }, 10_000);
+
+  it('mata el proceso (y no cuelga la promise) si supera timeoutMs', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] }, timeoutMs: 200 });
+    const start = Date.now();
+
+    const result = JSON.parse(await tool.handler({ command: 'sleep 30' }));
+
+    expect(Date.now() - start).toBeLessThan(5000); // no esperó los 30s del sleep
+    expect(result.status).not.toBe('exit 0');
+  }, 10_000);
 });
