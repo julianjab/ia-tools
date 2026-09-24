@@ -47,7 +47,7 @@ describe('functionAgent', () => {
     // (plausible: `{ output: 'usd', amountCents: 500 }`) se confundía con el AgentRunOutput
     // real y perdía el resto de sus campos. Sin `withExit`, ahora se envuelve tal cual.
     const domainOutput = { output: 'usd', amountCents: 500 };
-    const agent = functionAgent('currency', () => domainOutput);
+    const agent = functionAgent<typeof domainOutput>('currency', () => domainOutput);
     const result = await agent.run({ event: createEvent('t', {}), steps: {} });
     expect(result).toEqual({ output: domainOutput, exit: 'success' });
   });

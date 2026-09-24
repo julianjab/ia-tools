@@ -112,7 +112,7 @@ describe('AgentAction', () => {
   });
 
   it('defaults exit to "success" when resolving emitOn', async () => {
-    const agents = new AgentRegistry().register(functionAgent('a', () => ({ output: 'x' })));
+    const agents = new AgentRegistry().register(functionAgent('a', () => 'x'));
     const bus = new EventBus();
     const seen: string[] = [];
     await new AgentAction({
