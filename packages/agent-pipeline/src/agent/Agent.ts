@@ -113,7 +113,11 @@ export class Agent extends Runnable {
     const exits = def.exits ?? {};
     const exit = exitSet(matchExit(exits, result.outcome));
 
-    const derivedType = def.emitOn?.(exit ?? 'success');
+    // `exit == null` significa "sin transición" (truncated/cancelled) o "outcome sin mapear
+    // y sin exits.error de fallback" — en ambos casos NO hay un exit real que emitir, así que
+    // `emitOn` ni se llama. Antes esto caía a `exit ?? 'success'`, inventando un exit 'success'
+    // que nunca pasó y publicando el evento derivado de éxito aunque el run se haya truncado.
+    const derivedType = exit != null ? def.emitOn?.(exit) : undefined;
     if (derivedType) {
       const basePayload =
         typeof result === 'object' && result !== null
