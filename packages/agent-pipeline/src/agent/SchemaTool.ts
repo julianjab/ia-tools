@@ -35,7 +35,9 @@ export abstract class SchemaTool<S extends ToolInputSchema> implements Tool<unkn
     return this.cachedInputSchema;
   }
 
-  handler(raw: unknown): Promise<string> | string {
+  // `async` para que un input inválido sea SIEMPRE una promesa rechazada, nunca un throw
+  // síncrono — el caller no tiene que cubrir las dos formas de fallar.
+  async handler(raw: unknown): Promise<string> {
     const parsed = this.input.safeParse(raw);
     if (!parsed.success) {
       throw new Error(`${this.name}: input inválido\n${z.prettifyError(parsed.error)}`);
