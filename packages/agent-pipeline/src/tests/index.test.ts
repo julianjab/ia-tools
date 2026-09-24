@@ -11,6 +11,7 @@ describe('package entrypoint', () => {
     expect(lib.Agent).toBeDefined();
     expect(lib.ProviderRegistry).toBeDefined();
     expect(lib.providerRegistry).toBeDefined();
+    expect(lib.SchemaTool).toBeDefined();
     expect(lib.exitSet).toBeTypeOf('function');
     expect(lib.SUCCESS_EXIT).toBe('success');
     expect(lib.ERROR_EXIT).toBe('error');
