@@ -19,37 +19,56 @@ en `examples/` como ilustración, nunca en `src/`.
 
 ```
 src/
-├── agent/       Agent (interfaz), AgentRegistry, functionAgent (wrapper mínimo)
-├── condition/    Condition — un `when` puro sobre un payload
-├── events/       DomainEvent, EventBus (pub/sub in-process)
-├── pipeline/      Pipeline + actions/ (AgentAction, EmitAction, HttpAction, FunctionAction)
-└── engine/       Engine (dispatch), PipelineSource
-tests/            Mirror 1:1 de src/ — ver "Tests" abajo
+├── agent/
+│   ├── Agent.ts, AgentRegistry.ts, FunctionAgent.ts
+│   └── tests/            Agent.test.ts, AgentRegistry.test.ts, FunctionAgent.test.ts
+├── condition/
+│   ├── Condition.ts
+│   └── tests/            Condition.test.ts
+├── events/
+│   ├── DomainEvent.ts, EventBus.ts
+│   └── tests/            DomainEvent.test.ts, EventBus.test.ts
+├── pipeline/
+│   ├── Pipeline.ts
+│   ├── tests/            Pipeline.test.ts
+│   └── actions/
+│       ├── AgentAction.ts, EmitAction.ts, HttpAction.ts, FunctionAction.ts, PipelineAction.ts
+│       └── tests/        un *.test.ts por acción
+├── engine/
+│   ├── Engine.ts, PipelineSource.ts
+│   └── tests/            Engine.test.ts, PipelineSource.test.ts
+├── index.ts
+└── tests/                index.test.ts
 examples/         Los tres casos de uso que motivaron el paquete (no se compilan a dist/)
 ```
 
-## Tests — carpeta separada, no colocados
+## Tests — en un `tests/` DENTRO de cada carpeta, no colocados ni en un árbol aparte
 
-Los tests viven en `tests/`, **no** junto al código fuente (`src/**/*.test.ts`). La
-estructura de `tests/` espeja 1:1 la de `src/` (`tests/agent/Agent.test.ts` prueba
-`src/agent/Agent.ts`), así que un archivo nuevo en `src/` implica crear su contraparte en
-la misma ruta relativa bajo `tests/`.
+Cada carpeta de `src/` que tiene código tiene su propia subcarpeta `tests/` al lado — NO
+`Agent.test.ts` junto a `Agent.ts` (colocado), y NO un árbol `tests/` separado en la raíz
+del paquete que espeje a `src/` (esquema anterior, se descartó). `src/agent/tests/Agent.test.ts`
+prueba `src/agent/Agent.ts`; un archivo nuevo en `src/foo/Bar.ts` implica crear
+`src/foo/tests/Bar.test.ts`.
 
-Los imports de un test apuntan al módulo real con path relativo completo hacia `../src/...`
-(ej. `tests/pipeline/actions/AgentAction.test.ts` importa
-`../../../src/pipeline/actions/AgentAction.js`) — nunca a otro archivo de test.
+El import al módulo que prueba es siempre `../Bar.js` (un nivel arriba de `tests/`, directo
+al hermano); un import a OTRO módulo del paquete sale desde ahí con la profundidad relativa
+que corresponda (ej. `src/pipeline/actions/tests/AgentAction.test.ts` importa
+`../../../agent/FunctionAgent.js`). Nunca importa desde otro archivo de test.
 
-`vitest.config.ts` sólo mira `tests/**/*.test.ts`. Correr con `pnpm test` (o
+`vitest.config.ts` mira `src/**/tests/**/*.test.ts`. Correr con `pnpm test` (o
 `vitest run` / `vitest` desde este directorio).
 
 ## TypeScript — dos tsconfig, dos propósitos
 
 - **`tsconfig.json`** — el que usa el editor y `pnpm typecheck` (`tsc --noEmit`, sin `-p`).
-  Incluye `src`, `tests` Y `examples`: todo el código del paquete se tipa, aunque sólo
-  `src/` se publique. `noEmit: true` porque este archivo nunca genera output.
+  Incluye `src` (que ya trae sus `tests/` anidados) Y `examples`: todo el código del
+  paquete se tipa, aunque sólo `src/` se publique. `noEmit: true` porque este archivo
+  nunca genera output.
 - **`tsconfig.build.json`** — el que usa `pnpm build` (`tsc -p tsconfig.build.json`).
-  Sólo incluye `src` con `rootDir: "src"` y `outDir: "dist"` — es lo único que termina en
-  el paquete publicado. `tests/` y `examples/` nunca se compilan a `dist/`.
+  Incluye `src` con `rootDir: "src"` y `outDir: "dist"`, pero EXCLUYE explícitamente
+  `src/**/tests/**` — sin ese exclude, cada `tests/` anidado (al estar dentro de `src/`)
+  terminaría compilado dentro de `dist/`. `examples/` nunca entra porque ni siquiera está
+  en `include`.
 
 Si agregás una opción de compilador nueva, pensá en cuál de los dos (o los dos)
 corresponde: algo que afecta el output publicado va en `tsconfig.build.json`; algo que
@@ -77,4 +96,4 @@ pnpm --filter @ia-tools/agent-pipeline build
 
 Los tres tienen que estar en verde antes de commitear (regla global del repo, ver
 `~/.claude/CLAUDE.md` del usuario). `pnpm build` importa: valida que `tsconfig.build.json`
-sigue compilando sólo lo publicable, sin arrastrar `tests/`/`examples/`.
+sigue compilando sólo lo publicable, sin arrastrar ningún `tests/` anidado ni `examples/`.
