@@ -38,6 +38,19 @@ describe('bash_run', () => {
     await expect(tool.handler({ command: 'ls' })).rejects.toThrow('allowlist');
   });
 
+  it('rechaza un binario invocado por path absoluto — no puede saltarse la deny-list así', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: ['rm *'] } });
+
+    await expect(tool.handler({ command: '/bin/rm -rf /' })).rejects.toThrow('path');
+  });
+
+  it('rechaza un binario invocado por path relativo', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] } });
+
+    await expect(tool.handler({ command: './evil.sh' })).rejects.toThrow('path');
+    await expect(tool.handler({ command: 'bin/evil' })).rejects.toThrow('path');
+  });
+
   it('corre en baseDir — un comando que depende del cwd lo confirma', async () => {
     const tool = new BashRunTool({ baseDir, policy: { deny: [] } });
 
