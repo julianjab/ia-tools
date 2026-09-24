@@ -44,6 +44,15 @@ export class AgentAction extends PipelineAction {
         typeof result.output === 'object' && result.output !== null
           ? (result.output as Record<string, unknown>)
           : { output: result.output };
+      // ACOPLAMIENTO DELIBERADO: este `await` significa que si algún Pipeline que escucha
+      // `derivedType` falla, ese fallo (un AggregateError — ver EventBus.publish) se propaga
+      // hasta ACÁ y aborta este paso, aunque el Agent ya haya corrido con éxito (y con
+      // cualquier efecto de lado que eso implique, ej. un PR ya abierto). El resultado del
+      // Agent nunca llega a `ctx.steps` en ese caso. Es la misma garantía que le da
+      // `Engine.dispatch` a quien llama `bus.publish` en la raíz — un fallo aguas abajo tiene
+      // que ser visible, no tragado en silencio — a costa de que un `AgentAction` con
+      // `emitOn` no sea "fire and forget". Si preferís que ESTE paso no dependa de lo que
+      // pase después, envolvelo con `continueOnError: true` en el `do[]` del Pipeline.
       await ctx.bus.publish(
         deriveEvent(ctx.event, derivedType, { ...basePayload, agentId: this.agentId }),
       );

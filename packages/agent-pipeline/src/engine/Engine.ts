@@ -74,7 +74,11 @@ export class Engine {
       : matched;
     if (toRun.length === 0) return 'skipped';
 
-    await Promise.all(
+    // `Promise.allSettled`, no `Promise.all`: los pipelines matcheados son independientes, así
+    // que un fallo en uno no debe cortar a los demás a mitad de camino — y quien llamó
+    // `dispatch` (o el `AggregateError` de `EventBus.publish`, vía `start()`) tiene que ver
+    // TODOS los fallos, no sólo el primero que ganó la carrera.
+    const results = await Promise.allSettled(
       toRun.map((pipeline) =>
         pipeline.execute({
           event,
@@ -85,6 +89,15 @@ export class Engine {
         }),
       ),
     );
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((failure) => failure.reason),
+        `${failures.length} pipeline(s) failed for event "${event.type}"`,
+      );
+    }
     return 'dispatched';
   }
 }

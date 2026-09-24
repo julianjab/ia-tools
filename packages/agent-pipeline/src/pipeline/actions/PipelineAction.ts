@@ -44,8 +44,21 @@ export abstract class PipelineAction {
   abstract run(ctx: PipelineExecutionContext): Promise<unknown>;
 }
 
+/**
+ * `steps` es una clave RESERVADA en el objeto que evalúan las `when` de un paso — es lo que
+ * permite escribir `{ field: 'steps.triage.output.actionable', ... }` (ver el doc de
+ * `Pipeline`). Si el `payload` del evento trae su propia clave `steps` (ej. un itinerario de
+ * viaje con `{ steps: [...] }` de escalas), esa clave queda tapada por `ctx.steps` a
+ * propósito — el `payload` no tiene forma de "ganarle" al reservado. Evitá nombrar un campo
+ * de tu dominio `steps` si tu Pipeline usa `when` por-paso.
+ */
 function evaluateWhen(when: Condition[], ctx: PipelineExecutionContext): boolean {
-  const subject = { ...ctx.event.payload, steps: ctx.steps };
+  const payload = ctx.event.payload;
+  // Si el payload no es un objeto plano (un string, un número, `null`), el spread de abajo
+  // lo trataría como iterable/índices en vez de fallar con claridad — mejor tratarlo como
+  // "sin campos propios" y dejar que sólo `steps` quede disponible para la condición.
+  const base = typeof payload === 'object' && payload !== null ? payload : {};
+  const subject = { ...base, steps: ctx.steps };
   let result = when[0].evaluate(subject);
   for (let i = 1; i < when.length; i++) {
     const condition = when[i];

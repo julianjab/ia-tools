@@ -1,7 +1,7 @@
 export type { Agent, AgentRunInput, AgentRunOutput } from './agent/Agent.js';
 export type { AgentSource } from './agent/AgentRegistry.js';
 export { AgentRegistry } from './agent/AgentRegistry.js';
-export { functionAgent } from './agent/FunctionAgent.js';
+export { functionAgent, withExit } from './agent/FunctionAgent.js';
 
 export type { ConditionOp, ConditionRow } from './condition/Condition.js';
 export { Condition } from './condition/Condition.js';

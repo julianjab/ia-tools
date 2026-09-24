@@ -4,11 +4,16 @@ import {
   type PipelineExecutionContext,
 } from './PipelineAction.js';
 
+const BODYLESS_METHODS = new Set(['GET', 'DELETE']);
+
 export interface HttpActionProps extends PipelineActionProps {
   url: string | ((ctx: PipelineExecutionContext) => string);
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers?: Record<string, string> | ((ctx: PipelineExecutionContext) => Record<string, string>);
   body?: unknown | ((ctx: PipelineExecutionContext) => unknown);
+  /** Corta la request si no responde a tiempo — un host colgado, si no, bloquea el Pipeline
+   *  para siempre. Default 30s. */
+  timeoutMs?: number;
 }
 
 /**
@@ -24,6 +29,7 @@ export class HttpAction extends PipelineAction {
   readonly method: NonNullable<HttpActionProps['method']>;
   readonly headers?: HttpActionProps['headers'];
   readonly body?: HttpActionProps['body'];
+  readonly timeoutMs: number;
 
   constructor(props: HttpActionProps) {
     super(props);
@@ -31,6 +37,7 @@ export class HttpAction extends PipelineAction {
     this.method = props.method ?? 'GET';
     this.headers = props.headers;
     this.body = props.body;
+    this.timeoutMs = props.timeoutMs ?? 30_000;
   }
 
   async run(ctx: PipelineExecutionContext): Promise<unknown> {
@@ -38,20 +45,39 @@ export class HttpAction extends PipelineAction {
     const headers = typeof this.headers === 'function' ? this.headers(ctx) : this.headers;
     const body = typeof this.body === 'function' ? this.body(ctx) : this.body;
 
-    const response = await fetch(url, {
-      method: this.method,
-      headers: { 'content-type': 'application/json', ...headers },
-      body: body != null ? JSON.stringify(body) : undefined,
-    });
+    // `fetch` tira TypeError si un método sin cuerpo (GET/DELETE) lleva `body` — así que acá
+    // se omite en vez de dejar que el `body` de la config rompa la request entera.
+    const requestBody =
+      body != null && !BODYLESS_METHODS.has(this.method) ? JSON.stringify(body) : undefined;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: this.method,
+        headers: { 'content-type': 'application/json', ...headers },
+        body: requestBody,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Se lee SIEMPRE como texto primero, nunca `response.json()` directo: un 5xx con
+    // `content-type: application/json` pero body vacío o HTML (un proxy, un balanceador)
+    // tira un SyntaxError que tapa el status real detrás de un error de parseo confuso. Leer
+    // texto primero también cubre un 204 (body vacío) sin que `JSON.parse('')` explote.
     const contentType = response.headers.get('content-type') ?? '';
-    const data = contentType.includes('application/json')
-      ? await response.json()
-      : await response.text();
+    const raw = await response.text();
 
     if (!response.ok) {
-      throw new Error(`HttpAction: ${this.method} ${url} → ${response.status}`);
+      const snippet = raw.length > 500 ? `${raw.slice(0, 500)}…` : raw;
+      throw new Error(
+        `HttpAction: ${this.method} ${url} → ${response.status}${snippet ? `: ${snippet}` : ''}`,
+      );
     }
-    return data;
+    if (raw === '') return undefined;
+    return contentType.includes('application/json') ? JSON.parse(raw) : raw;
   }
 }
