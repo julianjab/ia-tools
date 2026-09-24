@@ -45,6 +45,34 @@ describe('GithubClient.request', () => {
     expect(capturedUrl).toBe('https://api.github.com/repositories/1/issues?page=2');
   });
 
+  it('rejects an absolute URL pointing at a different host instead of leaking the token there', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const client = new GithubClient({
+      auth: fakeAuth('secret-token'),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(client.request('https://evil.example.com/steal')).rejects.toThrow(
+      'fuera de la API de GitHub',
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a relative path that escapes the API host via encoded traversal', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const client = new GithubClient({
+      auth: fakeAuth('t'),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    // `new URL('//evil.example.com/x', 'https://api.github.com')` resuelve a otro host —
+    // protocol-relative dentro de un path es una forma clásica de escapar un chequeo ingenuo.
+    await expect(client.request('//evil.example.com/x')).rejects.toThrow(
+      'fuera de la API de GitHub',
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('sets content-type only when there is a body', async () => {
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       const headers = init.headers as Record<string, string>;

@@ -129,6 +129,60 @@ describe('github_search_issues', () => {
   });
 });
 
+describe('input validation (owner/repo/number come from the model, not a trusted caller)', () => {
+  it('rejects an owner/repo containing a path traversal segment instead of hitting the wrong endpoint', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const tool = new GithubTools(clientWith(fetchImpl as unknown as typeof fetch)).getIssue();
+
+    await expect(
+      tool.handler({ owner: 'o', repo: '../../orgs/other-org/repos', number: 1 }),
+    ).rejects.toThrow('repo');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects an owner containing a slash (path segment injection)', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const tool = new GithubTools(clientWith(fetchImpl as unknown as typeof fetch)).commentIssue();
+
+    await expect(
+      tool.handler({ owner: 'o/extra', repo: 'r', number: 1, body: 'x' }),
+    ).rejects.toThrow('owner');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-integer or non-positive issue number', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const tool = new GithubTools(clientWith(fetchImpl as unknown as typeof fetch)).addLabels();
+
+    await expect(
+      tool.handler({ owner: 'o', repo: 'r', number: 1.5, labels: ['bug'] }),
+    ).rejects.toThrow('number');
+    await expect(
+      tool.handler({ owner: 'o', repo: 'r', number: -1, labels: ['bug'] }),
+    ).rejects.toThrow('number');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('accepts a legitimate owner/repo containing dots, dashes and underscores', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(url).toBe('https://api.github.com/repos/my-org_2/repo.name/issues/1');
+      return jsonResponse({
+        number: 1,
+        title: 't',
+        body: '',
+        state: 'open',
+        html_url: 'u',
+        labels: [],
+      });
+    });
+    const tool = new GithubTools(clientWith(fetchImpl as unknown as typeof fetch)).getIssue();
+
+    await tool.handler({ owner: 'my-org_2', repo: 'repo.name', number: 1 });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('tool error handling (matches AnthropicProvider expectations)', () => {
   it('a non-ok response throws — the caller (AnthropicProvider) turns it into an is_error tool_result', async () => {
     const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 }));
