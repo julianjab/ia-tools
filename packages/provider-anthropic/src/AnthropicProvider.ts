@@ -126,16 +126,19 @@ function buildThinkingConfig(
   effectiveMaxTokens: number,
   defaultThinking: AnthropicThinkingConfig | undefined,
 ): Record<string, unknown> | undefined {
-  if (agentThinkingBudget == null) {
-    if (!defaultThinking) return undefined;
-    return defaultThinking.type === 'adaptive'
-      ? { type: 'adaptive' }
-      : { type: 'enabled', budget_tokens: defaultThinking.budgetTokens };
-  }
   // budget_tokens < max_tokens es requisito de la API — clampeado bajo effectiveMaxTokens (que
-  // ya puede haber subido por el bump de truncamiento) en vez de confiar ciegamente en la config.
-  const clamped = Math.min(agentThinkingBudget, effectiveMaxTokens - 1024);
-  if (clamped >= 1024) return { type: 'enabled', budget_tokens: clamped };
+  // ya puede haber subido por el bump de truncamiento) en vez de confiar ciegamente en la
+  // config, sea que el budget venga del override por-agente o del default del provider (los dos
+  // caen acá, no sólo el override — un `new AnthropicProvider({ thinking: { budgetTokens } })`
+  // con el `maxTokens` default de 1024 mandaría un budget >= max_tokens sin este clamp, y la
+  // API rechaza eso con 400).
+  const requestedBudget =
+    agentThinkingBudget ??
+    (defaultThinking?.type === 'enabled' ? defaultThinking.budgetTokens : undefined);
+  if (requestedBudget != null) {
+    const clamped = Math.min(requestedBudget, effectiveMaxTokens - 1024);
+    if (clamped >= 1024) return { type: 'enabled', budget_tokens: clamped };
+  }
   return defaultThinking?.type === 'adaptive' ? { type: 'adaptive' } : undefined;
 }
 
