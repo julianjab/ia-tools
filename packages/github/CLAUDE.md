@@ -25,15 +25,27 @@ integración en `examples/`).
 
 ```
 src/
-├── GithubAuth.ts               interfaz { getToken(): Promise<string> }
-├── GithubTokenAuth.ts          login de usuario — wrapper trivial de un token ya emitido
-├── GithubAppAuth.ts            login de GitHub App — JWT RS256 (node:crypto, sin deps) + cache
-├── GithubClient.ts             fetch autenticado — toma cualquier GithubAuth
-├── GithubWebhookVerifier.ts    HMAC-SHA256 timing-safe de x-hub-signature-256
-├── GithubWebhookTranslator.ts  payload → GithubWebhookEvent (forma de DomainEvent, sin importarlo)
+├── auth/
+│   ├── GithubAuth.ts            interfaz { getToken(): Promise<string> }
+│   ├── GithubTokenAuth.ts       login de usuario — wrapper trivial de un token ya emitido
+│   ├── GithubAppAuth.ts         login de GitHub App — JWT RS256 (node:crypto, sin deps) + cache
+│   └── tests/
+├── webhook/
+│   ├── GithubWebhookVerifier.ts    HMAC-SHA256 timing-safe de x-hub-signature-256
+│   ├── GithubWebhookTranslator.ts  payload → GithubWebhookEvent (forma de DomainEvent, sin importarlo)
+│   └── tests/
+├── api/
+│   ├── GithubClient.ts          fetch autenticado — toma cualquier GithubAuth (de auth/)
+│   └── tests/
 ├── index.ts
-└── tests/
+└── tests/                       sólo index.test.ts — el resto vive en su propia carpeta
 ```
+
+Carpetas por FUNCIONALIDAD (`auth/`, `webhook/`, `api/`), no un solo `src/` plano — `auth/` no
+sabe nada de `webhook/` ni de `api/`; `api/` importa `GithubAuth` de `auth/` (la única arista
+entre carpetas); `webhook/` no importa de ninguna de las otras dos. Un archivo nuevo entra en la
+carpeta de la funcionalidad que le corresponde, con su propio `tests/` al lado — nunca en la
+raíz de `src/` salvo `index.ts`.
 
 ## `GithubIssuePayload`/`GithubIssueCommentPayload` son `type`, no `interface`
 

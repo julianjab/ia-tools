@@ -1,13 +1,13 @@
-export type { GithubAuth } from './GithubAuth.js';
-export { GithubTokenAuth } from './GithubTokenAuth.js';
-export type { GithubAppAuthOptions } from './GithubAppAuth.js';
-export { GithubAppAuth } from './GithubAppAuth.js';
-export type { GithubClientOptions } from './GithubClient.js';
-export { GithubClient } from './GithubClient.js';
-export { GithubWebhookVerifier } from './GithubWebhookVerifier.js';
+export type { GithubAuth } from './auth/GithubAuth.js';
+export { GithubTokenAuth } from './auth/GithubTokenAuth.js';
+export type { GithubAppAuthOptions } from './auth/GithubAppAuth.js';
+export { GithubAppAuth } from './auth/GithubAppAuth.js';
+export type { GithubClientOptions } from './api/GithubClient.js';
+export { GithubClient } from './api/GithubClient.js';
+export { GithubWebhookVerifier } from './webhook/GithubWebhookVerifier.js';
 export type {
   GithubIssueCommentPayload,
   GithubIssuePayload,
   GithubWebhookEvent,
-} from './GithubWebhookTranslator.js';
-export { GithubWebhookTranslator } from './GithubWebhookTranslator.js';
+} from './webhook/GithubWebhookTranslator.js';
+export { GithubWebhookTranslator } from './webhook/GithubWebhookTranslator.js';
