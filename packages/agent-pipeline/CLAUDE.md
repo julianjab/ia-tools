@@ -117,10 +117,16 @@ Nace de portar `@ia-tools/github-tools` (y después `fs-tools`) a clases: cada d
 auto-registran al definirse.
 
 El patrón: una tool concreta extiende una clase base DEL DOMINIO (`GithubTool`, `FsTool` — no
-viven acá, cada paquete de tools define la suya con SU lógica compartida) y llama
-`SuRegistry.register(SuTool)` al final de su propio archivo; un barrel `tools/index.ts` importa
-todos esos archivos (dispara el registro); `new SuRegistry(...)` instancia recién ahí todo lo
-registrado. Agregar una tool nueva nunca toca la lógica de construcción del registry.
+viven acá, cada paquete de tools define la suya con SU lógica compartida); el registro
+(`SuRegistry.register(SuTool)`) vive CENTRALIZADO en `SuRegistry.ts`, una línea por tool,
+DESPUÉS de la declaración de la clase — no repartido en cada archivo de tool. La forma "más
+auto" (cada tool se registra sola al final de su propio archivo) se probó y se descartó: crea
+una dependencia circular real con el archivo del registry (que a su vez necesita importar los
+archivos de tools), y en ESM eso cae en TDZ — la clase del registry todavía no terminó de
+inicializarse en el punto donde el archivo de la tool, importado a mitad de esa evaluación,
+intenta usarla. `new SuRegistry(...)` instancia recién ahí todo lo registrado. Agregar una tool
+nueva nunca toca la lógica de construcción del registry (`ToolRegistry`, acá) — sólo el archivo
+de la tool nueva, el barrel `tools/index.ts`, y una línea de `.register(...)` en `SuRegistry.ts`.
 
 **El único punto no-obvio**: `protected static registeredTools` se declara en la base
 (`ToolRegistry`) pero cada subclase concreta TIENE QUE redeclararlo (`protected static

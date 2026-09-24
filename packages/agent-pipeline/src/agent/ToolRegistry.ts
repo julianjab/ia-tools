@@ -14,16 +14,30 @@ export type ToolConstructor<TArgs extends unknown[]> = new (...args: TArgs) => T
  *        protected static registeredTools: ToolConstructor<[FooClient]>[] = [];
  *      }` — la redeclaración del `static` es OBLIGATORIA (ver la nota de abajo), no boilerplate
  *      cosmético.
- *   2. Cada tool concreta (`class GetIssueTool extends BaseFooTool<Input> { ... }`) llama
- *      `FooRegistry.register(GetIssueTool)` una vez, al final de su propio archivo.
- *   3. Un barrel (`tools/index.ts`) importa/reexporta todos los archivos de tools — eso es lo
- *      que dispara la evaluación de cada módulo (y por lo tanto la llamada a `register`) antes
- *      de que exista cualquier instancia del registry.
- *   4. `new FooRegistry(client)` recién ahí construye TODAS las tools registradas, indexadas
- *      por `tool.name`.
+ *   2. Cada tool concreta (`class GetIssueTool extends BaseFooTool<Input> { ... }`) vive en su
+ *      propio archivo, SIN llamar `register` — ver la nota "Por qué el registro está
+ *      centralizado" más abajo.
+ *   3. `FooRegistry.ts` importa las clases de tools y llama `FooRegistry.register(GetIssueTool)`
+ *      una vez por tool, DESPUÉS de la declaración de `class FooRegistry` — todas esas llamadas
+ *      viven en el mismo archivo que la clase.
+ *   4. `new FooRegistry(client)` construye TODAS las tools registradas, indexadas por
+ *      `tool.name`.
  *
- * Agregar una tool nueva es: crear el archivo, llamar `register`, sumarlo al barrel — nunca
- * tocar la lógica de construcción del registry.
+ * Agregar una tool nueva es: crear el archivo con la clase, sumarla al barrel `tools/index.ts`,
+ * y agregar UNA línea `FooRegistry.register(MiTool)` en `FooRegistry.ts` — nunca tocar la
+ * lógica de construcción del registry (`ToolRegistry`, acá).
+ *
+ * ## Por qué el registro está centralizado en `FooRegistry.ts`, no repartido en cada tool file
+ *
+ * La forma más "auto" sería que cada tool se registrara sola, al final de su propio archivo
+ * (`FooRegistry.register(MiTool)` DENTRO de `MiTool.ts`) — se probó y se descartó: crea una
+ * dependencia circular real con `FooRegistry.ts` (que a su vez necesita importar los archivos
+ * de tools para dispararlas). En ESM un ciclo así cae en TDZ — cuando el archivo de la tool,
+ * importado a mitad de la evaluación de `FooRegistry.ts`, intenta usar `FooRegistry`, la clase
+ * todavía no terminó de inicializarse en ese módulo. Centralizar el `.register(...)` en
+ * `FooRegistry.ts` evita el ciclo sin perder el resto: nadie mantiene a mano el array de
+ * INSTANCIAS ni la lógica de construcción — eso lo hace esta clase, automáticamente, a partir
+ * de las clases registradas.
  *
  * ## Por qué el `static registeredTools` se redeclara en cada subclase
  *
