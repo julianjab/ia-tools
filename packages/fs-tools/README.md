@@ -1,0 +1,55 @@
+# @ia-tools/fs-tools
+
+`Tool[]` de [`@ia-tools/agent-pipeline`](../agent-pipeline) para que un agente lea, liste,
+busque, escriba y edite archivos — contenidas SIEMPRE a un `baseDir` (típicamente un worktree).
+Réplica acotada de `fs_read`/`fs_list`/`fs_grep`/`fs_write`/`fs_edit` del roster real de
+`ai-development-flow` (ver `examples/apps/ai-development-flow-runner.ts`).
+
+## Instalar (dentro del monorepo)
+
+```bash
+pnpm --filter @ia-tools/fs-tools build
+pnpm --filter @ia-tools/fs-tools test
+```
+
+## Uso
+
+```ts
+import { Agent } from '@ia-tools/agent-pipeline';
+import { FsToolRegistry } from '@ia-tools/fs-tools';
+
+const fsTools = new FsToolRegistry('/path/al/worktree');
+
+const implementer = new Agent({
+  id: 'implementer',
+  provider: 'anthropic-api',
+  prompt: '...',
+  tools: fsTools.all(), // o por nombre: fsTools.resolve(['fs_read', 'fs_grep', 'fs_write'])
+  exits: { done: 'done' },
+});
+```
+
+## Las cinco tools
+
+| Tool | Qué hace |
+| --- | --- |
+| `fs_read` | Lee un archivo de texto completo (trunca a 256KB) |
+| `fs_list` | Lista archivos/carpetas de un directorio (no recursivo) |
+| `fs_grep` | Busca un regex recursivamente, salta `node_modules`/`.git`/`dist`/`.turbo`/`.cache` |
+| `fs_write` | Crea o sobreescribe un archivo completo, creando directorios padre si hace falta |
+| `fs_edit` | Reemplaza `oldString` → `newString`; tira si no es única (salvo `replaceAll: true`) |
+
+Cada tool también se exporta suelta, por si una app quiere una sola sin pasar por el registry:
+`new FsReadTool('/path/al/worktree')`.
+
+## Seguridad — todo path es relativo y contenido a `baseDir`
+
+Un `path` de una de estas tools es input del modelo, nunca confiable tal cual: `resolveSafePath`
+(en `shared.ts`) rechaza cualquier path absoluto o que resuelva fuera de `baseDir` (traversal vía
+`../..`) — mismo criterio que `issuePath` en `@ia-tools/github-tools` para `owner`/`repo`/`number`.
+
+## Qué NO es este paquete
+
+No ejecuta comandos (`bash_run` vive en `@ia-tools/shell-tools`), no tiene memoria persistente
+entre corridas (`memory_*` — no existe todavía en ia-tools) y no sabe nada de git ni de GitHub.
+Es sólo el filesystem, contenido a un directorio.

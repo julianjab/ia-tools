@@ -1,0 +1,30 @@
+{
+  "name": "@ia-tools/fs-tools",
+  "version": "0.1.0",
+  "description": "Tool[] de agent-pipeline para leer/listar/buscar/escribir/editar archivos, contenidas a un baseDir (worktree) — réplica acotada de fs_read/fs_list/fs_grep/fs_write/fs_edit de ai-development-flow",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-tools/agent-pipeline": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}
