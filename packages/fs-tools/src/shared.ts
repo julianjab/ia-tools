@@ -82,6 +82,15 @@ export async function resolveSafePath(baseDir: string, relativePath: string): Pr
   if (rel === '..' || rel.startsWith(`..${sep}`)) {
     throw new Error(`fs-tools: path fuera de baseDir: "${relativePath}"`);
   }
+  // `fs_write`/`fs_edit` con acceso a `.git/config` (`[core] pager = <cmd>`) o `.git/hooks/*`
+  // consiguen ejecución arbitraria en el próximo `git log`/`git commit` — esto rompe la policy
+  // ENTERA de `@ia-tools/shell-tools` desde el otro lado (fs-tools nunca sabe de `bash_run`, y
+  // viceversa). En un worktree `.git` es un archivo, no un directorio, así que no aplicaría —
+  // pero este paquete no asume que siempre corre en un worktree, así que el segmento se rechaza
+  // siempre, exista o no.
+  if (rel.split(sep).includes('.git')) {
+    throw new Error(`fs-tools: path pasa por ".git" — rechazado: "${relativePath}"`);
+  }
 
   const realBase = await realpath(resolvedBase);
   return resolveRealPath(realBase, resolved, resolvedBase, relativePath);
