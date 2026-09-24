@@ -36,6 +36,11 @@ El modelo manda un `command` como string (`"git status"`, `"npm test"`) — se t
 por un shell (no hay `sh -c` de por medio), así que pipes/redirecciones/`$VAR` no existen acá; si
 el modelo los usa, `bash_run` tira en vez de ejecutar algo distinto de lo que pidió.
 
+**El comando (`argv[0]`) nunca puede incluir un path** — `/bin/rm`, `./evil.sh`, `bin/curl` tiran,
+siempre, sin excepción de policy. Sólo se ejecutan nombres de binario resueltos por `PATH`. Sin
+esto, cualquier regla de `deny` que compare contra el nombre pelado (`'rm *'`, `'curl *'`) se
+saltaría con sólo anteponer la ruta absoluta del binario.
+
 ## La policy — `allow`/`deny`, `deny` siempre gana
 
 ```ts

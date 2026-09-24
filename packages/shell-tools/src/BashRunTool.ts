@@ -53,6 +53,15 @@ export class BashRunTool implements Tool<BashRunInput> {
     if (argv.length === 0) {
       throw new Error('bash_run: comando vacío');
     }
+    // Sin esto, un path calificado (`/bin/rm`, `./rm`, `bin/curl`) se salta CUALQUIER regla de
+    // deny que compare contra el nombre pelado ('rm', 'curl', 'bash') — la policy entera es
+    // texto plano contra `argv[0]`, no resuelve símlinks ni PATH. bash_run sólo corre nombres
+    // de binario resueltos por PATH, nunca un path explícito.
+    if (argv[0].includes('/')) {
+      throw new Error(
+        `bash_run: el comando no puede incluir un path ("${argv[0]}") — usá el nombre del binario resuelto por PATH`,
+      );
+    }
 
     const deniedBy = isDenied(argv, this.options.policy);
     if (deniedBy) {
