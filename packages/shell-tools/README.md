@@ -41,6 +41,13 @@ siempre, sin excepción de policy. Sólo se ejecutan nombres de binario resuelto
 esto, cualquier regla de `deny` que compare contra el nombre pelado (`'rm *'`, `'curl *'`) se
 saltaría con sólo anteponer la ruta absoluta del binario.
 
+**El proceso hijo NO hereda el entorno completo.** Por default corre con un subset mínimo
+(`PATH`, `HOME`, `LANG`, `LC_ALL`, `TERM`, `TZ`, `USER`, `SHELL`), nunca `process.env` entero —
+heredarlo entero (el default de `child_process.spawn`) le pasaría al comando cualquier secreto
+que el host tenga seteado (`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, credenciales de Slack), y con un
+solo intérprete que se cuele por el deny-list alcanza para leerlos. Si un comando necesita algo
+puntual del entorno, pasalo explícito con `env: { ... }` en las options.
+
 ## La policy — `allow`/`deny`, `deny` siempre gana
 
 ```ts
@@ -57,30 +64,56 @@ tanto `bash` solo como `bash -c algo`); un token que termina en `*` (`--force*`)
 match de ESE token puntual.
 
 `DEFAULT_DENY_PATTERNS` es un subset curado — shells anidados, `rm`, `sudo`/`su`, push
-forzado/directo a `main`/`master` (incluyendo `HEAD:main`, flags después del nombre de la
-branch, y `git -C <dir> push`), `git -c <key>=<value>`/`--config-env` enteros (reconfiguran git
-por esta invocación — un alias, `core.sshCommand`, `core.pager` o `credential.helper` corren lo
-que sea vía `sh`, y como viaja DENTRO de un solo token ningún otro patrón lo ve), credenciales
-del entorno (`env`, `printenv`), intérpretes (`python`/`python3`/`node`/`ruby`/`perl`/`npx`),
-`xargs` entero, `find` ENTERO (no sólo `-exec`/`-delete`: esos flags pueden ir en cualquier
-posición después de los filtros, y un patrón de posición fija casi nunca los agarra — mismo
-criterio que denegar `terraform init` completo en la policy real, ver `BashPolicy.ts`), y
-`curl`/`wget`/`ssh`/`scp`/`nc` como canales de exfiltración obvios. **No es exhaustivo** — el
-deny-list real de producción tiene 200+ líneas con variantes posicionales para cubrir 2-3 flags
-delante de cada comando (ver el comentario en `BashPolicy.ts`). Un caller que necesite esa
-cobertura arma su propio `BashPolicy`.
+forzado (`--force`/`-f`) a cualquier branch, `git -c <key>=<value>`/`--config-env`/`git config`
+enteros (reconfiguran git por esta invocación o de forma persistente — un alias, `core.sshCommand`,
+`core.pager`, `core.hooksPath` o `credential.helper` corren lo que sea vía `sh`, y como viaja
+DENTRO de un solo token/subcomando ningún otro patrón lo ve), credenciales del entorno (`env`,
+`printenv`), intérpretes de propósito general
+(`python`/`python3`/`node`/`ruby`/`perl`/`bun`/`bunx`/`deno`/`tsx`/`php`/`lua`/`awk`/`sed` — con
+uno solo permitido el resto de la lista es decorativa), subcomandos de package manager que
+corren algo externo al repo (`npx`, `pnpm dlx`/`exec`, `npm exec`, `yarn dlx` — el resto de
+`npm`/`pnpm`/`yarn`, como `install`/`test`/`run <script>`, sigue permitido), `xargs` entero,
+wrappers que ejecutan otro binario pasado como argumento (`nice`, `timeout`, `nohup`, `stdbuf`,
+`time`, `watch`, `setsid` — cualquiera de estos reabre acceso a todo lo de arriba, porque el
+deny-list sólo mira `argv[0]` y acá `argv[0]` es el wrapper, no lo que ejecuta), `find` y `tar`
+enteros, y `curl`/`wget`/`ssh`/`scp`/`nc` como canales de exfiltración obvios. **No es
+exhaustivo** — el deny-list real de producción tiene 200+ líneas con variantes posicionales para
+cubrir 2-3 flags delante de cada comando (ver el comentario en `BashPolicy.ts`). Un caller que
+necesite esa cobertura arma su propio `BashPolicy`.
+
+### Chequeos dedicados, no posicionales, siempre activos
+
+Dos cosas no se pueden cubrir con patrones de posición fija sin generar una lista enorme y
+frágil, así que tienen su propio chequeo en código — corren SIEMPRE, no dependen de lo que el
+caller ponga en `deny`, mismo criterio que la validación de `argv[0]` calificado por path:
+
+- **`git push` contra `main`/`master`** — `main`/`master` en cualquier posición después de
+  `push` (no sólo la 3ra: `git push -u origin main` también cae), `+main`/`:main` (force/delete
+  vía sintaxis de refspec, sin pasar por `--force`), `--delete`/`-d`, y
+  `HEAD:refs/heads/main`.
+- **`git --upload-pack`/`--exec`** (en `clone`/`fetch`/`push`) — le dicen a git que invoque
+  `<cmd>` como su propio helper de transporte, en cualquier posición entre los demás flags.
+
+`find` y `tar` NO tienen chequeo dedicado — se deniegan ENTEROS en `DEFAULT_DENY_PATTERNS` en
+vez de perseguir sus flags de ejecución (`-exec`/`-delete`, `--to-command`/`-I`) con un chequeo a
+medida: esos flags admiten abreviación (GNU) y forma pegada (`-Ish`), así que ni siquiera un
+chequeo dedicado los cubre con certeza — denegar el comando entero es lo único que cierra la
+categoría completa.
 
 ## Límites honestos de este matcher
 
-- Es POSICIONAL, no un parser de flags: cubre las formas más obvias en las posiciones que mira,
-  no todas las variantes de reordenar flags — `git -C . push -u origin main` (flags intercaladas
-  en otro orden del que cubre `DEFAULT_DENY_PATTERNS`) puede colarse. Cerrar esto de verdad pide
-  normalizar argv (parsear flags) antes de matchear, no está hecho acá.
+- Los patrones de texto (`DEFAULT_DENY_PATTERNS`) SÍ son posicionales — `git push --force* *`
+  puede colarse con flags reordenados de una forma que ningún patrón cubre. `main`/`master` y
+  los transportes de git ya NO dependen de eso (chequeos dedicados, ver arriba); lo que queda
+  expuesto a reordenamiento posicional es sobre todo el force-push a branches DISTINTAS de
+  main/master, y cualquier patrón nuevo que agregues vos mismo a `deny`.
 - Cualquier comando que acepte una SUBEXPRESIÓN de shell dentro de un único token (`git -c
   alias.x=...`, y en general cualquier `--algo=<comando>` de una herramienta que después invoque
   ese valor) es un vector que el matcher no puede ver por diseño — el patrón compara contra el
-  token completo, nunca interpreta lo que hay adentro. `git -c`/`--config-env` están denegados
-  enteros por esto mismo; una herramienta nueva con el mismo problema necesita su propia entrada.
+  token completo, nunca interpreta lo que hay adentro. `git -c`/`--config-env`/`git config`,
+  `--upload-pack`/`--exec` de git, y `find`/`tar` enteros están denegados por esto mismo; una
+  herramienta nueva con el mismo problema (invoca un programa externo a partir de un flag)
+  necesita su propia entrada.
 - Los intérpretes SÍ están en `DEFAULT_DENY_PATTERNS` por default, pero si un caller los habilita
   (los saca de su propio `deny`, o define un `allow` que los incluye) el deny-list pasa a ser
   fricción, no un sandbox: `python -c "import os; os.system(...)"` corre lo que sea. La

