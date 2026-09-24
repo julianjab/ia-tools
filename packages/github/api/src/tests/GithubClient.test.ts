@@ -1,5 +1,5 @@
+import type { GithubAuth } from '@ia-tools/github-auth';
 import { describe, expect, it, vi } from 'vitest';
-import type { GithubAuth } from '../../auth/GithubAuth.js';
 import { GithubClient } from '../GithubClient.js';
 
 function fakeAuth(token: string): GithubAuth {

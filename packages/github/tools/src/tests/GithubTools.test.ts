@@ -1,4 +1,5 @@
-import { GithubClient, GithubTokenAuth } from '@ia-tools/github';
+import { GithubClient } from '@ia-tools/github-api';
+import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { describe, expect, it, vi } from 'vitest';
 import { GithubTools } from '../GithubTools.js';
 
