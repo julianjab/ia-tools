@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { AnthropicStreamDelta } from '../sse.js';
 import { readAnthropicSseStream } from '../sse.js';
 
 function sseResponse(frames: string[]): Response {
@@ -77,6 +78,69 @@ describe('readAnthropicSseStream', () => {
     const message = await readAnthropicSseStream(res);
 
     expect((message.content as Array<Record<string, unknown>>)[0].input).toEqual({});
+  });
+
+  it('calls onDelta with each text_delta fragment as it arrives, not the accumulated text', async () => {
+    const res = sseResponse([
+      frame('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }),
+      frame('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'Hola ' } }),
+      frame('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'mundo' } }),
+      frame('content_block_stop', { index: 0 }),
+      frame('message_delta', { delta: { stop_reason: 'end_turn' } }),
+    ]);
+    const onDelta = vi.fn();
+
+    await readAnthropicSseStream(res, onDelta);
+
+    expect(onDelta.mock.calls.map((call) => call[0])).toEqual<AnthropicStreamDelta[]>([
+      { index: 0, type: 'text', delta: 'Hola ' },
+      { index: 0, type: 'text', delta: 'mundo' },
+    ]);
+  });
+
+  it('calls onDelta for thinking_delta too, and never for input_json_delta/signature_delta', async () => {
+    const res = sseResponse([
+      frame('content_block_start', { index: 0, content_block: { type: 'thinking', thinking: '' } }),
+      frame('content_block_delta', {
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'razonando' },
+      }),
+      frame('content_block_delta', {
+        index: 0,
+        delta: { type: 'signature_delta', signature: 'sig' },
+      }),
+      frame('content_block_stop', { index: 0 }),
+      frame('content_block_start', {
+        index: 1,
+        content_block: { type: 'tool_use', id: 'tu_1', name: 'x', input: {} },
+      }),
+      frame('content_block_delta', {
+        index: 1,
+        delta: { type: 'input_json_delta', partial_json: '{}' },
+      }),
+      frame('content_block_stop', { index: 1 }),
+      frame('message_delta', { delta: { stop_reason: 'tool_use' } }),
+    ]);
+    const onDelta = vi.fn();
+
+    await readAnthropicSseStream(res, onDelta);
+
+    expect(onDelta).toHaveBeenCalledTimes(1);
+    expect(onDelta).toHaveBeenCalledWith({ index: 0, type: 'thinking', delta: 'razonando' });
+  });
+
+  it('reassembles the same final response whether or not onDelta is passed', async () => {
+    const frames = [
+      frame('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }),
+      frame('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'ok' } }),
+      frame('content_block_stop', { index: 0 }),
+      frame('message_delta', { delta: { stop_reason: 'end_turn' } }),
+    ];
+
+    const withoutHandler = await readAnthropicSseStream(sseResponse(frames));
+    const withHandler = await readAnthropicSseStream(sseResponse(frames), vi.fn());
+
+    expect(withHandler).toEqual(withoutHandler);
   });
 
   it('throws on an `error` SSE event', async () => {

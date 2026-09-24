@@ -228,6 +228,44 @@ describe('AnthropicClient.send', () => {
     expect(result.stop_reason).toBe('end_turn');
     expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
   });
+
+  it('forwards onDelta to the streaming reader so callers see fragments before the response resolves', async () => {
+    const sseBody = [
+      'event: content_block_start\ndata: {"index":0,"content_block":{"type":"text","text":""}}\n\n',
+      'event: content_block_delta\ndata: {"index":0,"delta":{"type":"text_delta","text":"Ho"}}\n\n',
+      'event: content_block_delta\ndata: {"index":0,"delta":{"type":"text_delta","text":"la"}}\n\n',
+      'event: message_delta\ndata: {"delta":{"stop_reason":"end_turn"}}\n\n',
+    ].join('');
+    const fetchImpl = vi.fn(async () => new Response(sseBody));
+    const client = new AnthropicClient({
+      apiKey: 'sk',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const seenBeforeResolve: string[] = [];
+    const onDelta = vi.fn((delta: { delta: string }) => {
+      seenBeforeResolve.push(delta.delta);
+    });
+
+    const result = await client.send({}, { stream: true, onDelta });
+
+    expect(seenBeforeResolve).toEqual(['Ho', 'la']);
+    expect(result.content).toEqual([{ type: 'text', text: 'Hola' }]);
+  });
+
+  it('ignores onDelta when stream is false — there is no SSE to read deltas from', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }),
+    );
+    const client = new AnthropicClient({
+      apiKey: 'sk',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const onDelta = vi.fn();
+
+    await client.send({}, { stream: false, onDelta });
+
+    expect(onDelta).not.toHaveBeenCalled();
+  });
 });
 
 describe('backoffMs', () => {
