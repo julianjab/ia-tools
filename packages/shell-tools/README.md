@@ -58,12 +58,17 @@ match de ESE token puntual.
 
 `DEFAULT_DENY_PATTERNS` es un subset curado — shells anidados, `rm`, `sudo`/`su`, push
 forzado/directo a `main`/`master` (incluyendo `HEAD:main`, flags después del nombre de la
-branch, y `git -C <dir> push`), credenciales del entorno (`env`, `printenv`), intérpretes
-(`python`/`python3`/`node`/`ruby`/`perl`/`npx`), ejecución indirecta (`xargs`, `find -exec`/
-`-delete`), y `curl`/`wget`/`ssh`/`scp`/`nc` como canales de exfiltración obvios. **No es
-exhaustivo** — el deny-list real de producción tiene 200+ líneas con variantes posicionales para
-cubrir 2-3 flags delante de cada comando (ver el comentario en `BashPolicy.ts`). Un caller que
-necesite esa cobertura arma su propio `BashPolicy`.
+branch, y `git -C <dir> push`), `git -c <key>=<value>`/`--config-env` enteros (reconfiguran git
+por esta invocación — un alias, `core.sshCommand`, `core.pager` o `credential.helper` corren lo
+que sea vía `sh`, y como viaja DENTRO de un solo token ningún otro patrón lo ve), credenciales
+del entorno (`env`, `printenv`), intérpretes (`python`/`python3`/`node`/`ruby`/`perl`/`npx`),
+`xargs` entero, `find` ENTERO (no sólo `-exec`/`-delete`: esos flags pueden ir en cualquier
+posición después de los filtros, y un patrón de posición fija casi nunca los agarra — mismo
+criterio que denegar `terraform init` completo en la policy real, ver `BashPolicy.ts`), y
+`curl`/`wget`/`ssh`/`scp`/`nc` como canales de exfiltración obvios. **No es exhaustivo** — el
+deny-list real de producción tiene 200+ líneas con variantes posicionales para cubrir 2-3 flags
+delante de cada comando (ver el comentario en `BashPolicy.ts`). Un caller que necesite esa
+cobertura arma su propio `BashPolicy`.
 
 ## Límites honestos de este matcher
 
@@ -71,6 +76,11 @@ necesite esa cobertura arma su propio `BashPolicy`.
   no todas las variantes de reordenar flags — `git -C . push -u origin main` (flags intercaladas
   en otro orden del que cubre `DEFAULT_DENY_PATTERNS`) puede colarse. Cerrar esto de verdad pide
   normalizar argv (parsear flags) antes de matchear, no está hecho acá.
+- Cualquier comando que acepte una SUBEXPRESIÓN de shell dentro de un único token (`git -c
+  alias.x=...`, y en general cualquier `--algo=<comando>` de una herramienta que después invoque
+  ese valor) es un vector que el matcher no puede ver por diseño — el patrón compara contra el
+  token completo, nunca interpreta lo que hay adentro. `git -c`/`--config-env` están denegados
+  enteros por esto mismo; una herramienta nueva con el mismo problema necesita su propia entrada.
 - Los intérpretes SÍ están en `DEFAULT_DENY_PATTERNS` por default, pero si un caller los habilita
   (los saca de su propio `deny`, o define un `allow` que los incluye) el deny-list pasa a ser
   fricción, no un sandbox: `python -c "import os; os.system(...)"` corre lo que sea. La

