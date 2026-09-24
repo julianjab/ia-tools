@@ -235,7 +235,7 @@ describe('AnthropicProvider.run', () => {
   });
 
   it('throws on an unexpected stop_reason instead of guessing success', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ content: [], stop_reason: 'pause_turn' }));
+    const fetchImpl = vi.fn(async () => jsonResponse({ content: [], stop_reason: null }));
     const provider = new AnthropicProvider({
       id: 'x',
       model: 'claude-x',
@@ -244,7 +244,39 @@ describe('AnthropicProvider.run', () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    await expect(provider.run(ctxFor())).rejects.toThrow('pause_turn');
+    await expect(provider.run(ctxFor())).rejects.toThrow('null');
+  });
+
+  it('resends the conversation and continues on pause_turn instead of throwing', async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      calls++;
+      if (calls === 1) {
+        return jsonResponse({
+          content: [{ type: 'text', text: 'a mitad' }],
+          stop_reason: 'pause_turn',
+        });
+      }
+      const body = JSON.parse(init.body as string);
+      const lastMessage = body.messages[body.messages.length - 1];
+      expect(lastMessage).toEqual({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'a mitad' }],
+      });
+      return jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' });
+    });
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const result = await provider.run(ctxFor());
+
+    expect(result).toEqual({ outcome: 'success', summary: 'listo' });
+    expect(calls).toBe(2);
   });
 
   it('throws once maxToolRounds is exceeded without converging', async () => {

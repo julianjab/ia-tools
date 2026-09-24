@@ -51,6 +51,71 @@ describe('AnthropicClient.send', () => {
     expect(headers['x-api-key']).toBeUndefined();
   });
 
+  it('adds the oauth-2025-04-20 beta when authenticating with a Bearer token', async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) =>
+      jsonResponse({ content: [], stop_reason: 'end_turn' }),
+    );
+    const client = new AnthropicClient({
+      oauthToken: 'oauth-token',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await client.send({}, { stream: false });
+
+    const init = fetchImpl.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers['anthropic-beta'].split(',')).toContain('oauth-2025-04-20');
+  });
+
+  it('an explicit apiKey wins over an ambient CLAUDE_CODE_OAUTH_TOKEN in the environment', async () => {
+    const prevOauth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'env-oauth-token';
+
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) =>
+      jsonResponse({ content: [], stop_reason: 'end_turn' }),
+    );
+    const client = new AnthropicClient({
+      apiKey: 'sk-explicit',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await client.send({}, { stream: false });
+
+    const init = fetchImpl.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers['x-api-key']).toBe('sk-explicit');
+    expect(headers.Authorization).toBeUndefined();
+
+    if (prevOauth !== undefined) process.env.CLAUDE_CODE_OAUTH_TOKEN = prevOauth;
+    // biome-ignore lint/performance/noDelete: needs a real unset, not the string "undefined"
+    else delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  });
+
+  it('falls back to the environment (oauth before apiKey) only when neither is passed explicitly', async () => {
+    const prevOauth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    const prevKey = process.env.ANTHROPIC_API_KEY;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'env-oauth-token';
+    process.env.ANTHROPIC_API_KEY = 'env-api-key';
+
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) =>
+      jsonResponse({ content: [], stop_reason: 'end_turn' }),
+    );
+    const client = new AnthropicClient({ fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    await client.send({}, { stream: false });
+
+    const init = fetchImpl.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer env-oauth-token');
+
+    if (prevOauth !== undefined) process.env.CLAUDE_CODE_OAUTH_TOKEN = prevOauth;
+    // biome-ignore lint/performance/noDelete: needs a real unset, not the string "undefined"
+    else delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    if (prevKey !== undefined) process.env.ANTHROPIC_API_KEY = prevKey;
+    // biome-ignore lint/performance/noDelete: needs a real unset, not the string "undefined"
+    else delete process.env.ANTHROPIC_API_KEY;
+  });
+
   it('throws when neither apiKey nor oauthToken resolve (and env is unset)', async () => {
     const prevKey = process.env.ANTHROPIC_API_KEY;
     const prevOauth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
