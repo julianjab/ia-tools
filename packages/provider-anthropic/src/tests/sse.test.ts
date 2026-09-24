@@ -149,6 +149,22 @@ describe('readAnthropicSseStream', () => {
     await expect(readAnthropicSseStream(res)).rejects.toThrow('overloaded');
   });
 
+  it('propagates an onDelta error and still releases the reader instead of leaking the stream', async () => {
+    const res = sseResponse([
+      frame('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }),
+      frame('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'Hola' } }),
+      frame('content_block_stop', { index: 0 }),
+      frame('message_delta', { delta: { stop_reason: 'end_turn' } }),
+    ]);
+    const onDelta = () => {
+      throw new Error('caller boom');
+    };
+
+    await expect(readAnthropicSseStream(res, onDelta)).rejects.toThrow('caller boom');
+    // Si el reader no se hubiera liberado, `res.body` seguiría bloqueado para siempre.
+    expect(res.body?.locked).toBe(false);
+  });
+
   it('throws when the response has no body', async () => {
     const res = new Response(null);
     // `new Response(null)` still gives a body in some runtimes — force the case explicitly.
