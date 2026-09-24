@@ -1,0 +1,75 @@
+import { describe, expect, it } from 'vitest';
+import { AgentRegistry } from '../../agent/AgentRegistry.js';
+import { Condition } from '../../condition/Condition.js';
+import { createEvent } from '../../events/DomainEvent.js';
+import { EventBus } from '../../events/EventBus.js';
+import { PipelineAction, type PipelineExecutionContext } from './PipelineAction.js';
+
+class NoopAction extends PipelineAction {
+  async run(_ctx: PipelineExecutionContext): Promise<unknown> {
+    return 'ran';
+  }
+}
+
+function makeCtx(
+  payload: Record<string, unknown> = {},
+  steps: Record<string, unknown> = {},
+): PipelineExecutionContext {
+  return {
+    event: createEvent('t', payload),
+    steps,
+    bus: new EventBus(),
+    agents: new AgentRegistry(),
+    pipelineId: 'p1',
+  };
+}
+
+describe('PipelineAction', () => {
+  it('defaults id/when/continueOnError', () => {
+    const action = new NoopAction({});
+    expect(action.id).toBeUndefined();
+    expect(action.when).toEqual([]);
+    expect(action.continueOnError).toBe(false);
+  });
+
+  it('shouldRun is true with no `when`', () => {
+    const action = new NoopAction({});
+    expect(action.shouldRun(makeCtx())).toBe(true);
+  });
+
+  it('shouldRun evaluates `when` against the event payload', () => {
+    const action = new NoopAction({
+      when: Condition.fromRows([{ field: 'actionable', op: 'eq', value: true }]),
+    });
+    expect(action.shouldRun(makeCtx({ actionable: true }))).toBe(true);
+    expect(action.shouldRun(makeCtx({ actionable: false }))).toBe(false);
+  });
+
+  it('shouldRun can read prior steps via the injected `steps` key', () => {
+    const action = new NoopAction({
+      when: Condition.fromRows([
+        { field: 'steps.triage.output.actionable', op: 'eq', value: true },
+      ]),
+    });
+    expect(action.shouldRun(makeCtx({}, { triage: { output: { actionable: true } } }))).toBe(true);
+    expect(action.shouldRun(makeCtx({}, { triage: { output: { actionable: false } } }))).toBe(
+      false,
+    );
+  });
+
+  it('shouldRun combines multiple `when` entries with and/or', () => {
+    const action = new NoopAction({
+      when: Condition.fromRows([
+        { field: 'a', op: 'eq', value: 1 },
+        { field: 'b', op: 'eq', value: 2, logic: 'or' },
+      ]),
+    });
+    expect(action.shouldRun(makeCtx({ a: 0, b: 2 }))).toBe(true);
+    expect(action.shouldRun(makeCtx({ a: 0, b: 0 }))).toBe(false);
+  });
+
+  it('run executes the concrete implementation', async () => {
+    const action = new NoopAction({});
+    await expect(action.run(makeCtx())).resolves.toBe('ran');
+  });
+});
