@@ -1,8 +1,46 @@
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /** Directorios que `fs_grep`/`fs_list` recursivos nunca bajan — ruido pesado o binario, nunca
  *  lo que un agente busca en un repo. */
 export const SKIPPED_DIR_NAMES = new Set(['node_modules', '.git', 'dist', '.turbo', '.cache']);
+
+function isEnoent(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+}
+
+/**
+ * Sube por los ancestros de `target` hasta encontrar uno que EXISTA de verdad (para un `fs_write`
+ * a un archivo nuevo, o a directorios nuevos, `target` mismo — y varios de sus padres — todavía
+ * no existen) y valida que, una vez resueltos los symlinks de esa parte real (`realpath`), el
+ * path resultante siga DENTRO de `realBase`. Sin esto, un symlink DENTRO de `baseDir` que apunte
+ * afuera pasaría el chequeo puramente léxico de `resolveSafePath` — ese chequeo sólo mira el
+ * texto del path, nunca a dónde apunta un link real en disco.
+ */
+async function assertNoSymlinkEscape(
+  realBase: string,
+  target: string,
+  baseDirLexical: string,
+  originalInput: string,
+): Promise<void> {
+  let current = target;
+  let suffix = '';
+  while (true) {
+    try {
+      const realCurrent = await realpath(current);
+      const finalPath = suffix ? resolve(realCurrent, suffix) : realCurrent;
+      const rel = relative(realBase, finalPath);
+      if (rel === '..' || rel.startsWith(`..${sep}`)) {
+        throw new Error(`fs-tools: path fuera de baseDir (symlink): "${originalInput}"`);
+      }
+      return;
+    } catch (err) {
+      if (!isEnoent(err) || current === baseDirLexical) throw err;
+      suffix = suffix ? join(basename(current), suffix) : basename(current);
+      current = dirname(current);
+    }
+  }
+}
 
 /**
  * Resuelve `relativePath` contra `baseDir` y garantiza que el resultado sigue DENTRO de
@@ -10,8 +48,11 @@ export const SKIPPED_DIR_NAMES = new Set(['node_modules', '.git', 'dist', '.turb
  * el caller pensó que estaba conteniendo. Mismo criterio que `issuePath` en
  * `@ia-tools/github-tools`: los inputs de una tool son controlados por el modelo, nunca se
  * confían tal cual.
+ *
+ * Async (a diferencia de la versión anterior, puramente léxica) porque el chequeo de symlinks
+ * necesita tocar disco (`realpath`) — ver `assertNoSymlinkEscape`.
  */
-export function resolveSafePath(baseDir: string, relativePath: string): string {
+export async function resolveSafePath(baseDir: string, relativePath: string): Promise<string> {
   if (isAbsolute(relativePath)) {
     throw new Error(`fs-tools: path absoluto no permitido: "${relativePath}"`);
   }
@@ -21,5 +62,9 @@ export function resolveSafePath(baseDir: string, relativePath: string): string {
   if (rel === '..' || rel.startsWith(`..${sep}`)) {
     throw new Error(`fs-tools: path fuera de baseDir: "${relativePath}"`);
   }
+
+  const realBase = await realpath(resolvedBase);
+  await assertNoSymlinkEscape(realBase, resolved, resolvedBase, relativePath);
+
   return resolved;
 }

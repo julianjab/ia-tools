@@ -28,6 +28,11 @@ async function walk(
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     if (matches.length >= MAX_MATCHES || budget.filesScanned >= MAX_FILES_SCANNED) return;
+    // Un symlink NO es `isDirectory()` (eso mira el link, no el target) — sin este check caería
+    // en la rama de archivo de abajo y `readFile` seguiría el link, leyendo lo que sea que
+    // apunte, DENTRO o fuera de baseDir. `resolveSafePath` ya audita el path de entrada; el
+    // walk recursivo tiene que hacer lo mismo con cada entrada que descubre sola.
+    if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory()) {
       if (SKIPPED_DIR_NAMES.has(entry.name)) continue;
       await walk(join(dir, entry.name), baseDir, matches, regex, budget);
@@ -66,10 +71,10 @@ export class FsGrepTool extends FsTool<FsGrepInput> {
   };
 
   async handler(input: FsGrepInput): Promise<string> {
-    const startDir = this.resolveSafePath(input.path ?? '.');
+    const startDir = await this.resolveSafePath(input.path ?? '.');
     const regex = new RegExp(input.pattern, 'g');
     const matches: Match[] = [];
-    await walk(startDir, this.resolveSafePath('.'), matches, regex, { filesScanned: 0 });
+    await walk(startDir, await this.resolveSafePath('.'), matches, regex, { filesScanned: 0 });
     return JSON.stringify(matches);
   }
 }

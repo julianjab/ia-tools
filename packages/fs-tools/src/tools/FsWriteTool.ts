@@ -21,7 +21,7 @@ export class FsWriteTool extends FsTool<FsWriteInput> {
   };
 
   async handler(input: FsWriteInput): Promise<string> {
-    const absPath = this.resolveSafePath(input.path);
+    const absPath = await this.resolveSafePath(input.path);
     await mkdir(dirname(absPath), { recursive: true });
     await writeFile(absPath, input.content, 'utf-8');
     return `Escrito: ${input.path} (${Buffer.byteLength(input.content, 'utf-8')} bytes)`;

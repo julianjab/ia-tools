@@ -20,7 +20,7 @@ export class FsReadTool extends FsTool<FsReadInput> {
   };
 
   async handler(input: FsReadInput): Promise<string> {
-    const absPath = this.resolveSafePath(input.path);
+    const absPath = await this.resolveSafePath(input.path);
     const content = await readFile(absPath, 'utf-8');
     if (Buffer.byteLength(content, 'utf-8') > MAX_BYTES) {
       return `${content.slice(0, MAX_BYTES)}\n\n[truncado — el archivo supera ${MAX_BYTES} bytes]`;

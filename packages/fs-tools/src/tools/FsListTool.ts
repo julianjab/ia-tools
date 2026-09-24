@@ -17,7 +17,7 @@ export class FsListTool extends FsTool<FsListInput> {
   };
 
   async handler(input: FsListInput): Promise<string> {
-    const absPath = this.resolveSafePath(input.path ?? '.');
+    const absPath = await this.resolveSafePath(input.path ?? '.');
     const entries = await readdir(absPath, { withFileTypes: true });
     const listing = entries
       .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'dir' : 'file' }))

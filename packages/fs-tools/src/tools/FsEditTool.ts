@@ -40,7 +40,7 @@ export class FsEditTool extends FsTool<FsEditInput> {
   };
 
   async handler(input: FsEditInput): Promise<string> {
-    const absPath = this.resolveSafePath(input.path);
+    const absPath = await this.resolveSafePath(input.path);
     const content = await readFile(absPath, 'utf-8');
     const occurrences = countOccurrences(content, input.oldString);
     if (occurrences === 0) {
@@ -51,9 +51,13 @@ export class FsEditTool extends FsTool<FsEditInput> {
         `fs_edit: "${input.oldString}" aparece ${occurrences} veces en ${input.path} — agregá más contexto para que sea único, o pasá replaceAll: true`,
       );
     }
+    // Replacer function, no el 2do arg string: `content.replace(old, newString)` interpreta
+    // los patrones especiales de String.prototype.replace ($$, $&, $`, $', $1) DENTRO de
+    // newString — un newString real como "echo $$" o "x = $&" quedaría corrompido. `split/join`
+    // (rama replaceAll) ya es literal por diseño; acá hace falta la función para el mismo efecto.
     const updated = input.replaceAll
       ? content.split(input.oldString).join(input.newString)
-      : content.replace(input.oldString, input.newString);
+      : content.replace(input.oldString, () => input.newString);
     await writeFile(absPath, updated, 'utf-8');
     return `Editado: ${input.path} (${occurrences} ocurrencia${occurrences > 1 ? 's' : ''})`;
   }
