@@ -8,10 +8,12 @@ describe('package entrypoint', () => {
     expect(lib.GithubAppAuth).toBeDefined();
     expect(lib.GithubClient).toBeDefined();
     expect(lib.GithubWebhookVerifier).toBeDefined();
-    expect(lib.GithubWebhookTranslator).toBeDefined();
+    expect(lib.createGithubWebhookEvent).toBeTypeOf('function');
+    expect(lib.parseGithubIssuePayload).toBeTypeOf('function');
+    expect(lib.parseGithubIssueCommentPayload).toBeTypeOf('function');
   });
 
-  it('wires verify + translate end-to-end through the public API only', () => {
+  it('wires verify + parse + an app-defined translator through the public API only', () => {
     const secret = 'whsec_test';
     const body = JSON.stringify({
       action: 'opened',
@@ -24,9 +26,20 @@ describe('package entrypoint', () => {
     const verifier = new lib.GithubWebhookVerifier(secret);
     expect(verifier.verify(body, signature)).toBe(true);
 
-    const translator = new lib.GithubWebhookTranslator();
-    const event = translator.translate('issues', JSON.parse(body));
+    // Este mapping action → type es DECISIÓN DE LA APP — no algo que el paquete imponga. Se
+    // escribe acá como cualquier app lo escribiría, usando sólo las piezas públicas.
+    function translate(eventType: string, payload: Record<string, unknown>) {
+      if (eventType !== 'issues' || payload.action !== 'opened') return undefined;
+      const issue = lib.parseGithubIssuePayload(payload);
+      return lib.createGithubWebhookEvent('github.issue.opened', issue, {
+        owner: issue.owner,
+        repo: issue.repo,
+      });
+    }
+
+    const event = translate('issues', JSON.parse(body));
     expect(event?.type).toBe('github.issue.opened');
+    expect(event?.scope).toEqual({ owner: 'o', repo: 'r' });
   });
 
   it('GithubClient accepts either auth strategy interchangeably', async () => {
