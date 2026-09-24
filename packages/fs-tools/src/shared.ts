@@ -16,13 +16,19 @@ function isEnoent(err: unknown): boolean {
  * path resultante siga DENTRO de `realBase`. Sin esto, un symlink DENTRO de `baseDir` que apunte
  * afuera pasaría el chequeo puramente léxico de `resolveSafePath` — ese chequeo sólo mira el
  * texto del path, nunca a dónde apunta un link real en disco.
+ *
+ * Devuelve el path FINAL ya resuelto (real ancestro + sufijo lexical de lo que todavía no
+ * existe) — `resolveSafePath` opera sobre ESE valor, no sobre el lexical original. Es mitigación,
+ * no una garantía TOCTOU-proof: entre este `realpath` y la lectura/escritura real todavía cabe
+ * una carrera si otro proceso cambia un directorio del medio por un symlink en el medio — cerrar
+ * eso del todo pide abrir con `O_NOFOLLOW` a nivel de file descriptor, fuera de alcance acá.
  */
-async function assertNoSymlinkEscape(
+async function resolveRealPath(
   realBase: string,
   target: string,
   baseDirLexical: string,
   originalInput: string,
-): Promise<void> {
+): Promise<string> {
   let current = target;
   let suffix = '';
   while (true) {
@@ -33,7 +39,7 @@ async function assertNoSymlinkEscape(
       if (rel === '..' || rel.startsWith(`..${sep}`)) {
         throw new Error(`fs-tools: path fuera de baseDir (symlink): "${originalInput}"`);
       }
-      return;
+      return finalPath;
     } catch (err) {
       if (!isEnoent(err) || current === baseDirLexical) throw err;
       suffix = suffix ? join(basename(current), suffix) : basename(current);
@@ -64,7 +70,5 @@ export async function resolveSafePath(baseDir: string, relativePath: string): Pr
   }
 
   const realBase = await realpath(resolvedBase);
-  await assertNoSymlinkEscape(realBase, resolved, resolvedBase, relativePath);
-
-  return resolved;
+  return resolveRealPath(realBase, resolved, resolvedBase, relativePath);
 }
