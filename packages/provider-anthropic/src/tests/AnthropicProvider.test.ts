@@ -299,6 +299,73 @@ describe('AnthropicProvider.run', () => {
     await expect(provider.run(ctxFor({ tools: [tool] }))).rejects.toThrow('maxToolRounds');
   });
 
+  it('clamps a provider-level thinking budget under maxTokens instead of sending it as-is', async () => {
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      // budgetTokens (8192) is bigger than maxTokens (4096) — an unclamped value would violate
+      // the API's budget_tokens < max_tokens requirement and 400.
+      expect(body.max_tokens).toBe(4096);
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 3072 });
+      return jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' });
+    });
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      maxTokens: 4096,
+      thinking: { type: 'enabled', budgetTokens: 8192 },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await provider.run(ctxFor());
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits thinking entirely when even a clamped budget cannot fit under maxTokens', async () => {
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      // Default maxTokens is 1024 — the API requires budget_tokens >= 1024 AND < max_tokens, so
+      // no budget fits. Silently omitting thinking (not sending an invalid request) is correct.
+      expect(body.max_tokens).toBe(1024);
+      expect(body.thinking).toBeUndefined();
+      return jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' });
+    });
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      thinking: { type: 'enabled', budgetTokens: 2048 },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await provider.run(ctxFor());
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes an adaptive provider-level thinking config through unchanged', async () => {
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      expect(body.thinking).toEqual({ type: 'adaptive' });
+      return jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' });
+    });
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      thinking: { type: 'adaptive' },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await provider.run(ctxFor());
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it('builds mcp_servers from McpServerRef config and defers its tools by default', async () => {
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
