@@ -1,7 +1,7 @@
 import { GithubClient } from '@ia-tools/github-api';
 import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { describe, expect, it, vi } from 'vitest';
-import { createGetIssueTool } from '../getIssue.js';
+import { GetIssueTool } from '../GetIssueTool.js';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -27,7 +27,7 @@ describe('github_get_issue', () => {
         labels: [{ name: 'bug' }, { name: 'p1' }],
       });
     });
-    const tool = createGetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new GetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     const result = await tool.handler({ owner: 'julianjab', repo: 'accountant', number: 42 });
 
@@ -45,7 +45,7 @@ describe('github_get_issue', () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({ number: 1, title: 't', body: null, state: 'open', html_url: 'u', labels: [] }),
     );
-    const tool = createGetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new GetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     const result = await tool.handler({ owner: 'o', repo: 'r', number: 1 });
 
@@ -54,7 +54,7 @@ describe('github_get_issue', () => {
 
   it('rejects an owner/repo containing a path traversal segment instead of hitting the wrong endpoint', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
-    const tool = createGetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new GetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     await expect(
       tool.handler({ owner: 'o', repo: '../../orgs/other-org/repos', number: 1 }),
@@ -64,7 +64,7 @@ describe('github_get_issue', () => {
 
   it('rejects a non-integer or non-positive issue number', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
-    const tool = createGetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new GetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     await expect(tool.handler({ owner: 'o', repo: 'r', number: 1.5 })).rejects.toThrow('number');
     await expect(tool.handler({ owner: 'o', repo: 'r', number: -1 })).rejects.toThrow('number');
@@ -83,7 +83,7 @@ describe('github_get_issue', () => {
         labels: [],
       });
     });
-    const tool = createGetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new GetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     await tool.handler({ owner: 'my-org_2', repo: 'repo.name', number: 1 });
 
@@ -92,7 +92,7 @@ describe('github_get_issue', () => {
 
   it('a non-ok response throws — the caller (AnthropicProvider) turns it into an is_error tool_result', async () => {
     const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 }));
-    const tool = createGetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new GetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     await expect(tool.handler({ owner: 'o', repo: 'r', number: 999 })).rejects.toThrow('404');
   });

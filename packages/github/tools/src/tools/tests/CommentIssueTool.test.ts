@@ -1,7 +1,7 @@
 import { GithubClient } from '@ia-tools/github-api';
 import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { describe, expect, it, vi } from 'vitest';
-import { createCommentIssueTool } from '../commentIssue.js';
+import { CommentIssueTool } from '../CommentIssueTool.js';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -21,7 +21,7 @@ describe('github_comment_issue', () => {
       expect(JSON.parse(init.body as string)).toEqual({ body: 'nice work' });
       return jsonResponse({ id: 1, html_url: 'https://github.com/o/r/issues/5#comment-1' });
     });
-    const tool = createCommentIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new CommentIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     const result = await tool.handler({ owner: 'o', repo: 'r', number: 5, body: 'nice work' });
 
@@ -30,7 +30,7 @@ describe('github_comment_issue', () => {
 
   it('rejects an owner containing a slash (path segment injection)', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
-    const tool = createCommentIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new CommentIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     await expect(
       tool.handler({ owner: 'o/extra', repo: 'r', number: 1, body: 'x' }),

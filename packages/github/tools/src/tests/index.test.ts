@@ -9,11 +9,12 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe('package entrypoint', () => {
   it('exports the public API', () => {
+    expect(lib.GithubTool).toBeDefined();
     expect(lib.GithubToolRegistry).toBeDefined();
-    expect(lib.createGetIssueTool).toBeTypeOf('function');
-    expect(lib.createCommentIssueTool).toBeTypeOf('function');
-    expect(lib.createAddLabelsTool).toBeTypeOf('function');
-    expect(lib.createSearchIssuesTool).toBeTypeOf('function');
+    expect(lib.GetIssueTool).toBeDefined();
+    expect(lib.CommentIssueTool).toBeDefined();
+    expect(lib.AddLabelsTool).toBeDefined();
+    expect(lib.SearchIssuesTool).toBeDefined();
   });
 
   it('wires GithubToolRegistry end-to-end through the public API only', async () => {
@@ -33,14 +34,14 @@ describe('package entrypoint', () => {
     expect(JSON.parse(result)).toMatchObject({ number: 1, title: 't' });
   });
 
-  it('a single create*Tool works standalone, without the registry', async () => {
+  it('una tool concreta anda sola, instanciada directo sin pasar por el registry', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ id: 1, html_url: 'u' }));
     const client = new GithubClient({
       auth: new GithubTokenAuth('t'),
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    const tool = lib.createCommentIssueTool(client);
+    const tool = new lib.CommentIssueTool(client);
     const result = await tool.handler({ owner: 'o', repo: 'r', number: 1, body: 'hi' });
 
     expect(result).toBe('Comentario publicado: u');

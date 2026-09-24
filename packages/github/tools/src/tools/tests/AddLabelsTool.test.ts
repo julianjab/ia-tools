@@ -1,7 +1,7 @@
 import { GithubClient } from '@ia-tools/github-api';
 import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { describe, expect, it, vi } from 'vitest';
-import { createAddLabelsTool } from '../addLabels.js';
+import { AddLabelsTool } from '../AddLabelsTool.js';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -21,7 +21,7 @@ describe('github_add_labels', () => {
       expect(JSON.parse(init.body as string)).toEqual({ labels: ['bug'] });
       return jsonResponse([{ name: 'bug' }, { name: 'p1' }]);
     });
-    const tool = createAddLabelsTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new AddLabelsTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     const result = await tool.handler({ owner: 'o', repo: 'r', number: 5, labels: ['bug'] });
 
@@ -30,7 +30,7 @@ describe('github_add_labels', () => {
 
   it('rejects a non-integer or non-positive issue number', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
-    const tool = createAddLabelsTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new AddLabelsTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     await expect(
       tool.handler({ owner: 'o', repo: 'r', number: 1.5, labels: ['bug'] }),

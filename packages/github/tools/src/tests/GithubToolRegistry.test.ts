@@ -54,9 +54,7 @@ describe('GithubToolRegistry', () => {
             html_url: 'u',
             labels: [],
           }),
-          {
-            status: 200,
-          },
+          { status: 200 },
         ),
     );
     const registry = registryWith(fetchImpl as unknown as typeof fetch);

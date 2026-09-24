@@ -1,7 +1,7 @@
 import { GithubClient } from '@ia-tools/github-api';
 import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { describe, expect, it, vi } from 'vitest';
-import { createSearchIssuesTool } from '../searchIssues.js';
+import { SearchIssuesTool } from '../SearchIssuesTool.js';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -26,7 +26,7 @@ describe('github_search_issues', () => {
         ],
       });
     });
-    const tool = createSearchIssuesTool(clientWith(fetchImpl as unknown as typeof fetch));
+    const tool = new SearchIssuesTool(clientWith(fetchImpl as unknown as typeof fetch));
 
     const result = await tool.handler({ query: 'repo:o/r is:open label:bug' });
 
