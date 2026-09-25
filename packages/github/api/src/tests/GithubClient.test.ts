@@ -113,3 +113,51 @@ describe('GithubClient.requestJson', () => {
     await expect(client.requestJson('/x')).rejects.toThrow('404');
   });
 });
+
+describe('GithubClient.graphql', () => {
+  function clientReturning(body: unknown, capture: { init?: RequestInit; url?: string } = {}) {
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      capture.url = url;
+      capture.init = init;
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    return new GithubClient({
+      auth: fakeAuth('t'),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+  }
+
+  it('POSTs the query and variables to /graphql and returns data', async () => {
+    const capture: { init?: RequestInit; url?: string } = {};
+    const client = clientReturning({ data: { viewer: { login: 'x' } } }, capture);
+
+    const data = await client.graphql<{ viewer: { login: string } }>('query { viewer { login } }', {
+      a: 1,
+    });
+
+    expect(data.viewer.login).toBe('x');
+    expect(capture.url).toBe('https://api.github.com/graphql');
+    expect(capture.init?.method).toBe('POST');
+    expect(JSON.parse(capture.init?.body as string)).toEqual({
+      query: 'query { viewer { login } }',
+      variables: { a: 1 },
+    });
+  });
+
+  it('throws with GitHub messages when the response carries errors, even with status 200', async () => {
+    const client = clientReturning({
+      data: null,
+      errors: [{ message: 'Could not resolve to a node' }, { message: 'otro' }],
+    });
+
+    await expect(client.graphql('query { x }')).rejects.toThrow(
+      'GraphQL → Could not resolve to a node; otro',
+    );
+  });
+
+  it('throws when the response has no data', async () => {
+    const client = clientReturning({});
+
+    await expect(client.graphql('query { x }')).rejects.toThrow('GraphQL respondió sin data');
+  });
+});
