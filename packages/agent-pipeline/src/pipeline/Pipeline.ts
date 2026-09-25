@@ -109,9 +109,7 @@ export class Pipeline extends Conditional {
         return `scope.${key}: esperaba ${JSON.stringify(value)}, vino ${JSON.stringify(event.scope?.[key]) ?? 'nada'}`;
       }
     }
-    if (this.matchesConditions(event.payload)) return undefined;
-    const failed = this.when.filter((condition) => !condition.evaluate(event.payload));
-    return `no cumple: ${failed.map((condition) => condition.describe(event.payload)).join('; ')}`;
+    return this.explainConditions(event.payload);
   }
 
   /**

@@ -50,10 +50,18 @@ Action        Runnable con input tipado (zod) — paso de pipeline Y tool de un 
 Agent         Runnable respaldado por un LLM, que termina eligiendo una salida
 Condition     { field, op, value, logic }                    — un `when` puro sobre un payload
 Pipeline      { on, when?, scope?, exclusive?, do, routes? } — matchea eventos, recorre su grafo
-Project       { pipelines, onError?, report? }                — defaults de todo el proyecto
-Engine        dispatch(event) contra el roster de Pipeline    — el orquestador
+Project       { when?, pipelines, onError?, report? }         — primer filtro + defaults del proyecto
+Engine        dispatch(event) / select(event) contra 1..N fuentes — el orquestador
 EventBus      publish/subscribe in-process                    — pega todo
 ```
+
+Un evento pasa por tres `when`, de lo general a lo particular: el del **proyecto** (si no lo
+cumple, ninguna de sus pipelines se evalúa), el de cada **pipeline** (junto con `on` y `scope`) y
+el de cada **paso** (al correr). Así una regla transversal — "nada sobre cards con `blocked`" — se
+declara una vez en el `Project`. El `Engine` acepta varias fuentes (un `Project` por proyecto, más
+las pipelines sin proyecto): cada una aplica su `when` y sus defaults, y la prioridad
+`exclusive`/`position` se decide entre todas. `engine.select(event)` devuelve lo que correría, con
+el mismo criterio, sin correrlo.
 
 `Pipeline.do[]` es homogéneo: `EmitAction` (publica un evento derivado), `HttpAction` (llama
 una API), `FunctionAction` (corre código TS con el contexto completo), cualquier `Action` y

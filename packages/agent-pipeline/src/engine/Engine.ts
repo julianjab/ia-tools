@@ -17,11 +17,28 @@ export const DEFAULT_MAX_EVENT_DEPTH = 10;
 
 export interface EngineOptions {
   bus: EventBus;
-  pipelines: PipelineSource;
+  /** Una fuente, o varias (ej. un `Project` por proyecto): cada una con su propio `when` y sus
+   *  defaults. La prioridad `exclusive`/`position` se decide entre TODAS. */
+  pipelines: PipelineSource | PipelineSource[];
   maxEventDepth?: number;
 }
 
 export type DispatchOutcome = 'dispatched' | 'skipped';
+
+/** Una pipeline con la fuente de la que salió — sus defaults son los de ESA fuente. */
+interface Candidate {
+  pipeline: Pipeline;
+  source: PipelineSource;
+  /** Por qué no corre, si no corre por la fuente o por la propia pipeline. */
+  mismatch?: string;
+}
+
+/** Qué corre para un evento, y lo necesario para explicar por qué no corre el resto. */
+interface DispatchPlan {
+  candidates: Candidate[];
+  toRun: Candidate[];
+  winningExclusive?: Pipeline;
+}
 
 /**
  * Dueño de despachar cada evento del bus contra el roster de Pipeline vivo. No sabe nada de
@@ -30,12 +47,12 @@ export type DispatchOutcome = 'dispatched' | 'skipped';
  */
 export class Engine {
   private readonly bus: EventBus;
-  private readonly pipelines: PipelineSource;
+  private readonly sources: PipelineSource[];
   private readonly maxEventDepth: number;
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus;
-    this.pipelines = opts.pipelines;
+    this.sources = [opts.pipelines].flat();
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH;
   }
 
@@ -94,23 +111,9 @@ export class Engine {
       return 'skipped';
     }
 
-    const pipelines = await this.pipelines.list();
-    const matched = pipelines.filter((pipeline) => pipeline.matches(event));
-    if (matched.length === 0) {
-      this.traceMatch(event, pipelines, []);
-      return 'skipped';
-    }
-
-    const winningExclusive = matched
-      .filter((pipeline) => pipeline.exclusive)
-      .sort((a, b) => a.position - b.position)[0];
-    const toRun = winningExclusive
-      ? matched.filter(
-          (pipeline) =>
-            pipeline === winningExclusive || pipeline.position < winningExclusive.position,
-        )
-      : matched;
-    this.traceMatch(event, pipelines, toRun, winningExclusive);
+    const plan = await this.plan(event);
+    this.traceMatch(event, plan);
+    const { toRun } = plan;
     if (toRun.length === 0) return 'skipped';
 
     // `Promise.allSettled`, no `Promise.all`: los pipelines matcheados son independientes, así
@@ -118,13 +121,13 @@ export class Engine {
     // `dispatch` (o el `AggregateError` de `EventBus.publish`, vía `start()`) tiene que ver
     // TODOS los fallos, no sólo el primero que ganó la carrera.
     const results = await Promise.allSettled(
-      toRun.map((pipeline) =>
+      toRun.map(({ pipeline, source }) =>
         pipeline.execute({
           event,
           steps: {},
           bus: this.bus,
           pipelineId: pipeline.id,
-          defaults: this.pipelines.defaults,
+          defaults: source.defaults,
         }),
       ),
     );
@@ -141,23 +144,58 @@ export class Engine {
   }
 
   /**
+   * Las pipelines que corren para `event`, en el mismo orden y con el mismo criterio que
+   * `dispatch` — sin correrlas. Para previsualizar (un dry-run, un test) sin duplicar la cascada.
+   */
+  async select(event: DomainEvent<any>): Promise<Pipeline[]> {
+    return (await this.plan(event)).toRun.map(({ pipeline }) => pipeline);
+  }
+
+  /**
+   * La cascada de filtros: primero el `when` de cada fuente (el proyecto) — si no pasa, ninguna
+   * de sus pipelines se evalúa —, después cada pipeline (`on`, scope, `when`). Entre las que
+   * pasan, corren TODAS las no-exclusive; si alguna es `exclusive`, sólo la de mayor prioridad
+   * (menor `position`) entre las exclusive, MÁS cualquier otra de prioridad todavía mayor. El
+   * `when` de cada paso se evalúa después, al correr la pipeline.
+   */
+  private async plan(event: DomainEvent<any>): Promise<DispatchPlan> {
+    const candidates: Candidate[] = [];
+    for (const source of this.sources) {
+      const sourceMismatch = source.explainMismatch?.(event);
+      for (const pipeline of await source.list()) {
+        const mismatch = sourceMismatch ?? pipeline.explainMismatch(event);
+        candidates.push({ pipeline, source, ...(mismatch ? { mismatch } : {}) });
+      }
+    }
+    const matched = candidates.filter((candidate) => !candidate.mismatch);
+    const winningExclusive = matched
+      .map(({ pipeline }) => pipeline)
+      .filter((pipeline) => pipeline.exclusive)
+      .sort((a, b) => a.position - b.position)[0];
+    const toRun = winningExclusive
+      ? matched.filter(
+          ({ pipeline }) =>
+            pipeline === winningExclusive || pipeline.position < winningExclusive.position,
+        )
+      : matched;
+    return { candidates, toRun, winningExclusive };
+  }
+
+  /**
    * Qué corre y por qué no corre el resto: un span event `pipeline.match` por cada pipeline que
    * escucha este tipo de evento (las que escuchan otros tipos serían ruido), y un log con el
    * resumen. Es lo primero que se mira cuando "no pasó nada".
    */
-  private traceMatch(
-    event: DomainEvent<any>,
-    pipelines: Pipeline[],
-    toRun: Pipeline[],
-    winningExclusive?: Pipeline,
-  ): void {
+  private traceMatch(event: DomainEvent<any>, plan: DispatchPlan): void {
     const span = trace.getActiveSpan();
     const skipped: string[] = [];
-    for (const pipeline of pipelines.filter((p) => p.on.includes(event.type))) {
-      const runs = toRun.includes(pipeline);
+    const running = new Set(plan.toRun.map(({ pipeline }) => pipeline));
+    for (const { pipeline, mismatch } of plan.candidates) {
+      if (!pipeline.on.includes(event.type)) continue;
+      const runs = running.has(pipeline);
       const reason = runs
         ? undefined
-        : (pipeline.explainMismatch(event) ?? `la tapa la exclusive "${winningExclusive?.id}"`);
+        : (mismatch ?? `la tapa la exclusive "${plan.winningExclusive?.id}"`);
       if (reason) skipped.push(`${pipeline.id} (${reason})`);
       span?.addEvent('pipeline.match', {
         'ia.pipeline.id': pipeline.id,
@@ -165,14 +203,12 @@ export class Engine {
         ...(reason ? { 'ia.pipeline.skip_reason': reason } : {}),
       });
     }
-    span?.setAttribute(
-      'ia.pipelines.run',
-      toRun.map((pipeline) => pipeline.id),
-    );
+    const ran = [...running].map((pipeline) => pipeline.id);
+    span?.setAttribute('ia.pipelines.run', ran);
     emitLog(
-      toRun.length > 0 ? 'info' : 'warn',
-      toRun.length > 0
-        ? `evento "${event.type}": corren ${toRun.map((p) => p.id).join(', ')}`
+      ran.length > 0 ? 'info' : 'warn',
+      ran.length > 0
+        ? `evento "${event.type}": corren ${ran.join(', ')}`
         : `evento "${event.type}": ninguna pipeline corre`,
       { 'ia.pipelines.skipped': skipped },
     );

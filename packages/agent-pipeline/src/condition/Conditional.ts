@@ -23,4 +23,12 @@ export abstract class Conditional {
   matchesConditions(subject: unknown): boolean {
     return Condition.evaluateAll(this.when, subject);
   }
+
+  /** Por qué `subject` no cumple el `when` (las condiciones que dan false, con lo que vino), o
+   *  `undefined` si lo cumple — lo que queda en la traza cuando algo no corrió. */
+  explainConditions(subject: unknown): string | undefined {
+    if (this.matchesConditions(subject)) return undefined;
+    const failed = this.when.filter((condition) => !condition.evaluate(subject));
+    return `no cumple: ${failed.map((condition) => condition.describe(subject)).join('; ')}`;
+  }
 }
