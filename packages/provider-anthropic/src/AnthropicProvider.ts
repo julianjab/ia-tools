@@ -279,7 +279,8 @@ export class AnthropicProvider implements Provider {
     const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])];
 
     let messages: AnthropicMessage[] = pc.resumeMessages ?? [{ role: 'user', content: ctx.prompt }];
-    const terminalTools = ctx.tools.filter((tool) => tool.terminal);
+    // Las salidas; `fail_turn` (failure) también es terminal, pero no cuenta para insistir.
+    const terminalTools = ctx.tools.filter((tool) => tool.terminal && !tool.failure);
     let nudged = false;
 
     for (let round = 0; round <= maxToolRounds; round++) {
