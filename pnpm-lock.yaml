@@ -38,6 +38,9 @@ importers:
       '@ia-tools/shell-tools':
         specifier: workspace:*
         version: link:../packages/local/shell
+      '@ia-tools/workspace':
+        specifier: workspace:*
+        version: link:../packages/local/workspace
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -199,6 +202,31 @@ importers:
       '@ia-tools/agent-pipeline':
         specifier: workspace:*
         version: link:../../agent-pipeline
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
+
+  packages/local/workspace:
+    dependencies:
+      '@ia-tools/agent-pipeline':
+        specifier: workspace:*
+        version: link:../../agent-pipeline
+      '@ia-tools/fs-tools':
+        specifier: workspace:*
+        version: link:../fs
+      '@ia-tools/shell-tools':
+        specifier: workspace:*
+        version: link:../shell
       zod:
         specifier: ^4.3.6
         version: 4.3.6
