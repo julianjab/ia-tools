@@ -8,6 +8,10 @@ describe('package entrypoint', () => {
     expect(lib.createGithubWebhookEvent).toBeTypeOf('function');
     expect(lib.parseGithubIssuePayload).toBeTypeOf('function');
     expect(lib.parseGithubIssueCommentPayload).toBeTypeOf('function');
+    expect(lib.parseGithubPullRequestPayload).toBeTypeOf('function');
+    expect(lib.parseGithubPullRequestReviewPayload).toBeTypeOf('function');
+    expect(lib.parseGithubCheckPayload).toBeTypeOf('function');
+    expect(lib.parseGithubProjectItemPayload).toBeTypeOf('function');
   });
 
   it('wires verify + parse + an app-defined translator through the public API only', () => {

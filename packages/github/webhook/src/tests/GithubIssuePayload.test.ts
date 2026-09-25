@@ -27,6 +27,7 @@ describe('parseGithubIssuePayload', () => {
       repo: 'accountant',
       labels: ['bug', 'p1'],
       sender: 'someone',
+      isPullRequest: false,
     });
   });
 
@@ -43,6 +44,15 @@ describe('parseGithubIssuePayload', () => {
     const payload = parseGithubIssuePayload(issuesPayload());
     expect(payload).not.toHaveProperty('type');
     expect(payload).not.toHaveProperty('action');
+  });
+
+  it('flags a PR delivered through the issues API', () => {
+    const payload = parseGithubIssuePayload(
+      issuesPayload({
+        issue: { title: 't', body: 'b', number: 5, labels: [], pull_request: { url: 'x' } },
+      }),
+    );
+    expect(payload.isPullRequest).toBe(true);
   });
 });
 
