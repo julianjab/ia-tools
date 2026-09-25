@@ -17,10 +17,31 @@ export interface BashRunToolOptions {
   timeoutMs?: number;
   /** Tope de stdout/stderr combinado antes de truncar Y matar el proceso. Default 64KB. */
   maxOutputBytes?: number;
+  /** Env del proceso hijo. Default: un subset mínimo de `process.env` (ver
+   *  `DEFAULT_SAFE_ENV_KEYS`) — NUNCA el entorno completo. Pasá esto explícito si el comando
+   *  necesita algo puntual del entorno (una API key, un flag de build). */
+  env?: Record<string, string>;
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024;
+
+/** Lo mínimo para que un binario común (git, node, un linter) arranque sin romperse — nunca
+ *  tokens/keys. Heredar `process.env` ENTERO (el default de `child_process.spawn`) le pasaría
+ *  al proceso todo lo que el host tenga seteado (GITHUB_TOKEN, ANTHROPIC_API_KEY, credenciales
+ *  de Slack, lo que sea) — con un solo intérprete que se cuele por el deny-list (`awk`, `sed`,
+ *  uno que no esté en la lista todavía), esos valores quedan a un `ENVIRON`/`getenv` de
+ *  distancia. Un caller que necesite algo puntual del entorno lo pasa explícito por `env`. */
+const DEFAULT_SAFE_ENV_KEYS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TERM', 'TZ', 'USER', 'SHELL'];
+
+function buildSafeEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of DEFAULT_SAFE_ENV_KEYS) {
+    const value = process.env[key];
+    if (value != null) env[key] = value;
+  }
+  return env;
+}
 
 /** Acumula chunks de un stream con un tope de BYTES real (no de caracteres — un tope por
  *  caracteres deja pasar de largo con UTF-8 multibyte) y deja de acumular apenas lo alcanza,
@@ -84,13 +105,20 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
       );
     }
 
-    const deniedBy = isDenied(argv, this.options.policy);
+    // PATH resuelve el nombre del binario SIN distinguir mayúsculas en macOS/Windows (APFS/NTFS
+    // default) — "Bash"/"PYTHON3" encuentran exactamente los mismos binarios que "bash"/
+    // "python3". Sin normalizar, toda la policy (patrones + los chequeos dedicados de git) se
+    // esquiva con sólo cambiar la capitalización del comando. El resto de los tokens (args) no
+    // pasan por una resolución de filesystem, así que sólo `argv[0]` necesita normalizarse.
+    const policyArgv = [argv[0].toLowerCase(), ...argv.slice(1)];
+
+    const deniedBy = isDenied(policyArgv, this.options.policy);
     if (deniedBy) {
       throw new Error(
         `bash_run: comando denegado por la policy (matchea "${deniedBy}"): "${input.command}"`,
       );
     }
-    if (!isAllowed(argv, this.options.policy)) {
+    if (!isAllowed(policyArgv, this.options.policy)) {
       throw new Error(`bash_run: comando no está en la allowlist: "${input.command}"`);
     }
 
@@ -107,6 +135,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
         cwd: this.options.baseDir,
         shell: false,
         detached: process.platform !== 'win32',
+        env: this.options.env ?? buildSafeEnv(),
       });
 
       const stdout = new BoundedCollector();

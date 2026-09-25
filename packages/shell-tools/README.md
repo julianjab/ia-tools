@@ -41,6 +41,12 @@ siempre, sin excepción de policy. Sólo se ejecutan nombres de binario resuelto
 esto, cualquier regla de `deny` que compare contra el nombre pelado (`'rm *'`, `'curl *'`) se
 saltaría con sólo anteponer la ruta absoluta del binario.
 
+**`argv[0]` se normaliza a minúsculas antes de evaluar la policy.** `PATH` resuelve el nombre del
+binario SIN distinguir mayúsculas en macOS/Windows (filesystem case-insensitive por default) —
+`Bash`/`PYTHON3`/`Curl` encuentran exactamente los mismos binarios que `bash`/`python3`/`curl`.
+Sin normalizar, cambiar la capitalización del comando esquivaba toda la policy (patrones y
+chequeos dedicados) en esos sistemas operativos.
+
 **El proceso hijo NO hereda el entorno completo.** Por default corre con un subset mínimo
 (`PATH`, `HOME`, `LANG`, `LC_ALL`, `TERM`, `TZ`, `USER`, `SHELL`), nunca `process.env` entero —
 heredarlo entero (el default de `child_process.spawn`) le pasaría al comando cualquier secreto
@@ -64,10 +70,7 @@ tanto `bash` solo como `bash -c algo`); un token que termina en `*` (`--force*`)
 match de ESE token puntual.
 
 `DEFAULT_DENY_PATTERNS` es un subset curado — shells anidados, `rm`, `sudo`/`su`, push
-forzado (`--force`/`-f`) a cualquier branch, `git -c <key>=<value>`/`--config-env`/`git config`
-enteros (reconfiguran git por esta invocación o de forma persistente — un alias, `core.sshCommand`,
-`core.pager`, `core.hooksPath` o `credential.helper` corren lo que sea vía `sh`, y como viaja
-DENTRO de un solo token/subcomando ningún otro patrón lo ve), credenciales del entorno (`env`,
+forzado (`--force`/`-f`) a cualquier branch, credenciales del entorno (`env`,
 `printenv`), intérpretes de propósito general
 (`python`/`python3`/`node`/`ruby`/`perl`/`bun`/`bunx`/`deno`/`tsx`/`php`/`lua`/`awk`/`sed` — con
 uno solo permitido el resto de la lista es decorativa), subcomandos de package manager que
@@ -83,16 +86,26 @@ necesite esa cobertura arma su propio `BashPolicy`.
 
 ### Chequeos dedicados, no posicionales, siempre activos
 
-Dos cosas no se pueden cubrir con patrones de posición fija sin generar una lista enorme y
+Estas cosas no se pueden cubrir con patrones de posición fija sin generar una lista enorme y
 frágil, así que tienen su propio chequeo en código — corren SIEMPRE, no dependen de lo que el
 caller ponga en `deny`, mismo criterio que la validación de `argv[0]` calificado por path:
 
-- **`git push` contra `main`/`master`** — `main`/`master` en cualquier posición después de
-  `push` (no sólo la 3ra: `git push -u origin main` también cae), `+main`/`:main` (force/delete
-  vía sintaxis de refspec, sin pasar por `--force`), `--delete`/`-d`, y
-  `HEAD:refs/heads/main`.
+- **`git push` contra `main`/`master`** — `main`/`master` (o `refs/heads/main`) en cualquier
+  posición después de `push` (no sólo la 3ra: `git push -u origin main` también cae),
+  `+main`/`:main` (force/delete vía sintaxis de refspec, sin pasar por `--force`),
+  `--delete`/`-d`/`--all`/`--mirror`, y `HEAD:refs/heads/main`.
 - **`git --upload-pack`/`--exec`** (en `clone`/`fetch`/`push`) — le dicen a git que invoque
   `<cmd>` como su propio helper de transporte, en cualquier posición entre los demás flags.
+- **`git -c`/`config`/`--config-env`** — reconfiguran git por invocación o de forma persistente
+  (un alias, `core.sshCommand`, `core.pager`, `core.hooksPath`, `credential.helper` corren lo
+  que sea vía `sh`). Un patrón posicional (`'git -c *'`, `'git config *'`) sólo mira `argv[1]`,
+  así que CUALQUIER opción global antes (`git -C . -c ...`, `git --git-dir=x config ...`) lo
+  esquivaba — por eso es chequeo dedicado, no patrón.
+- **`cp`/`mv`/`ln`/`chmod`/`chown`/`install`/`rsync` apuntando a un segmento `.git`** —
+  `fs-tools` protege `.git` en `resolveSafePath`, pero `bash_run` es un camino totalmente aparte
+  al filesystem: `cp payload .git/hooks/pre-commit` + `chmod +x` deja código que corre en el
+  próximo `git commit`/`merge`/`checkout`, sin pasar por `fs-tools` en ningún momento. Case-
+  insensitive, mismo criterio que el chequeo de `.git` en `fs-tools`.
 
 `find` y `tar` NO tienen chequeo dedicado — se deniegan ENTEROS en `DEFAULT_DENY_PATTERNS` en
 vez de perseguir sus flags de ejecución (`-exec`/`-delete`, `--to-command`/`-I`) con un chequeo a

@@ -9,6 +9,13 @@ function isEnoent(err: unknown): boolean {
   return (err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
 }
 
+/** Case-INsensitive a propósito — en macOS/Windows (APFS/NTFS default) el filesystem no
+ *  distingue mayúsculas, así que `.GIT/hooks/pre-commit` es EL MISMO archivo que
+ *  `.git/hooks/pre-commit`. Comparar case-sensitive dejaría pasar esa variante en esos SO. */
+function hasGitSegment(relPath: string): boolean {
+  return relPath.split(sep).some((segment) => segment.toLowerCase() === '.git');
+}
+
 /**
  * Sube por los ancestros de `target` hasta encontrar uno que EXISTA de verdad (para un `fs_write`
  * a un archivo nuevo, o a directorios nuevos, `target` mismo — y varios de sus padres — todavía
@@ -38,6 +45,13 @@ async function resolveRealPath(
       const rel = relative(realBase, finalPath);
       if (rel === '..' || rel.startsWith(`..${sep}`)) {
         throw new Error(`fs-tools: path fuera de baseDir (symlink): "${originalInput}"`);
+      }
+      // Repetido acá, sobre el path YA resuelto: un symlink DENTRO de baseDir que apunte a
+      // `.git` (`ln -s .git g`) no tiene ".git" como segmento en el texto que mandó el modelo
+      // (`g/hooks/pre-commit`) — sólo aparece después de seguir el link. El chequeo léxico de
+      // `resolveSafePath` nunca lo vería.
+      if (hasGitSegment(rel)) {
+        throw new Error(`fs-tools: path pasa por ".git" (symlink) — rechazado: "${originalInput}"`);
       }
       return finalPath;
     } catch (err) {
@@ -88,7 +102,7 @@ export async function resolveSafePath(baseDir: string, relativePath: string): Pr
   // viceversa). En un worktree `.git` es un archivo, no un directorio, así que no aplicaría —
   // pero este paquete no asume que siempre corre en un worktree, así que el segmento se rechaza
   // siempre, exista o no.
-  if (rel.split(sep).includes('.git')) {
+  if (hasGitSegment(rel)) {
     throw new Error(`fs-tools: path pasa por ".git" — rechazado: "${relativePath}"`);
   }
 

@@ -49,9 +49,12 @@ Un `path` de una de estas tools es input del modelo, nunca confiable tal cual: `
 `../..`), que pase por un symlink que escape de `baseDir` (roto o no), o que atraviese un
 segmento `.git` — escribir ahí (`.git/config` con `core.pager`, `.git/hooks/*`) compromete
 cualquier `git` que corra después vía `@ia-tools/shell-tools`, así que se rechaza siempre, exista
-o no el directorio `.git` en ese punto. Mismo criterio que `issuePath` en `@ia-tools/github-tools`
-para `owner`/`repo`/`number`: los inputs de una tool son controlados por el modelo, nunca se
-confían tal cual.
+o no el directorio `.git` en ese punto. El chequeo de `.git` es case-insensitive (`.GIT` resuelve
+al mismo directorio en macOS/Windows) y corre DOS veces — sobre el texto de entrada, y de nuevo
+sobre el path ya resuelto tras seguir symlinks (`ln -s .git g` no tiene ".git" como segmento en
+el texto que manda el modelo, sólo aparece después de resolver el link). Mismo criterio que
+`issuePath` en `@ia-tools/github-tools` para `owner`/`repo`/`number`: los inputs de una tool son
+controlados por el modelo, nunca se confían tal cual.
 
 ## Qué NO es este paquete
 
