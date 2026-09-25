@@ -55,11 +55,15 @@ jobs:
       - name: Lint (Biome)
         run: pnpm lint
 
-      - name: Typecheck
-        run: pnpm typecheck
-
+      # Build antes que Typecheck: cada paquete importa a sus hermanos por su `dist/`
+      # (`exports.types` → `./dist/index.d.ts`), que en un checkout limpio no existe hasta
+      # compilar. `pnpm -r build` corre en orden topológico, así que los .d.ts ya están cuando
+      # el typecheck los busca.
       - name: Build
         run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Detect dist/ drift
         id: dist
