@@ -6,6 +6,8 @@ export type ConditionOp =
   | 'in'
   | 'notIn'
   | 'contains'
+  | 'notContains'
+  | 'matches'
   | 'gt'
   | 'gte'
   | 'lt'
@@ -55,6 +57,21 @@ export class Condition {
           return actual.includes(this.value);
         }
         return false;
+      case 'notContains':
+        if (Array.isArray(actual)) return !actual.includes(this.value);
+        if (typeof actual === 'string' && typeof this.value === 'string') {
+          return !actual.includes(this.value);
+        }
+        // Sin lista (campo ausente): no puede contener nada — mismo criterio que `neq`.
+        return true;
+      case 'matches':
+        // `value` es el source de una regex (ej. `^(?![\s\S]*<!-- ia-flow:)`, el filtro de
+        // claw-agents para ignorar comentarios del propio pipeline). Sólo matchea strings.
+        return (
+          typeof actual === 'string' &&
+          typeof this.value === 'string' &&
+          new RegExp(this.value).test(actual)
+        );
       case 'gt':
         return typeof actual === 'number' && typeof this.value === 'number' && actual > this.value;
       case 'gte':
