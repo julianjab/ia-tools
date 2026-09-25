@@ -52,6 +52,9 @@ export interface Tool<TInput = any> {
   /** Una llamada exitosa termina el turno del agente — las `submit_<salida>` que arma `Agent`.
    *  Un provider que soporte tools corta su loop ahí en vez de esperar un `end_turn`. */
   terminal?: boolean;
+  /** Tool terminal que cierra el turno como FALLA (`fail_turn`), no como una salida. Un provider
+   *  no la cuenta al decidir si insistirle al modelo que elija una salida. */
+  failure?: boolean;
 }
 
 export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {

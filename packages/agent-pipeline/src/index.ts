@@ -6,7 +6,7 @@ export type {
   Tool,
 } from './agent/AgentDefinition.js';
 export type { AgentRunResult } from './agent/Agent.js';
-export { Agent, NO_TRANSITION_OUTCOMES } from './agent/Agent.js';
+export { Agent, FAIL_TOOL_NAME, NO_TRANSITION_OUTCOMES } from './agent/Agent.js';
 export type { Provider, ProviderRunContext, ProviderRunOutput } from './agent/Provider.js';
 export { ProviderRegistry, providerRegistry } from './agent/Provider.js';
 export type { ToolInputSchema } from './agent/SchemaTool.js';
