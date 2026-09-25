@@ -44,6 +44,40 @@ describe('EmitAction', () => {
     expect(event).toMatchObject({ type: 'triaged', payload: { label: 'bug' } });
   });
 
+  it('inherits the parent scope by default', async () => {
+    const ctx = makeCtx();
+    ctx.event = createEvent('t', {}, { scope: { projectId: 'p' } });
+    const event = await new EmitAction({ type: 'x' }).run(ctx);
+    expect(event).toMatchObject({ scope: { projectId: 'p' } });
+  });
+
+  it('sets the scope a previous step resolved, for an event that arrived without one', async () => {
+    const ctx = makeCtx();
+    ctx.steps.resolve = { projectId: 'lahaus' };
+
+    const event = await new EmitAction({
+      type: 'issue_comment',
+      scope: (c) => ({ projectId: (c.steps.resolve as { projectId: string }).projectId }),
+    }).run(ctx);
+
+    expect(event).toMatchObject({
+      type: 'issue_comment',
+      scope: { projectId: 'lahaus' },
+      depth: 2,
+    });
+  });
+
+  it('accepts a fixed scope, and falls back to the parent when the function returns undefined', async () => {
+    expect(await new EmitAction({ type: 'x', scope: { repo: 'r' } }).run(makeCtx())).toMatchObject({
+      scope: { repo: 'r' },
+    });
+    const ctx = makeCtx();
+    ctx.event = createEvent('t', {}, { scope: { projectId: 'p' } });
+    expect(await new EmitAction({ type: 'x', scope: () => undefined }).run(ctx)).toMatchObject({
+      scope: { projectId: 'p' },
+    });
+  });
+
   describe('typed input', () => {
     const input = z.strictObject({ tripId: z.string() });
 
