@@ -8,7 +8,7 @@ Ver `README.md` para el contrato de uso; esto es guía específica para trabajar
 src/
 ├── tokenize.ts       string → argv, SIN shell — corta con error ante metacaracteres fuera de comillas
 ├── BashPolicy.ts      matchesPattern()/isDenied()/isAllowed() + DEFAULT_DENY_PATTERNS
-├── BashRunTool.ts      única Tool del paquete — implementa Tool directo, sin base abstracta
+├── BashRunTool.ts      única Tool del paquete — extiende SchemaTool (input en zod) directo, sin base intermedia
 ├── index.ts
 └── tests/               tokenize.test.ts, BashPolicy.test.ts, BashRunTool.test.ts, index.test.ts
 ```

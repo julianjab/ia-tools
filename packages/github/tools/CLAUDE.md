@@ -27,17 +27,21 @@ src/
 └── tests/                   shared.test.ts, GithubToolRegistry.test.ts, index.test.ts
 ```
 
-Una tool por archivo — cada una es una CLASE que extiende `GithubTool<TInput>` (constructor recibe
-el `GithubClient`, hereda `this.issuePath()`/`this.summarizeIssue()`), no una función factory.
+Una tool por archivo — cada una es una CLASE que extiende `GithubTool<S>` (que extiende `SchemaTool<S>`
+de `agent-pipeline`; constructor recibe el `GithubClient`, hereda `this.issuePath()`/`this.summarizeIssue()`), no una función factory.
 `GithubToolRegistry` extiende `ToolRegistry<[GithubClient]>` de `@ia-tools/agent-pipeline` — la
 lógica de `get()`/`names()`/`all()`/`resolve()` y de instanciar-todo-lo-registrado vive ahí, una
 sola vez, compartida con `@ia-tools/fs-tools` y cualquier otro dominio de tools futuro.
 
 ## Agregar una tool nueva
 
-1. Un archivo nuevo en `src/tools/`, con una clase `class MiTool extends GithubTool<TInput> {
-   readonly name = '...'; readonly description = '...'; readonly inputSchema = {...}; async
-   handler(input) { ... } }`.
+1. Un archivo nuevo en `src/tools/`, con una clase `class MiTool extends GithubTool<typeof MiToolInput> {
+   readonly name = '...'; readonly description = '...'; readonly input = MiToolInput;
+   protected async execute(input: MiToolInput) { ... } }`. El input se declara UNA vez como
+   `export const MiToolInput = z.strictObject({...})` + `export type MiToolInput =
+   z.infer<typeof MiToolInput>` — de ahí salen el `inputSchema` que ve el modelo y la
+   validación en runtime (`SchemaTool` de `agent-pipeline`); nunca escribas `inputSchema` a mano.
+   Siempre `strictObject`: el tipo de `SchemaTool` no acepta otro.
 2. Sumala a `src/tools/index.ts` (el barrel — export type + export de la clase).
 3. En `GithubToolRegistry.ts`: importala del barrel y agregá una línea
    `GithubToolRegistry.register(MiTool);` al final del archivo — **no** hagas que la tool se

@@ -6,9 +6,13 @@ completo; esto es guía específica para trabajar en el código del paquete.
 
 ## Qué es y qué NO es este paquete
 
-Es **contrato puro, sin I/O**: interfaces y clases sin dependencias runtime (`DomainEvent`,
-`EventBus`, `Condition`, `Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`,
-`Provider`, `ProviderRegistry`, `ToolRegistry`). La regla NO es "nada que mencione un LLM" — `Agent` sabe
+Es **contrato puro, sin I/O**: interfaces y clases (`DomainEvent`, `EventBus`, `Condition`,
+`Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`, `Provider`,
+`ProviderRegistry`, `ToolRegistry`, `SchemaTool`). La única dependencia runtime es `zod`, y
+sólo la usa `SchemaTool` — es validación pura en memoria, no I/O, así que no rompe la regla de
+abajo. No sumes otra sin una razón igual de fuerte.
+
+La regla NO es "nada que mencione un LLM" — `Agent` sabe
 que existe un `prompt`, `systemPrompts`, `exits`; eso es dominio, no infra, porque es
 TypeScript puro sin `fetch` ni credenciales. La línea real es **contrato vs. implementación
 con I/O real**: un `Provider` CONCRETO que le pega a la API de Anthropic/OpenAI/lo que sea
@@ -25,7 +29,8 @@ src/
 │   ├── AgentDefinition.ts   AgentDefinitionProps + tipos (SystemPromptRef, Tool, AgentExit, ...)
 │   ├── Provider.ts          Provider (interfaz) + ProviderRegistry + providerRegistry (singleton)
 │   ├── ToolRegistry.ts      base genérica de registry de Tool con AUTO-REGISTRO por clase
-│   └── tests/               Agent.test.ts, AgentDefinition.test.ts, Provider.test.ts, ToolRegistry.test.ts
+│   ├── SchemaTool.ts        base de Tool con input declarado como z.strictObject (valida + JSON Schema)
+│   └── tests/               Agent.test.ts, AgentDefinition.test.ts, Provider.test.ts, ToolRegistry.test.ts, SchemaTool.test.ts
 ├── condition/
 │   ├── Condition.ts, Conditional.ts
 │   └── tests/
@@ -140,6 +145,25 @@ mirar si esto se rompe.
 real que llamó `.register`) — de ahí el `biome-ignore lint/complexity/noThisInStatic` puntual:
 el fix automático de biome ("usar el nombre de la clase") rompería justo el aislamiento que
 este diseño busca.
+
+## `SchemaTool<S>` — el input de una tool se declara una vez, en zod
+
+El input de una `Tool` lo escribe el MODELO, nunca un caller de confianza — y `AnthropicProvider`
+se lo pasa a `handler` tal cual. Antes cada tool mantenía a mano una `interface` TS y un
+`inputSchema` JSON que podían divergir, y nada validaba en runtime (un `fs_edit` sin `newString`
+escribía el literal "undefined" en el archivo). `SchemaTool` junta las tres cosas: la subclase
+declara `input` (un `z.strictObject`), implementa `execute(input: z.infer<S>)`, y la base deriva
+`inputSchema` (`z.toJSONSchema`, sin `$schema`) y valida en `handler` antes de llamar a `execute`.
+
+- `handler` es `async` y RECHAZA con `z.prettifyError` si el input no valida — `AnthropicProvider`
+  ya convierte cualquier rechazo de un handler en un `tool_result` con `is_error: true`, así que
+  el modelo ve qué campo falló y se corrige solo.
+- `ToolInputSchema` fuerza `strictObject` a nivel de tipo: claves que el modelo invente se
+  rechazan en vez de descartarse en silencio.
+- `inputSchema` es un getter perezoso, no un field: `input` es un field de la SUBCLASE, que
+  todavía no está asignado cuando corre el constructor de la base.
+- La interfaz `Tool` no cambia: un consumidor puede seguir implementándola a mano con JSON Schema
+  plano (los fixtures de `ToolRegistry.test.ts` lo hacen). `SchemaTool` es opt-in.
 
 ## Antes de tocar código
 

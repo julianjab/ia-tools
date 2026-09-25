@@ -18,7 +18,8 @@ src/
 ```
 
 Mismo patrón que `@ia-tools/github-tools`: una tool por archivo, cada una una CLASE que extiende
-`FsTool<TInput>` (constructor recibe `baseDir: string`, hereda `this.resolveSafePath(...)`), y
+`FsTool<S>` (que a su vez extiende `SchemaTool<S>` de `agent-pipeline`; constructor recibe
+`baseDir: string`, hereda `this.resolveSafePath(...)`), y
 `FsToolRegistry` extiende `ToolRegistry<[string]>` de `@ia-tools/agent-pipeline` — la lógica de
 `get()`/`names()`/`all()`/`resolve()` vive ahí, compartida con `github-tools`. El registro de las
 5 clases está centralizado en `FsToolRegistry.ts` (`FsToolRegistry.register(FsReadTool)`, etc.),
@@ -30,14 +31,19 @@ una versión "sin agent-pipeline" separada como `github-api`; este paquete ya de
 
 ## Agregar una tool nueva
 
-1. Un archivo nuevo en `src/tools/`, con una clase `class MiTool extends FsTool<TInput> {
-   readonly name = '...'; readonly description = '...'; readonly inputSchema = {...}; async
-   handler(input) { ... } }`.
+1. Un archivo nuevo en `src/tools/`, con una clase `class MiTool extends FsTool<typeof MiToolInput> {
+   readonly name = '...'; readonly description = '...'; readonly input = MiToolInput;
+   protected async execute(input: MiToolInput) { ... } }`. El input se declara UNA vez como
+   `export const MiToolInput = z.strictObject({...})` + `export type MiToolInput =
+   z.infer<typeof MiToolInput>` — de ahí salen el `inputSchema` que ve el modelo y la
+   validación en runtime (`SchemaTool` de `agent-pipeline`); nunca escribas `inputSchema` a mano.
+   Siempre `strictObject`: el tipo de `SchemaTool` no acepta otro.
 2. Sumala a `src/tools/index.ts` (el barrel).
 3. En `FsToolRegistry.ts`: importala del barrel y agregá `FsToolRegistry.register(MiTool);` al
    final del archivo.
 4. Sumala a los exports de `src/index.ts`.
-5. Un `describe()` en `src/tools/tests/MiTool.test.ts`, con un `baseDir` real (`mkdtemp`).
+5. Un `describe()` en `src/tools/tests/MiTool.test.ts`, con un `baseDir` real (`mkdtemp`) —
+   incluí un caso de input inválido que verifique que no se tocó el disco.
 
 ## `resolveSafePath` — el único punto de entrada al filesystem
 

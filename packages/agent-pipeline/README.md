@@ -38,7 +38,8 @@ pnpm --filter @ia-tools/agent-pipeline test
 
 Para usarlo desde otra app del monorepo: `"@ia-tools/agent-pipeline": "workspace:*"` en su
 `package.json`. Para usarlo desde un repo por fuera de `ia-tools` (vamos, accountant, …):
-`npm pack` este paquete o publicalo a un registry privado — no tiene dependencias runtime.
+`npm pack` este paquete o publicalo a un registry privado — su única dependencia runtime es
+`zod` (para `SchemaTool`).
 
 ## Las piezas
 
