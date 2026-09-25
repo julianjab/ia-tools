@@ -13,6 +13,19 @@ export interface EmitActionProps extends RunnableProps {
   /** Opcional: qué puede entregarle un agente a este paso como destino de una ruta. Sin
    *  `payload`, el input validado ES el payload del evento derivado. */
   input?: ToolInputSchema;
+  /**
+   * Scope del evento derivado. Sin esto hereda el del padre (`deriveEvent`) — lo que sirve para
+   * encadenar pipelines del MISMO scope. Hace falta cuando el scope recién se conoce en un paso
+   * anterior: un evento de entrada sin proyecto que un paso resuelve (ej. un webhook cuyo repo
+   * mapea a un proyecto) y re-publica ya con `{ projectId }`, para que lo vean las pipelines
+   * con scope (que son fail-closed ante un evento sin él).
+   */
+  scope?:
+    | Record<string, unknown>
+    | ((
+        ctx: PipelineExecutionContext,
+        input: Record<string, unknown> | undefined,
+      ) => Record<string, unknown> | undefined);
 }
 
 /** Publica un DomainEvent derivado — sin llamar a ningún Agent. Útil para "traducir" un paso
@@ -21,12 +34,14 @@ export class EmitAction extends Runnable {
   readonly type: string;
   readonly payload?: EmitActionProps['payload'];
   readonly input?: ToolInputSchema;
+  readonly scope?: EmitActionProps['scope'];
 
   constructor(props: EmitActionProps) {
     super(props);
     this.type = props.type;
     this.payload = props.payload;
     this.input = props.input;
+    this.scope = props.scope;
   }
 
   override acceptsInput(): ToolInputSchema | undefined {
@@ -39,7 +54,8 @@ export class EmitAction extends Runnable {
       typeof this.payload === 'function'
         ? this.payload(ctx, parsed)
         : (this.payload ?? parsed ?? {});
-    const event = deriveEvent(ctx.event, this.type, payload);
+    const scope = typeof this.scope === 'function' ? this.scope(ctx, parsed) : this.scope;
+    const event = deriveEvent(ctx.event, this.type, payload, scope ? { scope } : {});
     await ctx.bus.publish(event);
     return event;
   }
