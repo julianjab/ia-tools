@@ -82,6 +82,17 @@ describe('workspaceAction', () => {
     await expect(bash.run(run(), { command: 'git fetch origin' })).rejects.toThrow();
   });
 
+  it('hands bash_run the git credential it was given (network git only)', async () => {
+    const { session: s } = session();
+    const credential = vi.fn(async () => 'tok');
+    const bash = workspaceAction('bash_run', s, { deny: [] }, { gitCredential: credential });
+    // `git ls-remote` contra un remote inexistente falla, pero antes pide la credencial.
+    await bash.run(run(), { command: 'git ls-remote nope' });
+    expect(credential).toHaveBeenCalled();
+    await bash.run(run(), { command: 'git status' });
+    expect(credential).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects names that are not disk tools', () => {
     expect(() => workspaceAction('review_pull_request', session().session)).toThrow(
       /no es una tool de disco/,
