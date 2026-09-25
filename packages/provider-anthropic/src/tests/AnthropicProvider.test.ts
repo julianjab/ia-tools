@@ -6,7 +6,7 @@ import type {
 } from '@ia-tools/agent-pipeline';
 import { createEvent } from '@ia-tools/agent-pipeline';
 import { describe, expect, it, vi } from 'vitest';
-import { AnthropicProvider } from '../AnthropicProvider.js';
+import { AnthropicProvider, parseAnthropicAgentConfig } from '../AnthropicProvider.js';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -471,6 +471,113 @@ describe('AnthropicProvider.run', () => {
     await provider.run(ctxFor({ providerConfig: { model: 'claude-override', maxTokens: 50 } }));
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  describe('run config: same structure for the provider and each agent', () => {
+    const toolUse = () =>
+      jsonResponse({
+        content: [{ type: 'tool_use', id: 'tu_1', name: 'noop', input: {} }],
+        stop_reason: 'tool_use',
+      });
+    const noop: Tool = { name: 'noop', description: 'd', inputSchema: {}, handler: () => 'x' };
+    const providerWith = (fetchImpl: unknown, extra: Record<string, unknown> = {}) =>
+      new AnthropicProvider({
+        id: 'x',
+        model: 'claude-x',
+        apiKey: 'sk',
+        stream: false,
+        fetchImpl: fetchImpl as typeof fetch,
+        ...extra,
+      });
+
+    it('an agent can override maxToolRounds, like any other provider option', async () => {
+      let calls = 0;
+      const fetchImpl = vi.fn(async () => {
+        calls++;
+        return calls <= 3
+          ? toolUse()
+          : jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' });
+      });
+      // El provider sólo admite 1 vuelta; el agente pide 5 y converge en la 4ta respuesta.
+      const provider = providerWith(fetchImpl, { maxToolRounds: 1 });
+
+      const result = await provider.run(
+        ctxFor({ tools: [noop], providerConfig: { maxToolRounds: 5 } }),
+      );
+
+      expect(result).toEqual({ outcome: 'success', summary: 'listo' });
+      expect(calls).toBe(4);
+    });
+
+    it('an agent can also lower a provider option', async () => {
+      const provider = providerWith(
+        vi.fn(async () => toolUse()),
+        { maxToolRounds: 50 },
+      );
+      await expect(
+        provider.run(ctxFor({ tools: [noop], providerConfig: { maxToolRounds: 1 } })),
+      ).rejects.toThrow('maxToolRounds (1)');
+    });
+
+    it('pause_turn has its own cap and does not spend tool rounds', async () => {
+      let calls = 0;
+      const fetchImpl = vi.fn(async () => {
+        calls++;
+        return calls <= 2
+          ? jsonResponse({
+              content: [{ type: 'text', text: 'a mitad' }],
+              stop_reason: 'pause_turn',
+            })
+          : jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' });
+      });
+      const provider = providerWith(fetchImpl, { maxToolRounds: 1, maxPauseTurnRetries: 2 });
+
+      expect(await provider.run(ctxFor())).toEqual({ outcome: 'success', summary: 'listo' });
+
+      const paused = vi.fn(async () =>
+        jsonResponse({ content: [{ type: 'text', text: 'a mitad' }], stop_reason: 'pause_turn' }),
+      );
+      await expect(
+        providerWith(paused).run(ctxFor({ providerConfig: { maxPauseTurnRetries: 1 } })),
+      ).rejects.toThrow('maxPauseTurnRetries (1)');
+      expect(paused).toHaveBeenCalledTimes(2);
+    });
+
+    it('an agent thinking config replaces the provider one', async () => {
+      const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+        expect(JSON.parse(init.body as string).thinking).toEqual({ type: 'adaptive' });
+        return jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' });
+      });
+      const provider = providerWith(fetchImpl, {
+        maxTokens: 8000,
+        thinking: { type: 'enabled', budgetTokens: 4000 },
+      });
+
+      await provider.run(ctxFor({ providerConfig: { thinking: { type: 'adaptive' } } }));
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an unknown key or a wrong-typed value instead of ignoring it', () => {
+      expect(() => parseAnthropicAgentConfig({ maxToolRound: 5 })).toThrow(
+        /providerConfig\.maxToolRound: no es una opción de AnthropicProvider/,
+      );
+      expect(() => parseAnthropicAgentConfig({ maxToolRounds: '5' })).toThrow(
+        /providerConfig\.maxToolRounds: valor inválido/,
+      );
+      expect(() => parseAnthropicAgentConfig({ effort: 'extreme' })).toThrow(/effort/);
+      expect(() => parseAnthropicAgentConfig({ constructor: 1 })).toThrow(/no es una opción/);
+      expect(
+        parseAnthropicAgentConfig({ model: 'm', maxPauseTurnRetries: 0, effort: 'high' }),
+      ).toEqual({ model: 'm', maxPauseTurnRetries: 0, effort: 'high' });
+    });
+
+    it('a run with an invalid providerConfig fails before calling the API', async () => {
+      const fetchImpl = vi.fn();
+      await expect(
+        providerWith(fetchImpl).run(ctxFor({ providerConfig: { maxTokns: 10 } })),
+      ).rejects.toThrow(/maxTokns/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
   });
 
   describe('terminal tools (submit_<exit>)', () => {
