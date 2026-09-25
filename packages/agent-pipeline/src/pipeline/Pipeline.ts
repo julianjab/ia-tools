@@ -152,6 +152,23 @@ export class Pipeline extends Conditional {
       return;
     }
     const kind = step instanceof Agent ? 'agent' : 'action';
+    // Heredados: los spans y logs de adentro (el request al modelo, una tool, el destino de una
+    // salida) saben de qué paso —y de qué agente— vienen.
+    const inherited = { 'ia.step.id': name, ...(kind === 'agent' ? { 'ia.agent.id': name } : {}) };
+    await withInheritedAttributes(inherited, () =>
+      this.runStepSpan(step, input, ctx, via, handleErrors, name, kind),
+    );
+  }
+
+  private async runStepSpan(
+    step: Runnable,
+    input: unknown,
+    ctx: PipelineExecutionContext,
+    via: StepVia,
+    handleErrors: boolean,
+    name: string,
+    kind: 'agent' | 'action',
+  ): Promise<void> {
     await withSpan(
       `${kind} ${name}`,
       {
