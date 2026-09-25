@@ -141,6 +141,12 @@ terminarían empujando a la MISMA lista. El test que lo prueba (`ToolRegistry.te
 subclases que redeclaran su propio registeredTools NUNCA comparten lista") es el que hay que
 mirar si esto se rompe.
 
+**Riesgo conocido, sin guarda en runtime**: si una subclase nueva se OLVIDA de redeclarar
+`registeredTools`, `register()` no tira — empuja en silencio a la lista de la BASE, compartida
+por cualquier otro dominio que tampoco la haya redeclarado. No hay ningún chequeo (`Object.
+hasOwn(this, 'registeredTools')` u otro) que lo detecte hoy; queda como algo a mirar si un
+registry nuevo aparece con tools de otro dominio mezcladas.
+
 `static register()` usa `this.registeredTools` con `this` POLIMÓRFICO a propósito (la subclase
 real que llamó `.register`) — de ahí el `biome-ignore lint/complexity/noThisInStatic` puntual:
 el fix automático de biome ("usar el nombre de la clase") rompería justo el aislamiento que

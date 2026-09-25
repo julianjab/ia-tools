@@ -158,6 +158,14 @@ categoría completa.
   --extcmd=<cmd>` (o `-y --extcmd`) y `git grep -O<cmd>`/`--open-files-in-pager=<cmd>`. La lista
   de chequeos dedicados de git creció ronda a ronda persiguiendo casos concretos (ver el bullet
   de abajo); estos dos quedaron afuera de la última ronda, documentados en vez de agregados.
+- **`isImplicitGitPush` no cubre todas las formas de dejar la branch destino implícita.** Filtra
+  tokens que empiezan con `-`, pero no el VALOR que sigue a un flag con argumento separado
+  (`git push -o ci.skip origin` deja `rest = ['ci.skip', 'origin']`, que no matchea ninguna de
+  las formas detectadas); tampoco reconoce `@` (el alias corto de git para `HEAD`) — sólo
+  `HEAD` literal. Las dos formas empujan la branch actual sin nombrarla, igual que `git push
+  origin HEAD`, y ninguna cae en `isDangerousGitPush` porque `main` nunca aparece en el `argv`.
+  Cerrar esto de verdad pide invertir la lógica (exigir `<remote> <refspec-explícito>`, rechazar
+  cualquier flag con valor separado) en vez de seguir sumando casos — no está hecho acá.
 - **Esta lista de chequeos dedicados no se declara completa ni final.** Es una lista de
   bloqueo — por diseño, nunca termina de perseguir bypasses nuevos (otro subcomando de git que
   ejecute un argumento, otro wrapper como `nice`/`timeout`, otro flag `--algo=<comando>` de
