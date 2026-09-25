@@ -75,6 +75,26 @@ describe('resolveSafePath', () => {
     await expect(resolveSafePath(baseDir, 'evil.txt')).rejects.toThrow('symlink roto');
   });
 
+  it('rechaza cualquier path que pase por un segmento ".git" — escribirle ahí compromete bash_run', async () => {
+    await expect(resolveSafePath(baseDir, '.git/config')).rejects.toThrow('.git');
+    await expect(resolveSafePath(baseDir, '.git/hooks/pre-commit')).rejects.toThrow('.git');
+    await expect(resolveSafePath(baseDir, 'sub/.git/config')).rejects.toThrow('.git');
+  });
+
+  it('rechaza ".git" sin distinguir mayúsculas — macOS/Windows resuelven ".GIT" al mismo directorio', async () => {
+    await expect(resolveSafePath(baseDir, '.GIT/config')).rejects.toThrow('.git');
+    await expect(resolveSafePath(baseDir, '.Git/hooks/pre-commit')).rejects.toThrow('.git');
+  });
+
+  it('rechaza un symlink que apunta a ".git" aunque el path que mandó el modelo no diga ".git"', async () => {
+    // ln -s .git g && fs_write("g/hooks/pre-commit", ...) — el texto de entrada ("g/hooks/...")
+    // no tiene ".git" como segmento; sólo aparece DESPUÉS de resolver el symlink.
+    await mkdir(join(baseDir, '.git'));
+    await symlink(join(baseDir, '.git'), join(baseDir, 'g'));
+
+    await expect(resolveSafePath(baseDir, 'g/hooks/pre-commit')).rejects.toThrow('.git');
+  });
+
   it('permite un symlink que apunta a otro lugar DENTRO de baseDir', async () => {
     await writeFile(join(baseDir, 'real.txt'), 'x', 'utf-8');
     await symlink(join(baseDir, 'real.txt'), join(baseDir, 'alias.txt'));

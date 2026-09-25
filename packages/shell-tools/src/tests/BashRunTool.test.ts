@@ -96,4 +96,37 @@ describe('bash_run', () => {
     expect(Date.now() - start).toBeLessThan(5000); // no esperó los 30s del sleep
     expect(result.status).not.toBe('exit 0');
   }, 10_000);
+
+  it('NO hereda el entorno completo del proceso — una var fuera del subset seguro no llega', async () => {
+    process.env.FS_TOOLS_TEST_SECRET = 'no-deberia-verse';
+    try {
+      const tool = new BashRunTool({ baseDir, policy: { deny: [] } });
+
+      const result = JSON.parse(await tool.handler({ command: 'printenv FS_TOOLS_TEST_SECRET' }));
+
+      expect(result.stdout.trim()).toBe('');
+      expect(result.status).not.toBe('exit 0'); // printenv sale con status !=0 si la var no está
+    } finally {
+      // biome-ignore lint/performance/noDelete: `= undefined` NO borra la var en Node — coerciona a la string "undefined", que seguiría ahí para el resto de la suite.
+      delete process.env.FS_TOOLS_TEST_SECRET;
+    }
+  });
+
+  it('normaliza argv[0] a minúsculas antes de evaluar la policy — PATH resuelve sin distinguir mayúsculas en macOS/Windows', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: ['bash *'] } });
+
+    await expect(tool.handler({ command: 'Bash -c "id"' })).rejects.toThrow('denegado');
+  });
+
+  it('un env explícito reemplaza el default y sí llega al proceso', async () => {
+    const tool = new BashRunTool({
+      baseDir,
+      policy: { deny: [] },
+      env: { PATH: process.env.PATH ?? '', FOO: 'bar' },
+    });
+
+    const result = JSON.parse(await tool.handler({ command: 'printenv FOO' }));
+
+    expect(result.stdout.trim()).toBe('bar');
+  });
 });
