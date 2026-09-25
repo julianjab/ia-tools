@@ -1,8 +1,9 @@
 /**
  * Logging compuesto, portado de la idea de ia-flow (`createLogger('scope')` + sinks) sin su
  * `setLoggerFactory`: acá el logger no se inyecta ni se rebindea — cada log se reparte, al
- * emitirse, entre los sinks configurados en ese momento. Un módulo hace
- * `const log = createLogger('engine')` a nivel de módulo y no sabe a dónde va lo que loguea.
+ * emitirse, entre los sinks configurados en ese momento. Una clase declara su logger como campo
+ * (`readonly log = createLogger('engine')`) y no sabe a dónde va lo que loguea; con ese campo,
+ * `@traced` además loguea solo los errores que se escapan del método.
  *
  * La app decide los destinos una vez al bootear:
  *
@@ -13,10 +14,14 @@
  * Por defecto sólo `otelSink()`: sin un SDK de OTel registrado es un no-op, así que una librería
  * que usa este paquete no escribe nada por su cuenta. Un sink con I/O propio (archivo rotativo,
  * pino, un POST) lo arma la app — este paquete no toca red ni filesystem.
+ *
+ * Un log sale con el `traceId`/`spanId` y los atributos heredados del contexto ACTIVO al emitir,
+ * no de dónde se creó el logger: un logger por clase, en cualquier paquete, igual arma una sola
+ * traza con todos los logs.
  */
 import { context, trace } from '@opentelemetry/api';
 import { SeverityNumber, logs } from '@opentelemetry/api-logs';
-import { type Attributes, INSTRUMENTATION_SCOPE, inheritedAttributes } from './telemetry.js';
+import { type Attributes, INSTRUMENTATION_SCOPE, inheritedAttributes } from './tracing.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 

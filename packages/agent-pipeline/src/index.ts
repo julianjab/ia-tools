@@ -65,37 +65,3 @@ export {
   routeTargets,
   submitSchemaFor,
 } from './routing/ExitRoutes.js';
-
-export type {
-  ConsoleSinkOptions,
-  LogLevel,
-  LogRecord,
-  LogSink,
-  Logger,
-} from './telemetry/logging.js';
-export {
-  addLogSink,
-  consoleSink,
-  createLogger,
-  otelSink,
-  setLogSinks,
-} from './telemetry/logging.js';
-export type {
-  Attributes,
-  Span,
-  SpanOptions,
-  TagOptions,
-  TraceOptions,
-} from './telemetry/telemetry.js';
-export {
-  INSTRUMENTATION_SCOPE,
-  SpanKind,
-  inheritedAttributes,
-  markError,
-  scopeAttributes,
-  tagged,
-  traced,
-  truncate,
-  withInheritedAttributes,
-  withSpan,
-} from './telemetry/telemetry.js';

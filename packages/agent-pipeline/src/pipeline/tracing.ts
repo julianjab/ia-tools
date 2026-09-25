@@ -2,14 +2,12 @@
  * Qué deja `Pipeline` en la traza — lo usan los decorators de `Pipeline.ts`, así correr los pasos
  * no mezcla spans con la lógica.
  */
+import { type Attributes, type TraceOptions, markError, truncate } from '@ia-tools/telemetry';
 import { Agent, type AgentRunResult } from '../agent/Agent.js';
-import { createLogger } from '../telemetry/logging.js';
-import { type Attributes, type TraceOptions, markError, truncate } from '../telemetry/telemetry.js';
+import { SCOPE } from '../engine/tracing.js';
 import type { Pipeline, StepRun, StepVia } from './Pipeline.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
 import { AllowedAction } from './actions/Action.js';
-
-const log = createLogger('agent-pipeline.pipeline');
 
 type StepArgs = [Runnable, unknown, PipelineExecutionContext, StepVia, boolean?];
 
@@ -39,6 +37,7 @@ export const pipelineTrace: TraceOptions<
   name() {
     return `pipeline ${this.id}`;
   },
+  scope: SCOPE,
   inherit() {
     return { 'ia.pipeline.id': this.id };
   },
@@ -51,6 +50,7 @@ export const pipelineTrace: TraceOptions<
  */
 export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
   name: (step) => `${stepKind(step)} ${stepName(step)}`,
+  scope: SCOPE,
   inherit: (step) => ({
     'ia.step.id': stepName(step),
     ...(step instanceof Agent ? { 'ia.agent.id': stepName(step) } : {}),
@@ -67,7 +67,7 @@ export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
     if ('error' in run) {
       markError(span, run.error);
       span.setAttribute('ia.step.error_handled', run.handledBy);
-      log.error(`paso "${name}" falló: ${run.error.message}`);
+      this.log.error(`paso "${name}" falló: ${run.error.message}`);
       return;
     }
     if (!(step instanceof Agent)) {
@@ -80,7 +80,7 @@ export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
       ...(output.summary ? { 'ia.agent.summary': truncate(output.summary) } : {}),
     });
     if (!run.exit) {
-      log.warn(`agente "${name}" terminó sin salida (${output.outcome})`);
+      this.log.warn(`agente "${name}" terminó sin salida (${output.outcome})`);
       return;
     }
     const { exit, payload } = run.exit;
@@ -92,7 +92,7 @@ export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
       ...(exit.report ? { 'ia.route.report': exit.report.id ?? 'report' } : {}),
       'ia.route.payload': truncate(payload),
     });
-    log.info(`agente "${name}" eligió "${exit.name}" → ${targets.join(' → ') || 'fin'}`, {
+    this.log.info(`agente "${name}" eligió "${exit.name}" → ${targets.join(' → ') || 'fin'}`, {
       'ia.agent.exit': exit.name,
     });
   },

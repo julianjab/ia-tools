@@ -51,10 +51,12 @@ completo para resolver `stop_reason`/tool_use/exit, así que expone observabilid
 
 ## Telemetría — spans GenAI, sólo por API
 
-`AnthropicProvider` instrumenta sólo con el decorator `@traced` de `agent-pipeline` (sin SDK:
-no-op) — no depende de `@opentelemetry/api` salvo en los tests — sobre `send` y `executeTool` (lo que registran vive en
-`tracing.ts`; el loop no toca spans), así cada span hereda el scope del evento (`ia.issue`,
-`ia.repo`, …) y cuelga del paso del agente sin plumbing:
+`AnthropicProvider` instrumenta sólo con `@ia-tools/telemetry` (sin SDK: no-op; no depende de
+`@opentelemetry/api` salvo en los tests): `@traced` sobre `send` y `executeTool` — lo que
+registran vive en `tracing.ts`, el loop no toca spans — y el campo
+`readonly log = createLogger('provider-anthropic')` para los logs y los errores que se escapan.
+Cada span y log hereda el scope del evento (`ia.issue`, `ia.repo`, …) y cuelga del paso del
+agente sin plumbing:
 
 - `chat <model>` por request a la API (kind CLIENT), con las convenciones GenAI:
   `gen_ai.request.model`, `gen_ai.usage.*_tokens` (incluidos los de cache),

@@ -4,11 +4,11 @@
  * cada log es un no-op sin costo. Es el patrón estándar para librerías: la app decide si exporta,
  * a dónde (OTLP → Collector, Grafana, Datadog) y con qué sampling.
  *
- * Todo lo que corre por causa de UN evento cuelga de UNA traza (`Engine.dispatch` abre la raíz),
- * y cada span y log lleva el scope del evento como atributos `ia.<clave>` (`ia.projectId`,
- * `ia.repo`, `ia.issue`, …) — así se filtra por cualquiera en el backend sin que cada paso tenga
- * que acordarse de etiquetar. El scope viaja en el `Context` de OTel (una clave propia, no
- * baggage: el baggage se propaga en los headers HTTP salientes y le mandaría el issue a terceros).
+ * Los atributos heredados (`withInheritedAttributes`, el `inherit` de `@traced`) llegan a cada
+ * span y log creado debajo — en cualquier paquete — como `ia.<clave>` (`ia.projectId`, `ia.repo`,
+ * `ia.issue`, …), así se filtra por cualquiera en el backend sin que cada paso tenga que acordarse
+ * de etiquetar. Viajan en el `Context` de OTel (una clave propia, no baggage: el baggage se
+ * propaga en los headers HTTP salientes y le mandaría el issue a terceros).
  *
  * El código instrumentado no toca spans: declara la traza con `@traced` (abre un span) o
  * `@tagged` (le suma al span activo) sobre el método, y lo que se registra vive en un
@@ -25,8 +25,10 @@ import {
   createContextKey,
   trace,
 } from '@opentelemetry/api';
+import type { Logger } from './logging.js';
 
-export const INSTRUMENTATION_SCOPE = '@ia-tools/agent-pipeline';
+/** El instrumentation scope por defecto — cada paquete debería pasar el suyo (`scope`). */
+export const INSTRUMENTATION_SCOPE = '@ia-tools/telemetry';
 
 const tracer = trace.getTracer(INSTRUMENTATION_SCOPE);
 const SCOPE_KEY = createContextKey('ia-tools.scope-attributes');
@@ -156,9 +158,29 @@ export interface TraceOptions<This, Args extends unknown[], R> extends TagOption
   scope?: string;
 }
 
+/** Errores ya logueados por un `@traced` de más adentro: un error sube por varios métodos
+ *  trazados (paso → pipeline → evento) y se loguea una sola vez, en el más profundo. */
+const loggedErrors = new WeakSet<object>();
+
+/** Si la instancia tiene un campo `log` (un `Logger`), el error que se escapa del método queda
+ *  logueado — dentro del span, así que correlacionado con él. */
+function logEscapedError(instance: unknown, spanName: string, err: unknown): void {
+  const log = (instance as { log?: Logger } | undefined)?.log;
+  if (typeof log?.error !== 'function') return;
+  if (typeof err === 'object' && err !== null) {
+    if (loggedErrors.has(err)) return;
+    loggedErrors.add(err);
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  log.error(`${spanName} falló: ${message}`, {
+    'exception.type': err instanceof Error ? err.name : typeof err,
+  });
+}
+
 /**
  * `@traced(opciones)`: el método corre dentro de su propio span (hijo del activo), con los
- * atributos heredados. Si tira, el span queda en ERROR y el error se re-lanza tal cual.
+ * atributos heredados. Si tira, el span queda en ERROR y el error se re-lanza tal cual — y si la
+ * instancia tiene un campo `log`, además se loguea (una sola vez aunque suba por varios).
  */
 export function traced<This, Args extends unknown[], R>(
   options: TraceOptions<This, Args, R> = {},
@@ -176,7 +198,13 @@ export function traced<This, Args extends unknown[], R>(
           name,
           options.attributes?.apply(this, args) ?? {},
           async (span) => {
-            const result = await method.apply(this, args);
+            let result: R;
+            try {
+              result = await method.apply(this, args);
+            } catch (err) {
+              logEscapedError(this, name, err);
+              throw err;
+            }
             options.onResult?.call(this, span, result, ...args);
             return result;
           },

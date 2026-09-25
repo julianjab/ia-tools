@@ -2,6 +2,7 @@ packages:
   - plugins/slack-bridge
   - packages/agent-pipeline
   - packages/provider-anthropic
+  - packages/telemetry
   # auth/, webhook/, api/, tools/ — cuatro paquetes propios dentro de una sola carpeta github/,
   # en vez de carpetas por-funcionalidad dentro de un solo paquete.
   - packages/github/*

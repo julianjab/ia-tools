@@ -1,11 +1,11 @@
-import {
-  type McpServerRef,
-  type Provider,
-  type ProviderRunContext,
-  type ProviderRunOutput,
-  type Tool,
-  traced,
+import type {
+  McpServerRef,
+  Provider,
+  ProviderRunContext,
+  ProviderRunOutput,
+  Tool,
 } from '@ia-tools/agent-pipeline';
+import { createLogger, traced } from '@ia-tools/telemetry';
 import {
   AnthropicClient,
   type AnthropicClientOptions,
@@ -309,6 +309,7 @@ function needsSubmit(terminalTools: Tool[]): boolean {
  */
 export class AnthropicProvider implements Provider {
   readonly id: string;
+  readonly log = createLogger('provider-anthropic');
   private readonly client: AnthropicClient;
 
   constructor(private readonly options: AnthropicProviderOptions) {

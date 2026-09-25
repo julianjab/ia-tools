@@ -1,3 +1,4 @@
+import { createLogger, traced } from '@ia-tools/telemetry';
 import { Agent, type AgentRunResult } from '../agent/Agent.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
@@ -11,7 +12,6 @@ import {
   routeTargets,
   submitSchemaFor,
 } from '../routing/ExitRoutes.js';
-import { traced } from '../telemetry/telemetry.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
 import { pipelineTrace, stepTrace } from './tracing.js';
 
@@ -60,6 +60,7 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
  * que no existen, ciclos entre agentes, claves repetidas en un `submit_*`.
  */
 export class Pipeline extends Conditional {
+  readonly log = createLogger('agent-pipeline.pipeline');
   readonly id: string;
   readonly on: string[];
   readonly scope?: Record<string, unknown>;

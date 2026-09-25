@@ -3,22 +3,14 @@
  * el loop de tools no mezcla spans con la lógica. Convenciones GenAI de OpenTelemetry (`gen_ai.*`),
  * las que Datadog/Grafana ya saben leer.
  */
-import {
-  SpanKind,
-  type Tool,
-  type TraceOptions,
-  createLogger,
-  markError,
-  truncate,
-} from '@ia-tools/agent-pipeline';
+import type { Tool } from '@ia-tools/agent-pipeline';
+import { SpanKind, type TraceOptions, markError, truncate } from '@ia-tools/telemetry';
 import type {
   AnthropicContentBlock,
   AnthropicMessagesResponse,
   AnthropicSendOptions,
 } from './AnthropicClient.js';
 import type { AnthropicProvider, ChatRequest, ToolResultBlock } from './AnthropicProvider.js';
-
-const log = createLogger('provider-anthropic');
 
 const scope = '@ia-tools/provider-anthropic';
 
@@ -66,7 +58,7 @@ export const chatTrace: TraceOptions<
           'ia.mcp.server': block.server_name ?? '',
           'ia.tool.input': truncate(block.input),
         });
-        log.info(`tool MCP "${block.server_name}.${block.name}"`, {
+        this.log.info(`tool MCP "${block.server_name}.${block.name}"`, {
           'gen_ai.tool.name': block.name ?? '',
           'ia.tool.input': truncate(block.input, 500),
         });
@@ -99,13 +91,13 @@ export const toolTrace: TraceOptions<
   onResult(span, result, block) {
     const name = { 'gen_ai.tool.name': block.name ?? '' };
     span.setAttribute('ia.tool.result', truncate(result.content));
-    log.info(`tool "${block.name}"`, {
+    this.log.info(`tool "${block.name}"`, {
       ...name,
       'ia.tool.input': truncate(block.input, 500),
     });
     if (result.is_error) {
       markError(span, result.content);
-      log.warn(`tool "${block.name}" devolvió error: ${truncate(result.content, 500)}`, name);
+      this.log.warn(`tool "${block.name}" devolvió error: ${truncate(result.content, 500)}`, name);
     }
   },
 };

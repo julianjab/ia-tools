@@ -10,10 +10,10 @@ Es **contrato puro, sin I/O**: interfaces y clases (`DomainEvent`, `EventBus`, `
 `Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`, `Provider`,
 `ProviderRegistry`, `ToolRegistry`, `SchemaTool`, `Action`, `Project`, la cascada de rutas). Las
 dependencias runtime son `zod` — la usan `SchemaTool`, `Action`, el `input` de `Agent` y los
-schemas de `submit_*`; es validación pura en memoria — y las APIs de OpenTelemetry
-(`@opentelemetry/api`, `@opentelemetry/api-logs`; ver "Telemetría" abajo), que sin un SDK
-registrado son no-ops sin I/O. Ninguna rompe la regla de abajo. No sumes otra sin una razón
-igual de fuerte — y nunca un SDK de OTel: eso lo elige la app.
+schemas de `submit_*`; es validación pura en memoria — y `@ia-tools/telemetry` (trazas y logs
+por las APIs de OpenTelemetry; ver "Telemetría" abajo), que sin un SDK registrado es no-op sin
+I/O. Ninguna rompe la regla de abajo. No sumes otra sin una razón igual de fuerte — y nunca un
+SDK de OTel: eso lo elige la app.
 
 La regla NO es "nada que mencione un LLM" — `Agent` sabe
 que existe un `prompt`, `systemPrompts`, sus salidas; eso es dominio, no infra, porque es
@@ -55,11 +55,7 @@ src/
 ├── engine/
 │   ├── Engine.ts, PipelineSource.ts, Project.ts
 │   ├── tracing.ts           qué deja el Engine en la traza (opciones de @traced/@tagged)
-│   └── tests/
-├── telemetry/
-│   ├── telemetry.ts         @traced, @tagged, atributos heredados (OpenTelemetry por API)
-│   ├── logging.ts           createLogger + sinks (otelSink, consoleSink, los que arme la app)
-│   └── tests/
+│   └── tests/               … + tracing.test.ts (la forma de la traza de un evento)
 ├── index.ts
 └── tests/                index.test.ts
 ```
@@ -209,44 +205,31 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
 `Pipeline` valida todo el cableado en su constructor llamando a `resolveRoutes` sin el nivel
 proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
 
-## Telemetría — `telemetry/telemetry.ts`, OpenTelemetry sólo por API
+## Telemetría — con `@ia-tools/telemetry`
 
-Todo lo que corre por causa de UN evento cuelga de UNA traza: `Engine.dispatch` abre el span
-`event <type>` (raíz, o hijo si lo publicó un paso de otra pipeline), `Pipeline.execute` abre
-`pipeline <id>` y `runDueStep` abre `agent <id>` / `action <id>` por cada paso — los destinos de
-una salida cuelgan del agente que la eligió. Reglas que no son obvias al leer el código:
+Los decorators y el logger viven en `@ia-tools/telemetry` (ver su CLAUDE.md); acá sólo se
+declara qué deja este paquete en la traza. Todo lo que corre por causa de UN evento cuelga de
+UNA traza: `Engine.dispatch` abre el span `event <type>` (raíz, o hijo si lo publicó un paso de
+otra pipeline), `Pipeline.execute` abre `pipeline <id>` y `runDueStep` abre `agent <id>` /
+`action <id>` por cada paso — los destinos de una salida cuelgan del agente que la eligió.
+Reglas que no son obvias al leer el código:
 
-- **La traza se declara sobre el método, no adentro.** `@traced(opciones)` corre el método en
-  su propio span; `@tagged(opciones)` le suma atributos/eventos al span activo sin abrir otro.
-  Las opciones (nombre, atributos heredados, qué registrar del resultado) viven en el
-  `tracing.ts` de cada módulo — el cuerpo del método no importa nada de OTel. `telemetry.ts` es
-  el ÚNICO archivo que importa `@opentelemetry/*`: re-exporta los tipos (`Attributes`, `Span`,
-  `SpanKind`) y otro paquete instrumenta pasando su `scope`, no un `Tracer`. Nada se inyecta.
-  (La carpeta `telemetry/` es la única que importa `@opentelemetry/*`.)
-- **Logs compuestos, como en ia-flow pero sin `setLoggerFactory`.** Cada módulo hace
-  `const log = createLogger('<scope>')`; la app elige los destinos una vez con
-  `setLogSinks([consoleSink(), otelSink(), miSink])` (o `addLogSink`). Los sinks se resuelven
-  al EMITIR, así que un logger creado a nivel de módulo, antes del boot, igual los sigue — no
-  hace falta la cola de rebind de ia-flow. Default: sólo `otelSink()` (no-op sin SDK), para que
-  una librería no escriba nada sola. Cada `LogRecord` trae los atributos heredados y el
-  `traceId`/`spanId` activos. Un sink con I/O (archivo rotativo, pino, un POST) lo arma la app:
-  es una función `(record) => void`, y si tira se ignora sin afectar a los demás. Si algo que la
-  traza necesita sólo se conoce adentro del método, se devuelve en su resultado (ej. `StepRun`:
-  la salida elegida, o el error que cubrió un `onError`) en vez de tocar el span desde el cuerpo.
-- **Decorators legacy** (`experimentalDecorators` en `tsconfig.base.json`), no los TC39: vitest
-  4 transforma con oxc, que todavía no soporta los estándar.
-- **El scope del evento se hereda, no se repite.** `event.scope` → atributos `ia.<clave>`
-  (`ia.projectId`, `ia.repo`, `ia.issue`, …) guardados en el `Context` de OTel con una clave
-  propia; `@traced`, `withSpan` y cada `Logger` los suman a cada span y log creado debajo, también en otros
-  paquetes (el provider los recibe sin plumbing). NO va en baggage: el baggage se propaga en los
-  headers HTTP salientes y le mandaría el issue a GitHub/Anthropic.
+- **La traza se declara sobre el método, no adentro.** `@traced`/`@tagged` sobre el método; qué
+  se registra vive en `engine/tracing.ts` y `pipeline/tracing.ts` (con `scope: SCOPE`). Si algo
+  que la traza necesita sólo se conoce adentro del método, se devuelve en su resultado (ej.
+  `StepRun`: la salida elegida, o el error que cubrió un `onError`) en vez de tocar el span.
+- **Cada clase que loguea tiene su campo `log`** (`readonly log = createLogger('agent-pipeline.engine')`
+  en `Engine`, igual en `Pipeline`). Los `onResult` de los `tracing.ts` loguean con `this.log`, y
+  `@traced` lo usa para loguear solo un error que se escapa del método.
+- **El scope del evento se hereda, no se repite.** El `inherit` de `dispatchTrace` pasa
+  `event.scope` a atributos `ia.<clave>` (`ia.projectId`, `ia.repo`, `ia.issue`, …) que llegan a
+  cada span y log de abajo, también en otros paquetes (el provider los recibe sin plumbing).
 - **"No pasó nada" también deja traza.** Cada pipeline que escucha el tipo del evento deja un
   span event `pipeline.match` con `ia.pipeline.skip_reason` (`Pipeline.explainMismatch`), y un
   evento que no dispara nada igual abre su span.
 - **Un error manejado igual se ve.** Un paso que falla y lo cubre un `onError` queda en ERROR con
   `ia.step.error_handled`; el `onError` corre como hijo con `ia.step.via: onError`.
-- **Sin SDK, no-op.** La app (el runner, un servidor) registra el SDK y el exporter (OTLP); los
-  tests usan el SDK en memoria (`devDependencies`), ver `telemetry/tests/`.
+- **Tests con el SDK en memoria** (`devDependencies`): `engine/tests/tracing.test.ts`.
 
 ## Antes de tocar código
 

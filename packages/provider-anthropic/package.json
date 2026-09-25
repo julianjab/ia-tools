@@ -20,7 +20,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ia-tools/agent-pipeline": "workspace:*"
+    "@ia-tools/agent-pipeline": "workspace:*",
+    "@ia-tools/telemetry": "workspace:*"
   },
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0",

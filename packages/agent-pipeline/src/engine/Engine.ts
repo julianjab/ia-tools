@@ -1,7 +1,7 @@
+import { createLogger, tagged, traced } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
-import { tagged, traced } from '../telemetry/telemetry.js';
 import type { PipelineSource } from './PipelineSource.js';
 import { dispatchTrace, planTag } from './tracing.js';
 
@@ -40,6 +40,7 @@ export interface DispatchPlan {
  * y en qué Agents registra. Esto es el harness; el dominio lo trae quien lo usa.
  */
 export class Engine {
+  readonly log = createLogger('agent-pipeline.engine');
   private readonly bus: EventBus;
   private readonly sources: PipelineSource[];
   readonly maxEventDepth: number;
