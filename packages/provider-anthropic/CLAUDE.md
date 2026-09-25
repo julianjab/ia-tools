@@ -47,6 +47,21 @@ completo para resolver `stop_reason`/tool_use/exit, así que expone observabilid
 (`onToolCall`/`onToolResult`) pero no un `onDelta` propio. Un caller que quiera texto en vivo
 (un chat) usa `AnthropicClient` directo — ver `README.md` y `examples/apps/chat.ts`.
 
+## Telemetría — spans GenAI, sólo por API
+
+`AnthropicProvider` instrumenta con `@opentelemetry/api` (sin SDK: no-op) y los helpers de
+`agent-pipeline` (`withSpan`, `emitLog`), así cada span hereda el scope del evento (`ia.issue`,
+`ia.repo`, …) y cuelga del paso del agente sin plumbing:
+
+- `chat <model>` por request a la API (kind CLIENT), con las convenciones GenAI:
+  `gen_ai.request.model`, `gen_ai.usage.*_tokens` (incluidos los de cache),
+  `gen_ai.response.finish_reasons`. Un reintento por `max_tokens` es otro span.
+- Lo que el modelo hizo server-side (MCP remoto: `mcp_tool_use`/`mcp_tool_result`) y su texto van
+  como EVENTOS de ese span — no corren acá, así que no tienen duración propia que medir.
+- `execute_tool <name>` por tool local, en ERROR si devolvió `is_error` (el loop sigue igual).
+
+`onToolCall`/`onToolResult` siguen existiendo para un caller sin OTel (ej. imprimir en consola).
+
 ## Ciclo de dependencias con `agent-pipeline` — por qué los examples NO viven acá ni ahí
 
 Este paquete depende de `@ia-tools/agent-pipeline` (implementa su `Provider`). Si

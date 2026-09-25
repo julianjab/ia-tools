@@ -11,7 +11,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
@@ -20,9 +22,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ia-tools/agent-pipeline": "workspace:*"
+    "@ia-tools/agent-pipeline": "workspace:*",
+    "@opentelemetry/api": "^1.9.0"
   },
   "devDependencies": {
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.4"

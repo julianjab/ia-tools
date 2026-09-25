@@ -1,10 +1,15 @@
-import type {
-  McpServerRef,
-  Provider,
-  ProviderRunContext,
-  ProviderRunOutput,
-  Tool,
+import {
+  type McpServerRef,
+  type Provider,
+  type ProviderRunContext,
+  type ProviderRunOutput,
+  type Tool,
+  emitLog,
+  markError,
+  truncate,
+  withSpan,
 } from '@ia-tools/agent-pipeline';
+import { type Span, SpanKind, trace } from '@opentelemetry/api';
 import {
   AnthropicClient,
   type AnthropicClientOptions,
@@ -66,6 +71,51 @@ export interface AnthropicAgentProviderConfig {
 }
 
 export type AnthropicMessage = { role: 'user' | 'assistant'; content: unknown };
+
+const tracer = trace.getTracer('@ia-tools/provider-anthropic');
+
+/** Uso de tokens y lo que el modelo hizo server-side (MCP) en el span del request — convenciones
+ *  GenAI de OpenTelemetry (`gen_ai.*`), las que Datadog/Grafana ya saben leer. */
+function recordResponse(span: Span, data: AnthropicMessagesResponse): void {
+  const usage = (data.usage ?? {}) as Record<string, unknown>;
+  const tokens = (key: string) =>
+    typeof usage[key] === 'number' ? (usage[key] as number) : undefined;
+  const attributes: Record<string, number | string[]> = {
+    'gen_ai.response.finish_reasons': [data.stop_reason ?? 'null'],
+  };
+  for (const [key, attribute] of [
+    ['input_tokens', 'gen_ai.usage.input_tokens'],
+    ['output_tokens', 'gen_ai.usage.output_tokens'],
+    ['cache_read_input_tokens', 'gen_ai.usage.cache_read_input_tokens'],
+    ['cache_creation_input_tokens', 'gen_ai.usage.cache_creation_input_tokens'],
+  ] as const) {
+    const value = tokens(key);
+    if (value !== undefined) attributes[attribute] = value;
+  }
+  span.setAttributes(attributes);
+
+  for (const block of data.content) {
+    if (block.type === 'mcp_tool_use') {
+      span.addEvent('mcp_tool_use', {
+        'gen_ai.tool.name': block.name ?? '',
+        'ia.mcp.server': block.server_name ?? '',
+        'ia.tool.input': truncate(block.input),
+      });
+      emitLog('info', `tool MCP "${block.server_name}.${block.name}"`, {
+        'gen_ai.tool.name': block.name ?? '',
+        'ia.tool.input': truncate(block.input, 500),
+      });
+    } else if (block.type === 'mcp_tool_result') {
+      const failed = (block as { is_error?: boolean }).is_error === true;
+      span.addEvent('mcp_tool_result', {
+        'ia.tool.is_error': failed,
+        'ia.tool.result': truncate((block as { content?: unknown }).content),
+      });
+    } else if (block.type === 'text' && block.text) {
+      span.addEvent('assistant.text', { 'ia.text': truncate(block.text) });
+    }
+  }
+}
 
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_MAX_TOOL_ROUNDS = 8;
@@ -196,28 +246,54 @@ async function runToolUseBlocks(
   onToolResult: AnthropicProviderOptions['onToolResult'],
 ): Promise<unknown[]> {
   return Promise.all(
-    toolUseBlocks.map(async (block) => {
-      onToolCall?.(block.name ?? '', block.input, block.id);
-      const tool = tools.find((t) => t.name === block.name);
-      if (tool == null) {
-        const content = `Error: no existe una tool registrada con nombre "${block.name}"`;
-        onToolResult?.(block.name ?? '', content, block.id);
-        return { type: 'tool_result', tool_use_id: block.id, content, is_error: true };
-      }
-      // Un `handler` que tira (input inválido, la API de negocio de abajo falla) no puede
-      // tumbar el loop entero — el modelo tiene que verlo como un `tool_result` con
-      // `is_error: true` para poder corregirse, en vez de que el run entero termine en una
-      // excepción no manejada.
-      try {
-        const result = String(await tool.handler(block.input));
-        onToolResult?.(block.name ?? '', result, block.id);
-        return { type: 'tool_result', tool_use_id: block.id, content: result };
-      } catch (err) {
-        const content = `Error: ${err instanceof Error ? err.message : String(err)}`;
-        onToolResult?.(block.name ?? '', content, block.id);
-        return { type: 'tool_result', tool_use_id: block.id, content, is_error: true };
-      }
-    }),
+    toolUseBlocks.map((block) =>
+      withSpan(
+        `execute_tool ${block.name}`,
+        {
+          'gen_ai.operation.name': 'execute_tool',
+          'gen_ai.tool.name': block.name ?? '',
+          'gen_ai.tool.call.id': block.id ?? '',
+          'ia.tool.input': truncate(block.input),
+        },
+        async (span) => {
+          emitLog('info', `tool "${block.name}"`, {
+            'gen_ai.tool.name': block.name ?? '',
+            'ia.tool.input': truncate(block.input, 500),
+          });
+          const finish = (content: string, isError: boolean) => {
+            onToolResult?.(block.name ?? '', content, block.id);
+            span.setAttribute('ia.tool.result', truncate(content));
+            if (isError) {
+              markError(span, content);
+              emitLog('warn', `tool "${block.name}" devolvió error: ${truncate(content, 500)}`, {
+                'gen_ai.tool.name': block.name ?? '',
+              });
+            }
+            return {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content,
+              ...(isError ? { is_error: true } : {}),
+            };
+          };
+          onToolCall?.(block.name ?? '', block.input, block.id);
+          const tool = tools.find((t) => t.name === block.name);
+          if (tool == null) {
+            return finish(`Error: no existe una tool registrada con nombre "${block.name}"`, true);
+          }
+          // Un `handler` que tira (input inválido, la API de negocio de abajo falla) no puede
+          // tumbar el loop entero — el modelo tiene que verlo como un `tool_result` con
+          // `is_error: true` para poder corregirse, en vez de que el run entero termine en una
+          // excepción no manejada.
+          try {
+            return finish(String(await tool.handler(block.input)), false);
+          } catch (err) {
+            return finish(`Error: ${err instanceof Error ? err.message : String(err)}`, true);
+          }
+        },
+        { tracer },
+      ),
+    ),
   );
 }
 
@@ -306,7 +382,27 @@ export class AnthropicProvider implements Provider {
         if (thinking) body.thinking = thinking;
         if (apiMcpServers) body.mcp_servers = apiMcpServers;
         if (outputConfig) body.output_config = outputConfig;
-        return this.client.send(body, { stream: useStream, extraBetas, maxRetries });
+        return withSpan(
+          `chat ${model}`,
+          {
+            'gen_ai.operation.name': 'chat',
+            'gen_ai.provider.name': 'anthropic',
+            'gen_ai.request.model': model,
+            'gen_ai.request.max_tokens': effectiveMaxTokens,
+            'ia.round': round,
+            'ia.messages': messages.length,
+          },
+          async (span) => {
+            const data = await this.client.send(body, {
+              stream: useStream,
+              extraBetas,
+              maxRetries,
+            });
+            recordResponse(span, data);
+            return data;
+          },
+          { kind: SpanKind.CLIENT, tracer },
+        );
       };
 
       let data = await sendOnce(maxTokens);
