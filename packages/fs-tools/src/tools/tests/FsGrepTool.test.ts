@@ -72,4 +72,10 @@ describe('fs_grep', () => {
 
     expect(matches).toEqual([{ file: 'small.ts', line: 1, text: 'needle' }]);
   });
+
+  it('rechaza un pattern vacío', async () => {
+    const tool = new FsGrepTool(baseDir);
+
+    await expect(tool.handler({ pattern: '' })).rejects.toThrow(/fs_grep: input inválido/);
+  });
 });

@@ -42,4 +42,10 @@ describe('fs_list', () => {
     const tool = new FsListTool(baseDir);
     await expect(tool.handler({ path: '..' })).rejects.toThrow('fuera de baseDir');
   });
+
+  it('rechaza un path que no es string', async () => {
+    const tool = new FsListTool(baseDir);
+
+    await expect(tool.handler({ path: 1 })).rejects.toThrow(/fs_list: input inválido/);
+  });
 });

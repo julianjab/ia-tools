@@ -31,4 +31,12 @@ describe('fs_read', () => {
     const tool = new FsReadTool(baseDir);
     await expect(tool.handler({ path: 'nope.txt' })).rejects.toThrow();
   });
+
+  it('rechaza claves que el schema no declara', async () => {
+    const tool = new FsReadTool(baseDir);
+
+    await expect(tool.handler({ path: 'a.txt', encoding: 'latin1' })).rejects.toThrow(
+      /Unrecognized key: "encoding"/,
+    );
+  });
 });

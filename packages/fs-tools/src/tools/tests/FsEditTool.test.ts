@@ -57,4 +57,23 @@ describe('fs_edit', () => {
       tool.handler({ path: '../evil.ts', oldString: 'a', newString: 'b' }),
     ).rejects.toThrow('fuera de baseDir');
   });
+
+  it('rechaza el input sin newString y no toca el archivo', async () => {
+    await writeFile(join(baseDir, 'a.ts'), 'const x = 1;\n', 'utf-8');
+    const tool = new FsEditTool(baseDir);
+
+    await expect(tool.handler({ path: 'a.ts', oldString: 'const x = 1;' })).rejects.toThrow(
+      /fs_edit: input inválido[\s\S]*→ at newString/,
+    );
+    expect(await readFile(join(baseDir, 'a.ts'), 'utf-8')).toBe('const x = 1;\n');
+  });
+
+  it('rechaza un oldString vacío', async () => {
+    await writeFile(join(baseDir, 'a.ts'), 'x', 'utf-8');
+    const tool = new FsEditTool(baseDir);
+
+    await expect(tool.handler({ path: 'a.ts', oldString: '', newString: 'y' })).rejects.toThrow(
+      /input inválido[\s\S]*→ at oldString/,
+    );
+  });
 });

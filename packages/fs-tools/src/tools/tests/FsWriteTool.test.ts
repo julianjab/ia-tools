@@ -46,4 +46,13 @@ describe('fs_write', () => {
       'fuera de baseDir',
     );
   });
+
+  it('rechaza el input sin content y no crea el archivo', async () => {
+    const tool = new FsWriteTool(baseDir);
+
+    await expect(tool.handler({ path: 'a.txt' })).rejects.toThrow(
+      /fs_write: input inválido[\s\S]*→ at content/,
+    );
+    await expect(readFile(join(baseDir, 'a.txt'), 'utf-8')).rejects.toThrow(/ENOENT/);
+  });
 });
