@@ -22,7 +22,14 @@ import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import { Pipeline } from '../../pipeline/Pipeline.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
-import { scopeAttributes, truncate, withInheritedAttributes, withSpan } from '../telemetry.js';
+import {
+  scopeAttributes,
+  tagged,
+  traced,
+  truncate,
+  withInheritedAttributes,
+  withSpan,
+} from '../telemetry.js';
 
 const spans = new InMemorySpanExporter();
 const logRecords = new InMemoryLogRecordExporter();
@@ -256,5 +263,64 @@ describe('telemetry helpers', () => {
     ).rejects.toThrow('no');
 
     expect(byName('boom').status).toEqual({ code: SpanStatusCode.ERROR, message: 'no' });
+  });
+});
+
+describe('@traced / @tagged', () => {
+  class Worker {
+    readonly id = 'w1';
+
+    @traced<Worker, [number], number>({
+      name(n) {
+        return `work ${this.id} ${n}`;
+      },
+      inherit: (n) => ({ 'ia.n': n }),
+      attributes: () => ({ 'ia.phase': 'start' }),
+      onResult: (span, result) => span.setAttribute('ia.result', result),
+    })
+    async work(n: number): Promise<number> {
+      return this.inner(n * 2);
+    }
+
+    @tagged<Worker, [number], number>({
+      attributes: (n) => ({ 'ia.inner.input': n }),
+      onResult: (span, result) => span.addEvent('inner.done', { 'ia.inner.result': result }),
+    })
+    private async inner(n: number): Promise<number> {
+      await withSpan('child', {}, async () => null);
+      return n + 1;
+    }
+
+    @traced()
+    async fail(): Promise<void> {
+      throw new Error('falló');
+    }
+  }
+
+  it('opens a span named from the arguments and `this`, and records the result', async () => {
+    expect(await new Worker().work(3)).toBe(7);
+
+    const span = byName('work w1 3');
+    expect(span.attributes).toMatchObject({ 'ia.n': 3, 'ia.phase': 'start', 'ia.result': 7 });
+    // Lo heredado llega a los spans de adentro.
+    expect(byName('child').attributes['ia.n']).toBe(3);
+    expect(parentOf(byName('child'))).toBe(span.spanContext().spanId);
+  });
+
+  it('@tagged adds to the active span instead of opening one', async () => {
+    await new Worker().work(3);
+
+    const span = byName('work w1 3');
+    expect(span.attributes['ia.inner.input']).toBe(6);
+    expect(span.events.map((e) => [e.name, e.attributes])).toEqual([
+      ['inner.done', { 'ia.inner.result': 7 }],
+    ]);
+    expect(spans.getFinishedSpans().map((s) => s.name)).toEqual(['child', 'work w1 3']);
+  });
+
+  it('defaults the name to Class.method, marks the span and rethrows on failure', async () => {
+    await expect(new Worker().fail()).rejects.toThrow('falló');
+
+    expect(byName('Worker.fail').status).toEqual({ code: SpanStatusCode.ERROR, message: 'falló' });
   });
 });
