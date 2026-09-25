@@ -543,6 +543,48 @@ describe('AnthropicProvider.run', () => {
       expect(paused).toHaveBeenCalledTimes(2);
     });
 
+    it('maxPauseTurnRetries counts consecutive pauses: a tool round resets it', async () => {
+      // pausa, tool, pausa, tool, pausa, fin: 3 pausas en total, nunca 2 seguidas.
+      const script = ['pause', 'tool', 'pause', 'tool', 'pause', 'end'];
+      let calls = 0;
+      const fetchImpl = vi.fn(async () => {
+        const step = script[calls++];
+        if (step === 'pause') {
+          return jsonResponse({
+            content: [{ type: 'text', text: '…' }],
+            stop_reason: 'pause_turn',
+          });
+        }
+        if (step === 'tool') return toolUse();
+        return jsonResponse({
+          content: [{ type: 'text', text: 'listo' }],
+          stop_reason: 'end_turn',
+        });
+      });
+      const provider = providerWith(fetchImpl, { maxPauseTurnRetries: 1 });
+
+      expect(await provider.run(ctxFor({ tools: [noop] }))).toEqual({
+        outcome: 'success',
+        summary: 'listo',
+      });
+      expect(calls).toBe(6);
+    });
+
+    it('an agent thinking replaces a provider thinkingBudgetTokens, and vice versa', async () => {
+      const seen: unknown[] = [];
+      const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+        seen.push(JSON.parse(init.body as string).thinking);
+        return jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' });
+      });
+      const budgeted = providerWith(fetchImpl, { maxTokens: 8000, thinkingBudgetTokens: 4000 });
+      await budgeted.run(ctxFor({ providerConfig: { thinking: { type: 'adaptive' } } }));
+
+      const adaptive = providerWith(fetchImpl, { maxTokens: 8000, thinking: { type: 'adaptive' } });
+      await adaptive.run(ctxFor({ providerConfig: { thinkingBudgetTokens: 2000 } }));
+
+      expect(seen).toEqual([{ type: 'adaptive' }, { type: 'enabled', budget_tokens: 2000 }]);
+    });
+
     it('an agent thinking config replaces the provider one', async () => {
       const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
         expect(JSON.parse(init.body as string).thinking).toEqual({ type: 'adaptive' });
