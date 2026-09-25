@@ -37,4 +37,14 @@ describe('github_comment_issue', () => {
     ).rejects.toThrow('owner');
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it('rejects a missing body without posting a comment', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const tool = new CommentIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+
+    await expect(tool.handler({ owner: 'o', repo: 'r', number: 5 })).rejects.toThrow(
+      /github_comment_issue: input inválido[\s\S]*→ at body/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

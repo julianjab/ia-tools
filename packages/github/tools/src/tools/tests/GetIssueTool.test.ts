@@ -96,4 +96,14 @@ describe('github_get_issue', () => {
 
     await expect(tool.handler({ owner: 'o', repo: 'r', number: 999 })).rejects.toThrow('404');
   });
+
+  it('rejects a number sent as a string instead of coercing it', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const tool = new GetIssueTool(clientWith(fetchImpl as unknown as typeof fetch));
+
+    await expect(tool.handler({ owner: 'o', repo: 'r', number: '5' })).rejects.toThrow(
+      /github_get_issue: input inválido[\s\S]*→ at number/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

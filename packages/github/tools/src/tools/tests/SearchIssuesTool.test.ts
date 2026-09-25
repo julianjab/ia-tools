@@ -33,4 +33,12 @@ describe('github_search_issues', () => {
     expect(JSON.parse(result)).toHaveLength(1);
     expect(JSON.parse(JSON.parse(result)[0])).toMatchObject({ number: 1, title: 't1' });
   });
+
+  it('rejects a missing query instead of searching for "undefined"', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"items":[]}', { status: 200 }));
+    const tool = new SearchIssuesTool(clientWith(fetchImpl as unknown as typeof fetch));
+
+    await expect(tool.handler({})).rejects.toThrow(/github_search_issues: input inválido/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

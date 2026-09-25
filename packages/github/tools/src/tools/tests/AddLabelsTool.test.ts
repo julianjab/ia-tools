@@ -40,4 +40,14 @@ describe('github_add_labels', () => {
     ).rejects.toThrow('number');
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it('rejects an empty labels array without calling GitHub', async () => {
+    const fetchImpl = vi.fn(async () => new Response('[]', { status: 200 }));
+    const tool = new AddLabelsTool(clientWith(fetchImpl as unknown as typeof fetch));
+
+    await expect(tool.handler({ owner: 'o', repo: 'r', number: 5, labels: [] })).rejects.toThrow(
+      /→ at labels/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });
