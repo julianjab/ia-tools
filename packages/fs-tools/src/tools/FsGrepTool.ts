@@ -65,6 +65,12 @@ async function walk(
       await walk(join(dir, entry.name), baseDir, matches, regex, budget);
       continue;
     }
+    // Ni symlink ni directorio no alcanza para "es un archivo leíble" — un FIFO (`mkfifo`,
+    // armable con `bash_run`), un socket, o un device caen en esta rama igual. `stat` sobre un
+    // FIFO no bloquea (sólo lee metadata), pero `readFile` sí: se queda esperando a que algún
+    // proceso lo abra en escritura, para SIEMPRE — `MAX_WALK_MS` no ayuda, ese presupuesto sólo
+    // se chequea ENTRE archivos, nunca corta un `readFile` ya arrancado.
+    if (!entry.isFile()) continue;
     budget.filesScanned++;
     const absPath = join(dir, entry.name);
     let content: string;

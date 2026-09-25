@@ -104,7 +104,52 @@ function isDangerousGitTransport(argv: string[]): boolean {
   return argv.some((token) => token.startsWith('--upload-pack') || token.startsWith('--exec'));
 }
 
+/**
+ * Subcomandos de git que corren un comando arbitrario que LES PASÁS COMO ARGUMENTO — categoría
+ * aparte de `--upload-pack`/`--exec` (que son flags de transporte): `rebase -x`/`--exec`,
+ * `bisect run`, `submodule foreach`, y `filter-branch --tree-filter`/`--index-filter` ejecutan
+ * ese comando directo, sin intermediar ningún transporte. `isDangerousGitTransport` ya cubre la
+ * forma larga `--exec`, pero no la corta `-x` (alias de `rebase --exec`) ni los otros tres.
+ */
+function isDangerousGitExecSubcommand(argv: string[]): boolean {
+  if (argv[0] !== 'git') return false;
+  if (argv.includes('-x')) return true; // git rebase -x <cmd>
+  if (argv.includes('foreach')) return true; // git submodule foreach <cmd>
+  const bisectIndex = argv.indexOf('bisect');
+  if (bisectIndex !== -1 && argv[bisectIndex + 1] === 'run') return true;
+  if (argv.some((t) => t.startsWith('--tree-filter') || t.startsWith('--index-filter'))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * `git push` (o `git push origin`, o `git push origin HEAD`) sin nombrar una branch destino
+ * explícita empuja la que esté CHECKOUTEADA en ese momento — algo que `isDangerousGitPush` no
+ * puede ver desde un único `argv` aislado (no sabe qué branch está activa; `bash_run` no
+ * mantiene estado entre llamadas). En vez de intentar rastrear eso, se exige que un push SIEMPRE
+ * nombre su destino explícito — que además es la forma más clara de todos modos.
+ */
+function isImplicitGitPush(argv: string[]): boolean {
+  if (argv[0] !== 'git') return false;
+  const pushIndex = argv.indexOf('push');
+  if (pushIndex === -1) return false;
+  const rest = argv.slice(pushIndex + 1).filter((token) => !token.startsWith('-'));
+  if (rest.length === 0) return true; // "git push" a secas
+  if (rest.length === 1) return true; // sólo el remoto, sin refspec ("git push origin")
+  if (rest.length === 2 && rest[1] === 'HEAD') return true; // "git push origin HEAD"
+  return false;
+}
+
 const FILE_OP_COMMANDS = new Set(['cp', 'mv', 'ln', 'chmod', 'chown', 'install', 'rsync']);
+
+/** Separa por `/` Y por `=` — sin el segundo, `cp x --target-directory=.git/hooks` esquiva el
+ *  chequeo: el segmento resultante de partir sólo por `/` es `--target-directory=.git`, que no
+ *  es igual a `.git`. Partiendo también por `=` (para `--flag=valor`), el segmento queda `.git`
+ *  limpio. */
+function containsGitSegment(token: string): boolean {
+  return token.split(/[/=]/).some((segment) => segment.toLowerCase() === '.git');
+}
 
 /**
  * `fs-tools` protege `.git` en `resolveSafePath`, pero `bash_run` es un camino COMPLETAMENTE
@@ -116,9 +161,7 @@ const FILE_OP_COMMANDS = new Set(['cp', 'mv', 'ln', 'chmod', 'chown', 'install',
  */
 function isDangerousFileOpOnGit(argv: string[]): boolean {
   if (!FILE_OP_COMMANDS.has(argv[0])) return false;
-  return argv
-    .slice(1)
-    .some((token) => token.split('/').some((segment) => segment.toLowerCase() === '.git'));
+  return argv.slice(1).some(containsGitSegment);
 }
 
 export function isDenied(argv: string[], policy: BashPolicy): string | undefined {
@@ -126,8 +169,12 @@ export function isDenied(argv: string[], policy: BashPolicy): string | undefined
   if (patternMatch) return patternMatch;
   if (isDangerousGitPush(argv))
     return 'git push (main/master, --delete/--all/--mirror, o refspec force)';
+  if (isImplicitGitPush(argv)) return 'git push sin nombrar la branch destino explícitamente';
   if (isDangerousGitTransport(argv))
     return 'git --upload-pack/--exec (ejecuta un helper arbitrario)';
+  if (isDangerousGitExecSubcommand(argv)) {
+    return 'git rebase -x / bisect run / submodule foreach / filter-branch --tree-filter (ejecuta un comando arbitrario)';
+  }
   if (isDangerousGitConfig(argv)) return 'git -c/config/--config-env (reconfigura git)';
   if (isDangerousFileOpOnGit(argv)) return `${argv[0]} apuntando a un segmento ".git"`;
   return undefined;

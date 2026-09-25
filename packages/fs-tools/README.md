@@ -56,6 +56,16 @@ el texto que manda el modelo, sólo aparece después de resolver el link). Mismo
 `issuePath` en `@ia-tools/github-tools` para `owner`/`repo`/`number`: los inputs de una tool son
 controlados por el modelo, nunca se confían tal cual.
 
+`fs_read`/`fs_grep` rechazan cualquier entrada que no sea un archivo regular (`stat().isFile()`)
+antes de leerla — un FIFO (`mkfifo`, armable vía `@ia-tools/shell-tools`) hace que `readFile` se
+quede esperando para siempre a que algo lo abra en escritura, y ningún timeout de `fs_grep` corta
+eso una vez que ya arrancó.
+
+**Esto no cubre todo el filesystem.** `fs-tools` es UN camino hacia los archivos — `bash_run`
+(`@ia-tools/shell-tools`) es otro, completamente aparte, y esa policy tiene sus propios chequeos
+para no escribir en `.git` vía `cp`/`mv`/`ln` (ver su README). Las dos capas se complementan; ni
+una sustituye a la otra, y ninguna de las dos se declara una lista cerrada de bypasses conocidos.
+
 ## Qué NO es este paquete
 
 No ejecuta comandos (`bash_run` vive en `@ia-tools/shell-tools`), no tiene memoria persistente

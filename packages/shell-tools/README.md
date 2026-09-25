@@ -105,7 +105,18 @@ caller ponga en `deny`, mismo criterio que la validación de `argv[0]` calificad
   `fs-tools` protege `.git` en `resolveSafePath`, pero `bash_run` es un camino totalmente aparte
   al filesystem: `cp payload .git/hooks/pre-commit` + `chmod +x` deja código que corre en el
   próximo `git commit`/`merge`/`checkout`, sin pasar por `fs-tools` en ningún momento. Case-
-  insensitive, mismo criterio que el chequeo de `.git` en `fs-tools`.
+  insensitive, mismo criterio que el chequeo de `.git` en `fs-tools`, y mira cada argumento
+  partido tanto por `/` como por `=` (`--target-directory=.git/hooks` también cae).
+- **`git rebase -x`/`bisect run`/`submodule foreach`/`filter-branch --tree-filter`** — cada uno
+  ejecuta el comando que le pases como argumento, sin pasar por ningún transporte (a diferencia
+  de `--upload-pack`/`--exec`, que sí son flags de transporte).
+- **`git push` sin nombrar la branch destino** — `git push`, `git push origin` o `git push
+  origin HEAD` empujan lo que esté checkouteado en ESE momento, algo que ningún chequeo sobre un
+  único `argv` puede ver (`bash_run` no rastrea qué branch quedó activa entre llamadas). Se exige
+  nombrar el destino siempre, en vez de intentar inferir el estado.
+
+`argv[0]` de estos chequeos ya llega en minúsculas (ver la normalización de `BashRunTool` más
+arriba), así que "Git push" o "CP" los activan igual que "git push"/"cp".
 
 `find` y `tar` NO tienen chequeo dedicado — se deniegan ENTEROS en `DEFAULT_DENY_PATTERNS` en
 vez de perseguir sus flags de ejecución (`-exec`/`-delete`, `--to-command`/`-I`) con un chequeo a
@@ -135,6 +146,13 @@ categoría completa.
 - `resolveSafePath`/`fs-tools` y esta policy son capas independientes: `bash_run` puede crear un
   symlink (`ln -s ~/.ssh k`) que después una tool de `fs-tools` seguiría si no filtrara
   symlinks — cada capa asume que la otra hace su parte, ninguna sustituye a la otra.
+- **Esta lista de chequeos dedicados no se declara completa ni final.** Es una lista de
+  bloqueo — por diseño, nunca termina de perseguir bypasses nuevos (otro subcomando de git que
+  ejecute un argumento, otro wrapper como `nice`/`timeout`, otro flag `--algo=<comando>` de
+  alguna herramienta). Cada ronda de esta sección se agregó porque alguien encontró un caso
+  concreto, no porque se haya barrido el espacio completo. Un caller con necesidades de
+  contención real no debería depender de esta lista como única defensa — ver el punto de
+  arriba sobre dónde vive la contención de verdad.
 
 ## Qué NO es este paquete
 
