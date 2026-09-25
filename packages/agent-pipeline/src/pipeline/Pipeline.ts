@@ -10,7 +10,18 @@ import {
   routeTargets,
   submitSchemaFor,
 } from '../routing/ExitRoutes.js';
+import {
+  emitLog,
+  markError,
+  truncate,
+  withInheritedAttributes,
+  withSpan,
+} from '../telemetry/telemetry.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
+
+/** Por qué corrió un paso — queda en su span (`ia.step.via`): `do` (en orden), `exit:<salida>`,
+ *  `report:<salida>`, `onError` u `onError.report`. */
+type StepVia = string;
 
 export interface PipelineProps extends ConditionalProps, ExitDefaults {
   id: string;
@@ -85,15 +96,22 @@ export class Pipeline extends Conditional {
   // de cada Agent tipado que lo consume — así que forzar el genérico por defecto acá rechazaría
   // cualquier evento creado con un payload propio (`createEvent<GithubIssuePayload>(...)`).
   matches(event: DomainEvent<any>): boolean {
-    if (!this.enabled) return false;
-    if (!this.on.includes(event.type)) return false;
-    if (!this.matchesScope(event)) return false;
-    return this.matchesConditions(event.payload);
+    return this.explainMismatch(event) === undefined;
   }
 
-  private matchesScope(event: DomainEvent<any>): boolean {
-    if (this.scope == null) return true;
-    return Object.entries(this.scope).every(([key, value]) => event.scope?.[key] === value);
+  /** Por qué esta pipeline NO corre para `event`, o `undefined` si matchea — lo que queda en la
+   *  traza del evento para cada regla que no corrió. */
+  explainMismatch(event: DomainEvent<any>): string | undefined {
+    if (!this.enabled) return 'deshabilitada';
+    if (!this.on.includes(event.type)) return `no escucha "${event.type}"`;
+    for (const [key, value] of Object.entries(this.scope ?? {})) {
+      if (event.scope?.[key] !== value) {
+        return `scope.${key}: esperaba ${JSON.stringify(value)}, vino ${JSON.stringify(event.scope?.[key]) ?? 'nada'}`;
+      }
+    }
+    if (this.matchesConditions(event.payload)) return undefined;
+    const failed = this.when.filter((condition) => !condition.evaluate(event.payload));
+    return `no cumple: ${failed.map((condition) => condition.describe(event.payload)).join('; ')}`;
   }
 
   /**
@@ -108,11 +126,15 @@ export class Pipeline extends Conditional {
       pipelineId: this.id,
       routesFor: (step) => (step instanceof Agent ? this.resolve(step, ctx.defaults) : undefined),
     };
-    for (const step of this.do) {
-      if (this.routedTargets.has(step)) continue;
-      await this.runStep(step, undefined, runCtx);
-    }
-    return runCtx.steps;
+    return withInheritedAttributes({ 'ia.pipeline.id': this.id }, () =>
+      withSpan(`pipeline ${this.id}`, {}, async () => {
+        for (const step of this.do) {
+          if (this.routedTargets.has(step)) continue;
+          await this.runStep(step, undefined, runCtx, 'do');
+        }
+        return runCtx.steps;
+      }),
+    );
   }
 
   /** `handleErrors: false` para los pasos que corren DENTRO de un `onError`: si fallara, por
@@ -121,35 +143,81 @@ export class Pipeline extends Conditional {
     step: Runnable,
     input: unknown,
     ctx: PipelineExecutionContext,
+    via: StepVia,
     handleErrors = true,
   ): Promise<void> {
-    if (!step.shouldRun(ctx)) return;
-    let out: unknown;
-    try {
-      out = await step.run(ctx, input);
-    } catch (err) {
-      const handling = handleErrors ? this.errorHandling(step, ctx) : null;
-      if (handling) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        if (step.id) ctx.steps[step.id] = { error: error.message };
-        await this.runErrorRoute(handling.report, handling.route, error, ctx);
-        return;
-      }
-      if (step.continueOnError) return;
-      throw err;
+    const name = step.id ?? step.constructor.name;
+    if (!step.shouldRun(ctx)) {
+      emitLog('debug', `paso "${name}" saltado: su \`when\` no se cumple`, { 'ia.step.id': name });
+      return;
     }
-    if (step.id) ctx.steps[step.id] = out;
-    if (!(step instanceof Agent)) return;
+    const kind = step instanceof Agent ? 'agent' : 'action';
+    await withSpan(
+      `${kind} ${name}`,
+      {
+        'ia.step.id': name,
+        'ia.step.kind': kind,
+        'ia.step.via': via,
+        ...(input === undefined ? {} : { 'ia.step.input': truncate(input) }),
+      },
+      async (span) => {
+        let out: unknown;
+        try {
+          out = await step.run(ctx, input);
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          const handling = handleErrors ? this.errorHandling(step, ctx) : null;
+          if (!handling && !step.continueOnError) throw err;
+          markError(span, error);
+          span.setAttribute('ia.step.error_handled', handling ? 'onError' : 'continueOnError');
+          emitLog('error', `paso "${name}" falló: ${error.message}`, { 'ia.step.id': name });
+          if (!handling) return;
+          if (step.id) ctx.steps[step.id] = { error: error.message };
+          await this.runErrorRoute(handling.report, handling.route, error, ctx);
+          return;
+        }
+        if (step.id) ctx.steps[step.id] = out;
+        if (!(step instanceof Agent)) {
+          if (out !== undefined) span.setAttribute('ia.step.output', truncate(out));
+          return;
+        }
 
-    const result = out as AgentRunResult;
-    if (result.exit === undefined) return;
-    const exit = this.resolve(step, ctx.defaults).exits.find((e) => e.name === result.exit);
-    if (!exit) return;
-    const payload = result.payload ?? {};
-    if (exit.report) await this.runStep(exit.report, payload.report, ctx);
-    for (const target of exit.targets) {
-      await this.runStep(target, target.id ? payload[target.id] : undefined, ctx);
-    }
+        const result = out as AgentRunResult;
+        span.setAttribute('ia.agent.outcome', result.output.outcome);
+        if (result.exit === undefined) {
+          emitLog('warn', `agente "${name}" terminó sin salida (${result.output.outcome})`, {
+            'ia.step.id': name,
+          });
+          return;
+        }
+        const exit = this.resolve(step, ctx.defaults).exits.find((e) => e.name === result.exit);
+        if (!exit) return;
+        const payload = result.payload ?? {};
+        const targets = exit.targets.map((target) => target.id ?? target.constructor.name);
+        span.setAttributes({ 'ia.agent.exit': exit.name, 'ia.agent.exit_origin': exit.origin });
+        span.addEvent('route', {
+          'ia.route.exit': exit.name,
+          'ia.route.targets': targets,
+          ...(exit.report ? { 'ia.route.report': exit.report.id ?? 'report' } : {}),
+          'ia.route.payload': truncate(payload),
+        });
+        emitLog(
+          'info',
+          `agente "${name}" eligió "${exit.name}" → ${targets.join(' → ') || 'fin'}`,
+          { 'ia.step.id': name, 'ia.agent.exit': exit.name },
+        );
+        if (exit.report)
+          await this.runStep(exit.report, payload.report, ctx, `report:${exit.name}`);
+        for (const target of exit.targets) {
+          await this.runStep(
+            target,
+            target.id ? payload[target.id] : undefined,
+            ctx,
+            `exit:${exit.name}`,
+          );
+        }
+      },
+    );
   }
 
   /** El `onError` que aplica a un paso, y el `report` con el que se anuncia. Un agente usa su
@@ -176,10 +244,10 @@ export class Pipeline extends Conditional {
     ctx: PipelineExecutionContext,
   ): Promise<void> {
     if (report && route.report) {
-      await this.runStep(report, route.report(error), ctx, false);
+      await this.runStep(report, route.report(error), ctx, 'onError.report', false);
     }
     for (const target of routeTargets(route.to)) {
-      await this.runStep(target, route.input?.(error), ctx, false);
+      await this.runStep(target, route.input?.(error), ctx, 'onError', false);
     }
   }
 

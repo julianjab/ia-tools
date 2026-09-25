@@ -65,3 +65,15 @@ export {
   routeTargets,
   submitSchemaFor,
 } from './routing/ExitRoutes.js';
+
+export type { LogLevel, SpanOptions } from './telemetry/telemetry.js';
+export {
+  INSTRUMENTATION_SCOPE,
+  emitLog,
+  inheritedAttributes,
+  markError,
+  scopeAttributes,
+  truncate,
+  withInheritedAttributes,
+  withSpan,
+} from './telemetry/telemetry.js';

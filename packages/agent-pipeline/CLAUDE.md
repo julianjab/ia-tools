@@ -8,10 +8,12 @@ completo; esto es guía específica para trabajar en el código del paquete.
 
 Es **contrato puro, sin I/O**: interfaces y clases (`DomainEvent`, `EventBus`, `Condition`,
 `Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`, `Provider`,
-`ProviderRegistry`, `ToolRegistry`, `SchemaTool`, `Action`, `Project`, la cascada de rutas). La
-única dependencia runtime es `zod` — la usan `SchemaTool`, `Action`, el `input` de `Agent` y los
-schemas de `submit_*`; es validación pura en memoria, no I/O, así que no rompe la regla de abajo.
-No sumes otra sin una razón igual de fuerte.
+`ProviderRegistry`, `ToolRegistry`, `SchemaTool`, `Action`, `Project`, la cascada de rutas). Las
+dependencias runtime son `zod` — la usan `SchemaTool`, `Action`, el `input` de `Agent` y los
+schemas de `submit_*`; es validación pura en memoria — y las APIs de OpenTelemetry
+(`@opentelemetry/api`, `@opentelemetry/api-logs`; ver "Telemetría" abajo), que sin un SDK
+registrado son no-ops sin I/O. Ninguna rompe la regla de abajo. No sumes otra sin una razón
+igual de fuerte — y nunca un SDK de OTel: eso lo elige la app.
 
 La regla NO es "nada que mencione un LLM" — `Agent` sabe
 que existe un `prompt`, `systemPrompts`, sus salidas; eso es dominio, no infra, porque es
@@ -51,6 +53,9 @@ src/
 │   └── tests/
 ├── engine/
 │   ├── Engine.ts, PipelineSource.ts, Project.ts
+│   └── tests/
+├── telemetry/
+│   ├── telemetry.ts         withSpan, emitLog, atributos heredados (OpenTelemetry por API)
 │   └── tests/
 ├── index.ts
 └── tests/                index.test.ts
@@ -200,6 +205,26 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
 
 `Pipeline` valida todo el cableado en su constructor llamando a `resolveRoutes` sin el nivel
 proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
+
+## Telemetría — `telemetry/telemetry.ts`, OpenTelemetry sólo por API
+
+Todo lo que corre por causa de UN evento cuelga de UNA traza: `Engine.dispatch` abre el span
+`event <type>` (raíz, o hijo si lo publicó un paso de otra pipeline), `Pipeline.execute` abre
+`pipeline <id>` y `runStep` abre `agent <id>` / `action <id>` por cada paso — los destinos de una
+salida cuelgan del agente que la eligió. Reglas que no son obvias al leer el código:
+
+- **El scope del evento se hereda, no se repite.** `event.scope` → atributos `ia.<clave>`
+  (`ia.projectId`, `ia.repo`, `ia.issue`, …) guardados en el `Context` de OTel con una clave
+  propia; `withSpan` y `emitLog` los suman a cada span y log creado debajo, también en otros
+  paquetes (el provider los recibe sin plumbing). NO va en baggage: el baggage se propaga en los
+  headers HTTP salientes y le mandaría el issue a GitHub/Anthropic.
+- **"No pasó nada" también deja traza.** Cada pipeline que escucha el tipo del evento deja un
+  span event `pipeline.match` con `ia.pipeline.skip_reason` (`Pipeline.explainMismatch`), y un
+  evento que no dispara nada igual abre su span.
+- **Un error manejado igual se ve.** Un paso que falla y lo cubre un `onError` queda en ERROR con
+  `ia.step.error_handled`; el `onError` corre como hijo con `ia.step.via: onError`.
+- **Sin SDK, no-op.** La app (el runner, un servidor) registra el SDK y el exporter (OTLP); los
+  tests usan el SDK en memoria (`devDependencies`), ver `telemetry/tests/`.
 
 ## Antes de tocar código
 

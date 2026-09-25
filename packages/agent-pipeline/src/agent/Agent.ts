@@ -1,3 +1,4 @@
+import { trace } from '@opentelemetry/api';
 import { z } from 'zod';
 import { Runnable } from '../pipeline/Runnable.js';
 import type { PipelineExecutionContext } from '../pipeline/Runnable.js';
@@ -9,6 +10,7 @@ import {
   routeTargets,
   submitSchemaFor,
 } from '../routing/ExitRoutes.js';
+import { emitLog, truncate } from '../telemetry/telemetry.js';
 import type {
   AgentDefinitionProps,
   AgentVariableValue,
@@ -215,6 +217,18 @@ export class Agent extends Runnable {
     const tools = [...(def.tools ?? []), ...actionTools, ...submitTools];
     this.assertUniqueToolNames(tools);
 
+    // El span activo es el del paso (lo abre `Pipeline`): el agente le suma con qué corrió.
+    const span = trace.getActiveSpan();
+    span?.setAttributes({
+      'ia.agent.id': def.id,
+      'ia.agent.provider': def.provider,
+      'ia.agent.tools': tools.map((tool) => tool.name),
+      'ia.agent.mcp_servers': (def.mcpServers ?? []).map((server) => server.id),
+    });
+    emitLog('info', `agente "${def.id}" arranca (${def.provider}, ${tools.length} tools)`, {
+      'ia.agent.id': def.id,
+    });
+
     const output = await provider.run({
       agentId: def.id,
       prompt: interpolate(def.prompt, root),
@@ -226,6 +240,11 @@ export class Agent extends Runnable {
       ctx,
     });
 
+    span?.setAttributes({
+      'ia.agent.outcome': output.outcome,
+      ...(output.summary ? { 'ia.agent.summary': truncate(output.summary) } : {}),
+      ...(failure !== undefined ? { 'ia.agent.failure': failure } : {}),
+    });
     if (NO_TRANSITION_OUTCOMES.has(output.outcome)) return { output };
     if (failure !== undefined) {
       throw new Error(`Agent(${def.id}): el agente declaró que falló: ${failure}`);

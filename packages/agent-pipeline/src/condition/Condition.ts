@@ -36,6 +36,13 @@ export class Condition {
     this.logic = row.logic ?? 'and';
   }
 
+  /** La condición y lo que vino en el payload — para explicar por qué algo no matcheó. */
+  describe(payload: unknown): string {
+    const expected = this.value === undefined ? '' : ` ${JSON.stringify(this.value)}`;
+    const actual = getPath(payload, this.field);
+    return `${this.field} ${this.op}${expected} (vino ${actual === undefined ? 'nada' : JSON.stringify(actual)})`;
+  }
+
   evaluate(payload: unknown): boolean {
     const actual = getPath(payload, this.field);
     switch (this.op) {
