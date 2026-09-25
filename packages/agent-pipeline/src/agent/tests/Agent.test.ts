@@ -275,6 +275,7 @@ describe('Agent', () => {
       expect(tools.map((tool) => [tool.name, tool.terminal])).toEqual([
         ['submit_done', true],
         ['submit_back_to_build', true],
+        ['fail_turn', true],
       ]);
       expect(tools[1]?.description).toMatch(/Usala cuando: Falla la implementación/);
     });
@@ -391,6 +392,49 @@ describe('Agent', () => {
     });
   });
 
+  describe('fail_turn', () => {
+    it('is always offered, as a terminal failure tool', async () => {
+      let tools: Tool[] = [];
+      const registry = registerFakeProvider('fake', async (ctx) => {
+        tools = ctx.tools;
+        return { outcome: 'success' };
+      });
+
+      await new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry).run(ctxFor());
+
+      const fail = tools.find((tool) => tool.name === 'fail_turn');
+      expect(fail).toMatchObject({ terminal: true, failure: true });
+    });
+
+    it('makes the run fail with the model reason, so the pipeline applies onError', async () => {
+      const registry = callingProvider('fail_turn', { reason: 'el PRD es ambiguo sobre X' });
+
+      await expect(
+        new Agent({ id: 'refiner', provider: 'fake', prompt: 'p' }, registry).run(ctxFor()),
+      ).rejects.toThrow('Agent(refiner): el agente declaró que falló: el PRD es ambiguo sobre X');
+    });
+
+    it('cannot be combined with a submit in the same turn', async () => {
+      const errors: string[] = [];
+      const registry = registerFakeProvider('fake', async (ctx) => {
+        await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({});
+        try {
+          await ctx.tools.find((tool) => tool.name === 'fail_turn')?.handler({ reason: 'x' });
+        } catch (err) {
+          errors.push((err as Error).message);
+        }
+        return { outcome: 'success' };
+      });
+
+      const result = await new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry).run(
+        ctxFor(),
+      );
+
+      expect(errors[0]).toMatch(/Ya elegiste la salida "done"/);
+      expect(result.exit).toBe('done');
+    });
+  });
+
   describe('actions', () => {
     it('gives read actions to the model as tools', async () => {
       let names: string[] = [];
@@ -404,7 +448,7 @@ describe('Agent', () => {
         registry,
       ).run(ctxFor());
 
-      expect(names).toEqual(['search_tasks', 'submit_done']);
+      expect(names).toEqual(['search_tasks', 'submit_done', 'fail_turn']);
     });
 
     it('rejects a writing action unless it is passed through allowWrite()', () => {
