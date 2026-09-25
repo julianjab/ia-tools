@@ -25,6 +25,7 @@ export type {
 export { IssueSectionAction } from './IssueSectionAction.js';
 export type { ChecklistItem } from './issueSection.js';
 export {
+  carryChecks,
   listChecklist,
   readSection,
   sectionMarkers,

@@ -7,7 +7,7 @@ import type { GithubClient } from '@ia-tools/github-api';
 import type { z } from 'zod';
 import { issuePath } from '../shared.js';
 import { type IssueRefResolver, issueFromPayload } from './issueRef.js';
-import { writeSection } from './issueSection.js';
+import { carryChecks, readSection, writeSection } from './issueSection.js';
 
 /** Un bloque del body con forma: qué datos lleva y cómo se ven en markdown. */
 export interface IssueSectionDefinition<S extends ToolInputSchema = ToolInputSchema> {
@@ -39,7 +39,8 @@ async function readBody(client: GithubClient, path: string): Promise<string> {
  * Escribe UN bloque del body del issue a partir de datos validados por un schema — ej. el PRD del
  * refiner. A diferencia de `update_issue_body`, el modelo no manda markdown: manda los campos, y
  * lo que está fuera del bloque (la descripción del humano, el bloque de otro agente) sobrevive.
- * Reescribe el bloque completo en cada llamada.
+ * Reescribe el bloque completo en cada llamada, conservando las casillas ya tildadas de los ítems
+ * que no cambiaron de texto (`carryChecks`).
  */
 export class IssueSectionAction<S extends ToolInputSchema> extends Action<S, string> {
   readonly description: string;
@@ -62,8 +63,11 @@ export class IssueSectionAction<S extends ToolInputSchema> extends Action<S, str
   async execute(input: z.infer<S>, ctx: PipelineExecutionContext): Promise<string> {
     const issue = this.resolveIssue(ctx);
     const path = issuePath(issue.owner, issue.repo, issue.number);
-    const markdown = this.section.render(input);
-    const body = writeSection(await readBody(this.client, path), this.section.id, markdown);
+    const current = await readBody(this.client, path);
+    const previous = readSection(current, this.section.id);
+    const rendered = this.section.render(input);
+    const markdown = previous ? carryChecks(previous, rendered) : rendered;
+    const body = writeSection(current, this.section.id, markdown);
     await this.client.requestJson(path, { method: 'PATCH', body: JSON.stringify({ body }) });
     return `${this.section.title} actualizado en ${issue.owner}/${issue.repo}#${issue.number} (${markdown.length} caracteres)`;
   }

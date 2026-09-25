@@ -114,3 +114,26 @@ export function setChecked(
     items: listChecklist(updated),
   };
 }
+
+/**
+ * `next` con las casillas que ya estaban tildadas en `previous` para el mismo texto de ítem. Así
+ * reescribir un bloque entero (el refiner corrigiendo el PRD) no borra el progreso que otro agente
+ * ya marcó. Un ítem cuyo texto cambió cuenta como trabajo nuevo y queda sin tildar.
+ */
+export function carryChecks(previous: string, next: string): string {
+  const done = new Set(
+    listChecklist(previous)
+      .filter((item) => item.checked)
+      .map((item) => item.text),
+  );
+  if (done.size === 0) return next;
+  return next
+    .split('\n')
+    .map((line) => {
+      const match = line.match(CHECKBOX);
+      return match && match[2] === ' ' && done.has(match[4] as string)
+        ? `${match[1]}x${match[3]}${match[4]}`
+        : line;
+    })
+    .join('\n');
+}
