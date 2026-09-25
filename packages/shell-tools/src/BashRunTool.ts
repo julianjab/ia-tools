@@ -136,6 +136,12 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
         shell: false,
         detached: process.platform !== 'win32',
         env: this.options.env ?? buildSafeEnv(),
+        // Sin esto, stdin queda como un pipe abierto que nadie escribe ni cierra — cualquier
+        // comando que lea de stdin (`git commit` sin `-m`, que abre un editor; `cat`/`tee`/`grep`
+        // sin archivo; un prompt interactivo) se cuelga hasta `timeoutMs`, y el modelo sólo ve
+        // "señal SIGKILL" sin ninguna pista de por qué. `bash_run` no tiene ningún mecanismo para
+        // mandarle stdin a un comando, así que no hay razón para dejarlo abierto.
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       const stdout = new BoundedCollector();

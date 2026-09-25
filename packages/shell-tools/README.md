@@ -146,6 +146,18 @@ categoría completa.
 - `resolveSafePath`/`fs-tools` y esta policy son capas independientes: `bash_run` puede crear un
   symlink (`ln -s ~/.ssh k`) que después una tool de `fs-tools` seguiría si no filtrara
   symlinks — cada capa asume que la otra hace su parte, ninguna sustituye a la otra.
+- **Con `fs-tools` en el mismo agente, la protección de intérpretes se puede esquivar sin tocar
+  ningún flag de `bash_run`.** `fs_write` puede escribir un `package.json` con un script
+  (`"scripts": {"x": "node -e '...'"}`), un `Makefile`, o un hook de `.husky/` — y `npm run x`/
+  `pnpm run x`/`make x` (ninguno denegado por default) o un `git commit` normal (si el repo usa
+  husky) terminan corriendo lo que sea, sin que `python`/`node`/`awk` aparezcan nunca en
+  `argv[0]`. No hay chequeo para esto: detectarlo pediría que `bash_run` supiera qué escribió
+  `fs_write` antes, algo que las dos policies (independientes a propósito) no comparten hoy.
+- **Faltan formas de invocar un comando externo en git que no son `-c`/`config`/`--upload-pack`/
+  `--exec`/`-x`/`foreach`/`bisect run`/`--tree-filter`** — por ejemplo `git difftool
+  --extcmd=<cmd>` (o `-y --extcmd`) y `git grep -O<cmd>`/`--open-files-in-pager=<cmd>`. La lista
+  de chequeos dedicados de git creció ronda a ronda persiguiendo casos concretos (ver el bullet
+  de abajo); estos dos quedaron afuera de la última ronda, documentados en vez de agregados.
 - **Esta lista de chequeos dedicados no se declara completa ni final.** Es una lista de
   bloqueo — por diseño, nunca termina de perseguir bypasses nuevos (otro subcomando de git que
   ejecute un argumento, otro wrapper como `nice`/`timeout`, otro flag `--algo=<comando>` de
