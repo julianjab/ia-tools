@@ -77,6 +77,19 @@ describe('IssueSectionAction', () => {
     expect(issue.body()).not.toContain('viejo');
   });
 
+  it('keeps the progress another agent ticked when the block is rewritten', async () => {
+    const issue = fakeIssue(
+      wrapSection('prd', `## Zona\n${wrapSection('prd.zona', '- [x] a\n- [ ] b')}`),
+    );
+
+    await new IssueSectionAction({ client: issue.client, section }).run(ctxFor(), {
+      objetivo: 'corregido',
+      zona: ['a', 'b', 'c'],
+    });
+
+    expect(issue.body()).toContain('- [x] a\n- [ ] b\n- [ ] c');
+  });
+
   it('rejects data outside the schema before reading the issue', async () => {
     const issue = fakeIssue('x');
 

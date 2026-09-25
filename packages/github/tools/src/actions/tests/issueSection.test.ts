@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  carryChecks,
   listChecklist,
   readSection,
   sectionMarkers,
@@ -99,5 +100,17 @@ describe('listChecklist', () => {
       { index: 1, checked: false, text: 'a' },
       { index: 2, checked: true, text: 'b' },
     ]);
+  });
+});
+
+describe('carryChecks', () => {
+  it('keeps the ticks of items whose text did not change, and leaves new or reworded ones open', () => {
+    const previous = '- [x] `a.ts` — uno\n- [x] `b.ts` — dos\n- [ ] `c.ts` — tres';
+    const next =
+      '- [ ] `a.ts` — uno\n- [ ] `b.ts` — dos, reescrito\n- [ ] `c.ts` — tres\n- [ ] `d.ts` — nuevo';
+
+    expect(carryChecks(previous, next)).toBe(
+      '- [x] `a.ts` — uno\n- [ ] `b.ts` — dos, reescrito\n- [ ] `c.ts` — tres\n- [ ] `d.ts` — nuevo',
+    );
   });
 });
