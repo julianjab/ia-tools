@@ -1093,12 +1093,24 @@ export class WorkspaceManager {
    * Queda el token en `argv` durante la ejecución (visible vía `ps`), que es
    * transitorio y de riesgo mucho menor que un secreto persistido; eliminarlo
    * del todo requeriría pasarlo por stdin con un credential helper.
+   *
+   * El header va scopeado a `https://github.com/` (un remote a otro host no lo
+   * recibe) y con `core.hooksPath=/dev/null`: git pasa los `-c` a sus hijos vía
+   * `GIT_CONFIG_PARAMETERS`, hooks incluidos, y el clone es compartido con los
+   * worktrees de los agentes — un `pre-push` que un agente dejó (ej. husky
+   * seteando `core.hooksPath=.husky`) leería el token del entorno. Mismo cierre
+   * que `BashRunTool` de `@ia-tools/shell-tools`.
    */
   async #githubAuthArgs(): Promise<string[]> {
     const token = await this.#resolveGithubToken();
     if (!token) return [];
     const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
-    return ['-c', `http.extraHeader=Authorization: Basic ${basic}`];
+    return [
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      `http.https://github.com/.extraHeader=Authorization: Basic ${basic}`,
+    ];
   }
 
   /**

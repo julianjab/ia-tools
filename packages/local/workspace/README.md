@@ -66,8 +66,10 @@ esa corrida lo reusan. Un agente sin tools de disco no clona nada.
 
 ## Límites
 
-- La credencial viaja como `-c http.extraHeader=…` en el argv de cada `git` de red (visible en
-  `ps` mientras corre) — nunca en `.git/config`, así que un agente con `fs_read` o `git config`
-  no la ve. Mismo trade-off que ia-flow.
+- La credencial viaja como `-c http.https://github.com/.extraHeader=…` en el argv de cada `git`
+  de red (visible en `ps` mientras corre) — nunca en `.git/config`, así que un agente con
+  `fs_read` o `git config` no la ve. Mismo trade-off que ia-flow. Va scopeada a GitHub y con
+  `core.hooksPath=/dev/null`: git pasa los `-c` a sus hooks por `GIT_CONFIG_PARAMETERS`, y un hook
+  que un agente dejó en el clone compartido leería el token.
 - `WorkspaceSession` no toma el lock por task del manager (el engine no tiene un "fin de corrida"
   donde soltarlo): que dos corridas de la MISMA task no se pisen es trabajo del que despacha.
