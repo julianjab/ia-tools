@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { lstat, readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { z } from 'zod';
 import { FsTool } from '../FsTool.js';
@@ -6,7 +6,10 @@ import { SKIPPED_DIR_NAMES } from '../shared.js';
 
 export const FsGrepInput = z.strictObject({
   pattern: z.string().min(1).describe('Regex (sintaxis JS)'),
-  path: z.string().optional().describe('Subdirectorio relativo donde buscar, default "."'),
+  path: z
+    .string()
+    .optional()
+    .describe('Subdirectorio o archivo (relativo) donde buscar, default "."'),
 });
 export type FsGrepInput = z.infer<typeof FsGrepInput>;
 
@@ -71,42 +74,56 @@ async function walk(
     // proceso lo abra en escritura, para SIEMPRE — `MAX_WALK_MS` no ayuda, ese presupuesto sólo
     // se chequea ENTRE archivos, nunca corta un `readFile` ya arrancado.
     if (!entry.isFile()) continue;
-    budget.filesScanned++;
-    const absPath = join(dir, entry.name);
-    let content: string;
-    try {
-      const info = await stat(absPath);
-      if (info.size > MAX_FILE_BYTES) continue;
-      content = await readFile(absPath, 'utf-8');
-    } catch {
-      continue; // binario u otro error de lectura — se salta, no se aborta el grep entero
+    await grepFile(join(dir, entry.name), baseDir, matches, regex, budget);
+  }
+}
+
+/** Una pasada del regex sobre UN archivo regular, con los mismos topes que el walk. */
+async function grepFile(
+  absPath: string,
+  baseDir: string,
+  matches: Match[],
+  regex: RegExp,
+  budget: WalkBudget,
+) {
+  budget.filesScanned++;
+  let content: string;
+  try {
+    const info = await stat(absPath);
+    if (info.size > MAX_FILE_BYTES) return;
+    content = await readFile(absPath, 'utf-8');
+  } catch {
+    return; // binario u otro error de lectura — se salta, no se aborta el grep entero
+  }
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (matches.length >= MAX_MATCHES) break;
+    if (lines[i].length > MAX_LINE_LENGTH) continue;
+    if (regex.test(lines[i])) {
+      matches.push({ file: relative(baseDir, absPath), line: i + 1, text: lines[i].trim() });
     }
-    const lines = content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (matches.length >= MAX_MATCHES) break;
-      if (lines[i].length > MAX_LINE_LENGTH) continue;
-      if (regex.test(lines[i])) {
-        matches.push({ file: relative(baseDir, absPath), line: i + 1, text: lines[i].trim() });
-      }
-      regex.lastIndex = 0; // regex global reusada entre líneas — sin esto .test() pisa el cursor
-    }
+    regex.lastIndex = 0; // regex global reusada entre líneas — sin esto .test() pisa el cursor
   }
 }
 
 export class FsGrepTool extends FsTool<typeof FsGrepInput> {
   readonly name = 'fs_grep';
   readonly description =
-    `Busca un patrón (regex) en los archivos de texto dentro de ${this.baseDir}, recursivo. Salta node_modules/.git/dist/.turbo/.cache, archivos >2MB, y líneas >2000 caracteres.`;
+    `Busca un patrón (regex) en los archivos de texto dentro de ${this.baseDir}, recursivo — o en un solo archivo, si \`path\` apunta a uno. Salta node_modules/.git/dist/.turbo/.cache, archivos >2MB, y líneas >2000 caracteres.`;
   readonly input = FsGrepInput;
 
   protected async execute(input: FsGrepInput): Promise<string> {
-    const startDir = await this.resolveSafePath(input.path ?? '.');
+    const start = await this.resolveSafePath(input.path ?? '.');
+    const baseDir = await this.resolveSafePath('.');
     const regex = new RegExp(input.pattern, 'g');
     const matches: Match[] = [];
-    await walk(startDir, await this.resolveSafePath('.'), matches, regex, {
-      filesScanned: 0,
-      deadline: Date.now() + MAX_WALK_MS,
-    });
+    const budget = { filesScanned: 0, deadline: Date.now() + MAX_WALK_MS };
+    // `path` puede ser un archivo: grepear un archivo puntual (`CLAUDE.md`) es lo natural para el
+    // modelo, y antes fallaba con ENOTDIR. `lstat`, no `stat`: lo que no es archivo regular ni
+    // directorio (un symlink, un FIFO) se descarta igual que en el walk.
+    const info = await lstat(start);
+    if (info.isFile()) await grepFile(start, baseDir, matches, regex, budget);
+    else if (info.isDirectory()) await walk(start, baseDir, matches, regex, budget);
     return JSON.stringify(matches);
   }
 }
