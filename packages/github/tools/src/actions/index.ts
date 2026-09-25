@@ -16,3 +16,19 @@ export type {
 export { ListSubIssuesBriefAction, ListSubIssuesBriefInput } from './ListSubIssuesBriefAction.js';
 export type { UpdateIssueBodyActionOptions } from './UpdateIssueBodyAction.js';
 export { UpdateIssueBodyAction, UpdateIssueBodyInput } from './UpdateIssueBodyAction.js';
+export type { CheckSectionItemsActionOptions } from './CheckSectionItemsAction.js';
+export { CheckSectionItemsAction, CheckSectionItemsInput } from './CheckSectionItemsAction.js';
+export type {
+  IssueSectionActionOptions,
+  IssueSectionDefinition,
+} from './IssueSectionAction.js';
+export { IssueSectionAction } from './IssueSectionAction.js';
+export type { ChecklistItem } from './issueSection.js';
+export {
+  listChecklist,
+  readSection,
+  sectionMarkers,
+  setChecked,
+  wrapSection,
+  writeSection,
+} from './issueSection.js';
