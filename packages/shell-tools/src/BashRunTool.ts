@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
-import type { Tool } from '@ia-tools/agent-pipeline';
+import { SchemaTool } from '@ia-tools/agent-pipeline';
+import { z } from 'zod';
 import { type BashPolicy, isAllowed, isDenied } from './BashPolicy.js';
 import { tokenize } from './tokenize.js';
 
-export interface BashRunInput {
-  command: string;
-}
+export const BashRunInput = z.strictObject({
+  command: z.string().min(1).describe('Comando + args separados por espacio, ej. "git status"'),
+});
+export type BashRunInput = z.infer<typeof BashRunInput>;
 
 export interface BashRunToolOptions {
   /** Directorio donde corre el proceso — típicamente el worktree del agente. */
@@ -54,28 +56,20 @@ class BoundedCollector {
 
 /**
  * Única tool del paquete — a diferencia de `github-tools`/`fs-tools` no hay una jerarquía de
- * clases que compartir (sólo existe ESTA tool), así que implementa `Tool` directo, sin base
- * abstracta de por medio.
+ * clases de dominio que compartir (sólo existe ESTA tool), así que extiende `SchemaTool` directo,
+ * sin base intermedia.
  */
-export class BashRunTool implements Tool<BashRunInput> {
+export class BashRunTool extends SchemaTool<typeof BashRunInput> {
   readonly name = 'bash_run';
   readonly description: string;
-  readonly inputSchema = {
-    type: 'object',
-    properties: {
-      command: {
-        type: 'string',
-        description: 'Comando + args separados por espacio, ej. "git status"',
-      },
-    },
-    required: ['command'],
-  };
+  readonly input = BashRunInput;
 
   constructor(private readonly options: BashRunToolOptions) {
+    super();
     this.description = `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) dentro de ${options.baseDir} — usa comillas para args con espacios.`;
   }
 
-  async handler(input: BashRunInput): Promise<string> {
+  protected async execute(input: BashRunInput): Promise<string> {
     const argv = tokenize(input.command);
     if (argv.length === 0) {
       throw new Error('bash_run: comando vacío');

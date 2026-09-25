@@ -20,7 +20,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ia-tools/agent-pipeline": "workspace:*"
+    "@ia-tools/agent-pipeline": "workspace:*",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
