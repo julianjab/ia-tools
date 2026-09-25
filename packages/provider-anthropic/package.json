@@ -20,10 +20,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ia-tools/agent-pipeline": "workspace:*",
-    "@opentelemetry/api": "^1.9.0"
+    "@ia-tools/agent-pipeline": "workspace:*"
   },
   "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/context-async-hooks": "^2.11.0",
     "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@types/node": "^22.0.0",

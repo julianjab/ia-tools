@@ -21,6 +21,8 @@ src/
 ├── AnthropicProvider.ts  clase AnthropicProvider (implementa Provider) — compone un
 │                         AnthropicClient y le agrega el loop de tool_use, MCP remoto,
 │                         thinking/task budgets, checkpointing.
+├── tracing.ts            qué deja el provider en la traza — opciones de @traced para `send`
+│                         (`chat <model>`) y `executeTool` (`execute_tool <name>`).
 ├── sse.ts                reensamblado de streaming SSE → misma forma que un response
 │                         no-streaming. Funciones puras, detalle de implementación de
 │                         AnthropicClient (no se exporta).
@@ -49,8 +51,9 @@ completo para resolver `stop_reason`/tool_use/exit, así que expone observabilid
 
 ## Telemetría — spans GenAI, sólo por API
 
-`AnthropicProvider` instrumenta con `@opentelemetry/api` (sin SDK: no-op) y los helpers de
-`agent-pipeline` (`withSpan`, `emitLog`), así cada span hereda el scope del evento (`ia.issue`,
+`AnthropicProvider` instrumenta sólo con el decorator `@traced` de `agent-pipeline` (sin SDK:
+no-op) — no depende de `@opentelemetry/api` salvo en los tests — sobre `send` y `executeTool` (lo que registran vive en
+`tracing.ts`; el loop no toca spans), así cada span hereda el scope del evento (`ia.issue`,
 `ia.repo`, …) y cuelga del paso del agente sin plumbing:
 
 - `chat <model>` por request a la API (kind CLIENT), con las convenciones GenAI:
