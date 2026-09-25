@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { FsTool } from '../FsTool.js';
 
@@ -25,10 +25,23 @@ export class FsReadTool extends FsTool<typeof FsReadInput> {
     if (!info.isFile()) {
       throw new Error(`fs_read: "${input.path}" no es un archivo regular`);
     }
-    const content = await readFile(absPath, 'utf-8');
-    if (Buffer.byteLength(content, 'utf-8') > MAX_BYTES) {
-      return `${content.slice(0, MAX_BYTES)}\n\n[truncado — el archivo supera ${MAX_BYTES} bytes]`;
+    // Lee como mucho MAX_BYTES bytes crudos del archivo — nunca el archivo entero primero para
+    // recién ahí cortar. Un `bash_run "truncate -s 1900M big"` + `fs_read big` con la versión
+    // vieja (readFile completo, corte después) agotaba la memoria del proceso antes de llegar
+    // al corte. El corte también es por BYTES reales acá (no `.slice()` sobre el string, que
+    // corta por unidad UTF-16 y puede partir un carácter multibyte a la mitad).
+    const truncated = info.size > MAX_BYTES;
+    const readSize = truncated ? MAX_BYTES : info.size;
+    const handle = await open(absPath, 'r');
+    try {
+      const buffer = Buffer.alloc(readSize);
+      await handle.read(buffer, 0, readSize, 0);
+      const content = buffer.toString('utf-8');
+      return truncated
+        ? `${content}\n\n[truncado — el archivo supera ${MAX_BYTES} bytes]`
+        : content;
+    } finally {
+      await handle.close();
     }
-    return content;
   }
 }

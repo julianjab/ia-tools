@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { FsTool } from '../FsTool.js';
 
@@ -31,6 +31,13 @@ export class FsEditTool extends FsTool<typeof FsEditInput> {
 
   protected async execute(input: FsEditInput): Promise<string> {
     const absPath = await this.resolveSafePath(input.path);
+    // `readFile` sobre un FIFO (armable con `bash_run "mkfifo p"`) se queda esperando para
+    // siempre a que algo lo abra en escritura — mismo problema que ya se cerró en fs_read/
+    // fs_grep. `stat` nunca bloquea así, y filtra sockets/devices de paso.
+    const info = await stat(absPath);
+    if (!info.isFile()) {
+      throw new Error(`fs_edit: "${input.path}" no es un archivo regular`);
+    }
     const content = await readFile(absPath, 'utf-8');
     const occurrences = countOccurrences(content, input.oldString);
     if (occurrences === 0) {

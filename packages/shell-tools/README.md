@@ -166,6 +166,12 @@ categoría completa.
   origin HEAD`, y ninguna cae en `isDangerousGitPush` porque `main` nunca aparece en el `argv`.
   Cerrar esto de verdad pide invertir la lógica (exigir `<remote> <refspec-explícito>`, rechazar
   cualquier flag con valor separado) en vez de seguir sumando casos — no está hecho acá.
+- **`git log --output=<path>` (o cualquier flag de git que escriba a un path arbitrario) puede
+  escribir DENTRO de `.git`** — `git log -1 --format='[core]%nfsmonitor=<cmd>' --output=.git/
+  config` deja un `.git/config` que ejecuta `<cmd>` en el próximo `git status`. El chequeo de
+  segmento `.git` de `isDangerousFileOpOnGit` sólo mira `cp`/`mv`/`ln`/`chmod`/`chown`/
+  `install`/`rsync` — nunca a git mismo escribiendo su propio output a un path que el modelo
+  elige.
 - **Esta lista de chequeos dedicados no se declara completa ni final.** Es una lista de
   bloqueo — por diseño, nunca termina de perseguir bypasses nuevos (otro subcomando de git que
   ejecute un argumento, otro wrapper como `nice`/`timeout`, otro flag `--algo=<comando>` de
