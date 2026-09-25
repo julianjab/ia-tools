@@ -8,6 +8,9 @@ export type GithubIssuePayload = {
   repo: string;
   labels: string[];
   sender: string;
+  /** `issues`/`issue_comment` también llegan para PRs (en la API de GitHub un PR ES un issue):
+   *  `true` cuando este "issue" es en realidad un Pull Request. */
+  isPullRequest: boolean;
 };
 
 export type GithubIssueCommentPayload = GithubIssuePayload & {
@@ -48,6 +51,7 @@ export function parseGithubIssuePayload(raw: Record<string, unknown>): GithubIss
     repo: str(repository.name),
     labels: issueLabels(issue),
     sender: str(sender?.login),
+    isPullRequest: issue.pull_request != null,
   };
 }
 

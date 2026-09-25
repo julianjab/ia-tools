@@ -55,6 +55,10 @@ if (!verifier.verify(rawBody, req.headers['x-hub-signature-256'])) {
 GithubWebhookVerifier           HMAC-SHA256 timing-safe de x-hub-signature-256
 parseGithubIssuePayload         extrae los campos de un payload `issues` — pura, sin decidir type
 parseGithubIssueCommentPayload  igual, para `issue_comment`
+parseGithubPullRequestPayload   `pull_request` — PR aplanado (head/base, merged, draft)
+parseGithubPullRequestReviewPayload  igual + la review (`reviewState` en minúsculas)
+parseGithubCheckPayload         `check_suite`/`workflow_run` a una forma común, con `kind`
+parseGithubProjectItemPayload   `projects_v2_item` — node ids + campo cambiado (y from/to si vienen)
 createGithubWebhookEvent        arma el GithubWebhookEvent alrededor de un `type` que VOS elegiste
 ```
 

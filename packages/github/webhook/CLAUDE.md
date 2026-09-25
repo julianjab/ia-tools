@@ -30,6 +30,9 @@ src/
 ├── GithubWebhookVerifier.ts   HMAC-SHA256 timing-safe de x-hub-signature-256
 ├── GithubWebhookEvent.ts      forma de DomainEvent (sin importarlo) + createGithubWebhookEvent
 ├── GithubIssuePayload.ts      parseGithubIssuePayload/parseGithubIssueCommentPayload — puras
+├── GithubPullRequestPayload.ts  parseGithubPullRequestPayload/…ReviewPayload — puras
+├── GithubCheckPayload.ts      parseGithubCheckPayload (check_suite + workflow_run) — pura
+├── GithubProjectItemPayload.ts  parseGithubProjectItemPayload — pura
 ├── index.ts
 └── tests/
 ```
