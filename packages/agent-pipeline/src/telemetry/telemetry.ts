@@ -9,6 +9,10 @@
  * `ia.repo`, `ia.issue`, …) — así se filtra por cualquiera en el backend sin que cada paso tenga
  * que acordarse de etiquetar. El scope viaja en el `Context` de OTel (una clave propia, no
  * baggage: el baggage se propaga en los headers HTTP salientes y le mandaría el issue a terceros).
+ *
+ * El código instrumentado no toca spans: declara la traza con `@traced` (abre un span) o
+ * `@tagged` (le suma al span activo) sobre el método, y lo que se registra vive en un
+ * `tracing.ts` al lado del módulo.
  */
 import {
   type AttributeValue,
@@ -17,7 +21,6 @@ import {
   type Span,
   SpanKind,
   SpanStatusCode,
-  type Tracer,
   context,
   createContextKey,
   trace,
@@ -81,8 +84,8 @@ export function withInheritedAttributes<T>(attributes: Attributes, fn: () => T):
 
 export interface SpanOptions {
   kind?: SpanKind;
-  /** Para instrumentar desde otro paquete (un provider) con su propio instrumentation scope. */
-  tracer?: Tracer;
+  /** Instrumentation scope propio, para instrumentar desde otro paquete (un provider). */
+  scope?: string;
 }
 
 /**
@@ -95,7 +98,7 @@ export async function withSpan<T>(
   fn: (span: Span) => Promise<T>,
   options: SpanOptions = {},
 ): Promise<T> {
-  const spanTracer = options.tracer ?? tracer;
+  const spanTracer = options.scope ? trace.getTracer(options.scope) : tracer;
   return spanTracer.startActiveSpan(
     name,
     {
@@ -123,6 +126,90 @@ export function markError(span: Span, err: unknown): void {
   span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
 }
 
+/** Un método async de `This` — lo único que `@traced` y `@tagged` saben decorar. */
+type AsyncMethod<This, Args extends unknown[], R> = (this: This, ...args: Args) => Promise<R>;
+
+type MethodDecorator<This, Args extends unknown[], R> = (
+  target: This,
+  key: string | symbol,
+  descriptor: TypedPropertyDescriptor<AsyncMethod<This, Args, R>>,
+) => void;
+
+/**
+ * Lo que un método aporta a la traza, declarado al lado del método en vez de mezclado en su
+ * cuerpo. Cada callback corre con `this` = la instancia y los mismos argumentos que el método.
+ */
+export interface TagOptions<This, Args extends unknown[], R> {
+  /** Atributos al empezar — los que se conocen por los argumentos. */
+  attributes?(this: This, ...args: Args): Attributes;
+  /** Qué dejar del resultado: atributos, span events, un log. Si el método tira no corre: el
+   *  error ya lo registra `@traced`. */
+  onResult?(this: This, span: Span, result: R, ...args: Args): void;
+}
+
+export interface TraceOptions<This, Args extends unknown[], R> extends TagOptions<This, Args, R> {
+  /** Nombre del span. Por defecto `<Clase>.<método>`. */
+  name?: string | ((this: This, ...args: Args) => string);
+  /** Atributos que heredan este span y TODO span y log creado adentro (ver
+   *  `withInheritedAttributes`). */
+  inherit?(this: This, ...args: Args): Attributes;
+  kind?: SpanKind;
+  /** Instrumentation scope propio, para instrumentar desde otro paquete (un provider). */
+  scope?: string;
+}
+
+/**
+ * `@traced(opciones)`: el método corre dentro de su propio span (hijo del activo), con los
+ * atributos heredados. Si tira, el span queda en ERROR y el error se re-lanza tal cual.
+ */
+export function traced<This, Args extends unknown[], R>(
+  options: TraceOptions<This, Args, R> = {},
+): MethodDecorator<This, Args, R> {
+  return (target, key, descriptor) => {
+    const method = descriptor.value as AsyncMethod<This, Args, R>;
+    const className = (target as { constructor: { name: string } }).constructor.name;
+    descriptor.value = function (this: This, ...args: Args): Promise<R> {
+      const name =
+        typeof options.name === 'function'
+          ? options.name.apply(this, args)
+          : (options.name ?? `${className}.${String(key)}`);
+      const run = () =>
+        withSpan(
+          name,
+          options.attributes?.apply(this, args) ?? {},
+          async (span) => {
+            const result = await method.apply(this, args);
+            options.onResult?.call(this, span, result, ...args);
+            return result;
+          },
+          { kind: options.kind, scope: options.scope },
+        );
+      const inherit = options.inherit?.apply(this, args);
+      return inherit ? withInheritedAttributes(inherit, run) : run();
+    };
+  };
+}
+
+/**
+ * `@tagged(opciones)`: el método no abre un span propio — le suma atributos y eventos al span
+ * activo (el de quien lo llamó). Para lo que es parte de otro paso, no un paso en sí. Sin span
+ * activo, no hace nada.
+ */
+export function tagged<This, Args extends unknown[], R>(
+  options: TagOptions<This, Args, R>,
+): MethodDecorator<This, Args, R> {
+  return (_target, _key, descriptor) => {
+    const method = descriptor.value as AsyncMethod<This, Args, R>;
+    descriptor.value = async function (this: This, ...args: Args): Promise<R> {
+      const span = trace.getActiveSpan();
+      if (span && options.attributes) span.setAttributes(options.attributes.apply(this, args));
+      const result = await method.apply(this, args);
+      if (span) options.onResult?.call(this, span, result, ...args);
+      return result;
+    };
+  };
+}
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const SEVERITY: Record<LogLevel, SeverityNumber> = {
@@ -144,4 +231,7 @@ export function emitLog(level: LogLevel, body: string, attributes: Attributes = 
   });
 }
 
+// El resto del código (este paquete y los que instrumentan con él) no importa
+// `@opentelemetry/api`: los tipos que necesita para declarar una traza salen de acá.
 export { SpanKind };
+export type { Attributes, Span };
