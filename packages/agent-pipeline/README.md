@@ -45,18 +45,20 @@ Para usarlo desde otra app del monorepo: `"@ia-tools/agent-pipeline": "workspace
 
 ```
 DomainEvent   { type, payload, scope?, occurredAt, depth }   — un evento crudo, sin negocio
-Runnable      { id?, when?, continueOnError?, run(ctx) }      — lo que vive en Pipeline.do[]
-Agent         Runnable respaldado por un LLM (config + Provider) — ver más abajo
+Runnable      { id?, when?, continueOnError?, run(ctx, input?) } — lo que vive en Pipeline.do[]
+Action        Runnable con input tipado (zod) — paso de pipeline Y tool de un agente
+Agent         Runnable respaldado por un LLM, que termina eligiendo una salida
 Condition     { field, op, value, logic }                    — un `when` puro sobre un payload
-Pipeline      { on, when?, scope?, exclusive?, do: Runnable[] } — matchea eventos, corre su cadena
+Pipeline      { on, when?, scope?, exclusive?, do, routes? } — matchea eventos, recorre su grafo
+Project       { pipelines, onError?, report? }                — defaults de todo el proyecto
 Engine        dispatch(event) contra el roster de Pipeline    — el orquestador
 EventBus      publish/subscribe in-process                    — pega todo
 ```
 
 `Pipeline.do[]` es homogéneo: `EmitAction` (publica un evento derivado), `HttpAction` (llama
-una API), `FunctionAction` (corre código TS con el contexto completo) y `Agent` (corre un LLM)
-son todos `Runnable` — no hay un paso especial que "resuelva un agente por id"; un `Agent` se
-pone directo en `do[]`, con su propio `id` como key de `ctx.steps`.
+una API), `FunctionAction` (corre código TS con el contexto completo), cualquier `Action` y
+`Agent` son todos `Runnable`. Un `Agent` se pone directo en `do[]`, con su propio `id` como
+key de `ctx.steps`.
 
 ## Cómo se ejecuta un Pipeline
 
@@ -66,69 +68,107 @@ interface PipelineExecutionContext {
   steps: Record<string, unknown>;   // outputs de pasos anteriores, por su `id`
   bus: EventBus;
   pipelineId: string;
+  defaults?: ExitDefaults;           // onError/report del Project
 }
 ```
 
-Un paso lee `steps.<id>.output` de CUALQUIER paso anterior con nombre — no sólo el
-inmediato — y su propio `when` también puede mirar `steps.*` (el patrón "triage nombrado →
-siguiente paso condicionado a `steps.triage.exit`", en un solo `do[]`, sin evento intermedio).
+Los pasos de `do[]` corren en orden, salvo los que son destino de una ruta: esos corren sólo
+cuando un agente elige la salida que lleva a ellos, con el input que el agente entregó. Al
+elegir una salida corre primero su `report` (el cierre del turno) y después sus destinos, en
+orden — el siguiente agente tiene que ver ese comentario.
+
+## `Action` — input tipado, paso o tool
+
+Una `Action` declara su input como `z.strictObject` y lo que hace con él. Sirve como paso de
+pipeline (su input se valida al correr) y como tool de un agente (`asTool`), sin duplicar nada.
+`bind` fija campos desde la configuración y los saca del schema que ve el modelo:
+`updateIssue.bind({ status: 'Build' })` deja al modelo completar el resto, nunca elegir el status.
+`sideEffects` es `'write'` por defecto; un agente sólo recibe una acción que escribe si se la
+pasás como `action.allowWrite()`.
 
 ## `Agent` — un `Runnable` respaldado por un LLM
 
-`Agent` es la única pieza de este paquete que asume "hay un modelo de por medio". Se
-construye a partir de una `AgentDefinitionProps` (id, `provider`, `prompt`, `systemPrompts`,
-`tools`, `exits`, `emitOn`, ...) más un `Provider` — resuelto por id contra un
-`ProviderRegistry` (el singleton `providerRegistry`, o uno propio para aislar tests). El
-`Provider` es el ÚNICO punto que sabe hablar con un backend real (Anthropic, OpenAI, un CLI
-en una sesión de terminal); `agent-pipeline` nunca lo implementa — eso es infra, vive fuera
-del paquete (ver `examples/providers/`).
+`Agent` es la única pieza de este paquete que asume "hay un modelo de por medio". Se construye
+a partir de una `AgentDefinitionProps` (id, `provider`, `prompt`, `input`, `tools`, `actions`,
+`routes`, `report`, `onError`, ...) más un `Provider` — resuelto por id contra un
+`ProviderRegistry`. El `Provider` es el ÚNICO punto que sabe hablar con un backend real; ese
+código vive fuera del paquete (ver `@ia-tools/provider-anthropic`).
 
-```ts
-import { Agent, providerRegistry } from '@ia-tools/agent-pipeline';
-import { anthropicProvider } from './my-anthropic-provider.js'; // tuyo, no del paquete
+Un agente termina eligiendo una **salida**. Por cada una, el modelo recibe una tool
+`submit_<salida>` cuyo schema es el input de los pasos a los que lleva (menos lo fijado con
+`bind`): elegir la salida y producir el input del siguiente paso son una sola llamada validada.
+Un agente sin salidas declaradas tiene una implícita, `done`.
 
-providerRegistry.register(anthropicProvider({ id: 'anthropic-api', model: 'claude-sonnet-5' }));
+Las salidas son una cascada de cuatro niveles — **paso > pipeline > agente > proyecto** —
+resuelta por `resolveRoutes`:
 
-const triage = new Agent({
-  id: 'triage',
-  provider: 'anthropic-api',
-  prompt: 'Título: {{title}}\n\nRespondé "actionable" o "not-actionable".',
-  exits: { actionable: 'actionable', 'not-actionable': 'not-actionable' },
-});
-```
+- **Agente:** declara el vocabulario (qué salidas existen y su `when`) y destinos base, que
+  sólo pueden ser acciones. Una salida sin `to` es sólo vocabulario: la pipeline le pone destino.
+- **Pipeline (`routes.<agentId>`):** cambia el `to` de una salida (hereda el `when`), la elimina
+  con `null`, o cambia su `onError`/`report`. Nunca crea salidas. Encadenar agentes va acá.
+- **Pipeline y proyecto:** sólo `onError` y `report` por defecto.
+
+Todo el cableado se valida al construir la `Pipeline`: salidas sin destino, overrides de
+salidas o agentes que no existen, ciclos entre agentes. `pipeline.routesOf(agentId)` muestra
+las rutas efectivas con el origen de cada una.
 
 ## Ejemplo mínimo
 
 ```ts
-import { Agent, Condition, Engine, EventBus, FunctionAction, Pipeline,
-         StaticPipelineSource, createEvent, providerRegistry } from '@ia-tools/agent-pipeline';
+import { Agent, END, Engine, EventBus, Pipeline, Project, createEvent,
+         providerRegistry } from '@ia-tools/agent-pipeline';
+import { z } from 'zod';
 
-providerRegistry.register(/* tu Provider, ver arriba */);
+providerRegistry.register(/* tu Provider */);
+
+// updateIssue / postComment: Actions de tu dominio (ej. GitHub).
+const triage = new Agent({
+  id: 'triage',
+  provider: 'anthropic-api',
+  prompt: 'Comentario: {{body}}',
+  report: null,
+  routes: {
+    actionable: { when: 'Pide un cambio de código o de PRD' },   // destino: lo pone la pipeline
+    not_actionable: { when: 'Pregunta, agradecimiento o ruido', to: END },
+  },
+});
+
+const refiner = new Agent({
+  id: 'refiner',
+  provider: 'anthropic-api',
+  prompt: 'Ajustá el PRD: {{input.summary}}',
+  input: z.strictObject({ summary: z.string().optional() }),
+  routes: {
+    done: { when: 'El PRD quedó listo', to: updateIssue.bind({ status: 'Refined' }) },
+    back_to_build: { when: 'Lo que falla es la implementación', to: updateIssue.bind({ status: 'Build' }) },
+  },
+});
 
 const pipeline = new Pipeline({
-  id: 'github-bug-triage',
-  on: ['github.issue.opened'],
-  do: [
-    new Agent({
-      id: 'triage',
-      provider: 'anthropic-api',
-      prompt: 'Título: {{title}}\n\nRespondé "actionable" o "not-actionable".',
-      exits: { actionable: 'actionable', 'not-actionable': 'not-actionable' },
-    }),
-    new FunctionAction({
-      id: 'fix',
-      when: Condition.fromRows([{ field: 'steps.triage.exit', op: 'eq', value: 'actionable' }]),
-      fn: () => 'PR abierto',
-    }),
-  ],
+  id: 'comment-refine',
+  on: ['github.issue_comment'],
+  do: [triage, refiner],
+  routes: { triage: { routes: { actionable: { to: refiner } } } },
 });
 
 const bus = new EventBus();
-const engine = new Engine({ bus, pipelines: new StaticPipelineSource([pipeline]) });
+const engine = new Engine({
+  bus,
+  pipelines: new Project({
+    id: 'lahaus',
+    pipelines: [pipeline],
+    report: postComment.bind({ target: 'pr-else-issue' }),
+    onError: { to: updateIssue.bind({ labels: ['blocked'] }) },
+  }),
+});
 engine.start();
 
-await bus.publish(createEvent('github.issue.opened', { title: 'crash on login (bug)' }));
+await bus.publish(createEvent('github.issue_comment', { body: 'falta paginar la tabla' }));
 ```
+
+El modelo de `triage` ve `submit_actionable({ refiner: { summary } })` y
+`submit_not_actionable({})`; el de `refiner` ve `submit_done({ report })` y
+`submit_back_to_build({ report })`.
 
 ## Los tres casos que motivaron esto
 

@@ -8,12 +8,13 @@ completo; esto es guía específica para trabajar en el código del paquete.
 
 Es **contrato puro, sin I/O**: interfaces y clases (`DomainEvent`, `EventBus`, `Condition`,
 `Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`, `Provider`,
-`ProviderRegistry`, `ToolRegistry`, `SchemaTool`). La única dependencia runtime es `zod`, y
-sólo la usa `SchemaTool` — es validación pura en memoria, no I/O, así que no rompe la regla de
-abajo. No sumes otra sin una razón igual de fuerte.
+`ProviderRegistry`, `ToolRegistry`, `SchemaTool`, `Action`, `Project`, la cascada de rutas). La
+única dependencia runtime es `zod` — la usan `SchemaTool`, `Action`, el `input` de `Agent` y los
+schemas de `submit_*`; es validación pura en memoria, no I/O, así que no rompe la regla de abajo.
+No sumes otra sin una razón igual de fuerte.
 
 La regla NO es "nada que mencione un LLM" — `Agent` sabe
-que existe un `prompt`, `systemPrompts`, `exits`; eso es dominio, no infra, porque es
+que existe un `prompt`, `systemPrompts`, sus salidas; eso es dominio, no infra, porque es
 TypeScript puro sin `fetch` ni credenciales. La línea real es **contrato vs. implementación
 con I/O real**: un `Provider` CONCRETO que le pega a la API de Anthropic/OpenAI/lo que sea
 (hace `fetch`, lee `process.env`, maneja retries) es infra — vive en su propio paquete
@@ -26,11 +27,11 @@ preguntate: ¿esto compila sin tocar la red ni el filesystem? Si la respuesta es
 src/
 ├── agent/
 │   ├── Agent.ts             clase concreta — un Runnable respaldado por un LLM
-│   ├── AgentDefinition.ts   AgentDefinitionProps + tipos (SystemPromptRef, Tool, AgentExit, ...)
+│   ├── AgentDefinition.ts   AgentDefinitionProps + tipos (SystemPromptRef, Tool, McpServerRef, ...)
 │   ├── Provider.ts          Provider (interfaz) + ProviderRegistry + providerRegistry (singleton)
 │   ├── ToolRegistry.ts      base genérica de registry de Tool con AUTO-REGISTRO por clase
 │   ├── SchemaTool.ts        base de Tool con input declarado como z.strictObject (valida + JSON Schema)
-│   └── tests/               Agent.test.ts, AgentDefinition.test.ts, Provider.test.ts, ToolRegistry.test.ts, SchemaTool.test.ts
+│   └── tests/               Agent.test.ts, Provider.test.ts, ToolRegistry.test.ts, SchemaTool.test.ts
 ├── condition/
 │   ├── Condition.ts, Conditional.ts
 │   └── tests/
@@ -42,10 +43,14 @@ src/
 │   ├── Runnable.ts          base de todo lo que vive en Pipeline.do[]
 │   ├── tests/
 │   └── actions/
+│       ├── Action.ts         Action (input tipado) + BoundAction (bind) + AllowedAction (allowWrite)
 │       ├── EmitAction.ts, HttpAction.ts, FunctionAction.ts
 │       └── tests/
+├── routing/
+│   ├── ExitRoutes.ts        END, ExitRoutes, resolveRoutes (la cascada), submitSchemaFor
+│   └── tests/
 ├── engine/
-│   ├── Engine.ts, PipelineSource.ts
+│   ├── Engine.ts, PipelineSource.ts, Project.ts
 │   └── tests/
 ├── index.ts
 └── tests/                index.test.ts
@@ -170,6 +175,31 @@ declara `input` (un `z.strictObject`), implementa `execute(input: z.infer<S>)`, 
   todavía no está asignado cuando corre el constructor de la base.
 - La interfaz `Tool` no cambia: un consumidor puede seguir implementándola a mano con JSON Schema
   plano (los fixtures de `ToolRegistry.test.ts` lo hacen). `SchemaTool` es opt-in.
+
+## Salidas de un agente — `routing/ExitRoutes.ts`
+
+Reemplaza a `exits`/`comment`/`emitOn` (el modelo de ia-flow). Un agente termina eligiendo una
+SALIDA con una tool `submit_<salida>`, cuyo schema es el input de los pasos a los que lleva — ver
+`submitSchemaFor`. Qué salidas hay y a dónde llevan se resuelve en cascada, **paso > pipeline >
+agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvias al leer el código:
+
+- **Sólo el agente crea salidas** (vocabulario + `when`). Un override de una salida no declarada
+  tira: un typo tiene que romper al construir, no quedar como config muerta.
+- **Las rutas base del agente sólo apuntan a acciones.** Encadenar agentes se declara en la
+  pipeline (`routes.<agentId>`), donde se ve el grafo completo; si no, incluir un agente
+  arrastraría el grafo de otros. `Agent` lo valida en su constructor.
+- **Una salida sin `to` es sólo vocabulario** (ej. `comment-triage.actionable`): la pipeline
+  tiene que ponerle destino o la construcción falla.
+- **`report` corre ANTES que los destinos.** El siguiente agente (disparado por un cambio de
+  status) lee los comentarios del issue; si la transición fuera primero, arrancaría sin ver el
+  hallazgo que lo mandó ahí. Este orden vive en `Pipeline.runStep`, en un solo lugar.
+- **Proyecto y pipeline sólo definen `onError`/`report`** (`ExitDefaults`): no conocen a los
+  agentes, no pueden inventarles salidas.
+- **Los loops no van por rutas.** `Pipeline` rechaza ciclos entre agentes; un "review → build"
+  pasa por un evento (el cambio de status), con el tope de profundidad del `Engine`.
+
+`Pipeline` valida todo el cableado en su constructor llamando a `resolveRoutes` sin el nivel
+proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
 
 ## Antes de tocar código
 
