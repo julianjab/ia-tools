@@ -54,6 +54,19 @@ describe('fs_grep', () => {
     expect(matches).toEqual([{ file: join('sub', 'x.ts'), line: 1, text: 'needle' }]);
   });
 
+  it('busca en un solo archivo cuando path apunta a uno', async () => {
+    await mkdir(join(baseDir, 'docs'));
+    await writeFile(join(baseDir, 'docs', 'CLAUDE.md'), 'intro\nuv run pytest\nfin\n', 'utf-8');
+    await writeFile(join(baseDir, 'other.md'), 'uv run pytest', 'utf-8');
+    const tool = new FsGrepTool(baseDir);
+
+    const matches = JSON.parse(
+      await tool.handler({ pattern: 'uv run', path: join('docs', 'CLAUDE.md') }),
+    );
+
+    expect(matches).toEqual([{ file: join('docs', 'CLAUDE.md'), line: 2, text: 'uv run pytest' }]);
+  });
+
   it('salta líneas más largas que el tope — nunca corre el regex contra ellas', async () => {
     const longLine = `${'x'.repeat(3000)}needle`;
     await writeFile(join(baseDir, 'a.ts'), `${longLine}\nneedle corto\n`, 'utf-8');
