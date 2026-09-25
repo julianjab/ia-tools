@@ -84,6 +84,8 @@ describe('BashRunTool — gitCredential', () => {
       'git --exec-path=/tmp status',
       'git log --work-tree=/tmp',
       'git --namespace x fetch',
+      'git push --receive-pack=sh /tmp/x',
+      'git ls-remote -u./x.sh .',
     ]) {
       // Algunas (`--exec-path`) ya las rechaza la policy de siempre; lo que importa es que ninguna
       // corra con la credencial.

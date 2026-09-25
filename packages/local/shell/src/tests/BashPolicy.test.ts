@@ -75,6 +75,20 @@ describe('isDenied / isAllowed', () => {
     expect(isDenied(['git', 'status'], policy)).toBeUndefined();
   });
 
+  it('isDenied bloquea --receive-pack y la forma corta -u de clone/ls-remote, separada o pegada', () => {
+    const policy = { deny: [] };
+    expect(isDenied(['git', 'push', '--receive-pack=sh', '/tmp/x'], policy)).toBeDefined();
+    expect(
+      isDenied(['git', 'push', 'origin', 'HEAD', '--receive-pack', 'sh'], policy),
+    ).toBeDefined();
+    expect(isDenied(['git', 'clone', '-u', 'sh', 'repo'], policy)).toBeDefined();
+    expect(isDenied(['git', 'ls-remote', '-u./x.sh', '.'], policy)).toBeDefined();
+    // Una opción global corre el subcomando de lugar: igual se ve.
+    expect(isDenied(['git', '-C', '.', 'clone', '-ush', 'repo'], policy)).toBeDefined();
+    // En `fetch`, `-u` es `--update-head-ok`, no un helper.
+    expect(isDenied(['git', 'fetch', '-u', 'origin'], policy)).toBeUndefined();
+  });
+
   it('DEFAULT_DENY_PATTERNS deniega tar y find ENTEROS (los flags de exec pueden ir en cualquier posición, abreviados o pegados)', () => {
     const policy = { deny: DEFAULT_DENY_PATTERNS };
     expect(isDenied(['tar', 'xf', 'a.tar', '--to-command=sh'], policy)).toBeDefined();
