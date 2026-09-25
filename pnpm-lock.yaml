@@ -19,7 +19,7 @@ importers:
         version: link:../packages/agent-pipeline
       '@ia-tools/fs-tools':
         specifier: workspace:*
-        version: link:../packages/fs-tools
+        version: link:../packages/local/fs
       '@ia-tools/github-api':
         specifier: workspace:*
         version: link:../packages/github/api
@@ -34,7 +34,7 @@ importers:
         version: link:../packages/provider-anthropic
       '@ia-tools/shell-tools':
         specifier: workspace:*
-        version: link:../packages/shell-tools
+        version: link:../packages/local/shell
       yaml:
         specifier: ^2.6.0
         version: 2.9.1
@@ -54,25 +54,6 @@ importers:
 
   packages/agent-pipeline:
     dependencies:
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.17
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.4(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
-
-  packages/fs-tools:
-    dependencies:
-      '@ia-tools/agent-pipeline':
-        specifier: workspace:*
-        version: link:../agent-pipeline
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -152,11 +133,14 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
 
-  packages/provider-anthropic:
+  packages/local/fs:
     dependencies:
       '@ia-tools/agent-pipeline':
         specifier: workspace:*
-        version: link:../agent-pipeline
+        version: link:../../agent-pipeline
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -168,14 +152,30 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
 
-  packages/shell-tools:
+  packages/local/shell:
+    dependencies:
+      '@ia-tools/agent-pipeline':
+        specifier: workspace:*
+        version: link:../../agent-pipeline
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
+
+  packages/provider-anthropic:
     dependencies:
       '@ia-tools/agent-pipeline':
         specifier: workspace:*
         version: link:../agent-pipeline
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

@@ -5,8 +5,9 @@ packages:
   # auth/, webhook/, api/, tools/ — cuatro paquetes propios dentro de una sola carpeta github/,
   # en vez de carpetas por-funcionalidad dentro de un solo paquete.
   - packages/github/*
-  - packages/fs-tools
-  - packages/shell-tools
+  # fs/, shell/ — mismo patrón: dos paquetes propios dentro de packages/local/,
+  # en vez de dos carpetas sueltas en la raíz de packages/.
+  - packages/local/*
   # Gitignored local playground (see .gitignore) — pnpm just skips this entry on a fresh
   # clone where the directory doesn't exist yet.
   - examples
