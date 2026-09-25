@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { createEvent } from '../../../events/DomainEvent.js';
 import { EventBus } from '../../../events/EventBus.js';
 import type { PipelineExecutionContext } from '../../Runnable.js';
@@ -168,5 +169,54 @@ describe('HttpAction', () => {
 
     expect(capturedSignal?.aborted).toBe(true);
     vi.useRealTimers();
+  });
+
+  describe('typed input', () => {
+    const input = z.strictObject({ severity: z.enum(['low', 'high']), summary: z.string() });
+
+    it('without a body, POSTs the validated input as JSON', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await new HttpAction({ url: 'https://api.example.com/alerts', method: 'POST', input }).run(
+        makeCtx(),
+        { severity: 'high', summary: 'caída' },
+      );
+
+      expect(fetchMock.mock.calls[0]?.[1].body).toBe(
+        JSON.stringify({ severity: 'high', summary: 'caída' }),
+      );
+    });
+
+    it('url, headers and body functions receive the validated input', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await new HttpAction({
+        url: (_ctx, value) => `https://api.example.com/${value?.severity}`,
+        method: 'POST',
+        headers: (_ctx, value) => ({ 'x-severity': String(value?.severity) }),
+        body: (_ctx, value) => ({ text: value?.summary }),
+        input,
+      }).run(makeCtx(), { severity: 'low', summary: 'ok' });
+
+      const [url, init] = fetchMock.mock.calls[0] ?? [];
+      expect(url).toBe('https://api.example.com/low');
+      expect(init.headers['x-severity']).toBe('low');
+      expect(init.body).toBe(JSON.stringify({ text: 'ok' }));
+    });
+
+    it('rejects an invalid input without sending the request', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        new HttpAction({ id: 'alert', url: 'https://x', input }).run(makeCtx(), {
+          severity: 'mid',
+          summary: 'x',
+        }),
+      ).rejects.toThrow(/alert: input inválido[\s\S]*→ at severity/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });

@@ -238,7 +238,7 @@ describe('Agent', () => {
       });
 
       await expect(agentWithInput(registry).run(ctxFor(), { summary: 3 })).rejects.toThrow(
-        /Agent\(refiner\): input inválido[\s\S]*→ at summary/,
+        /refiner: input inválido[\s\S]*→ at summary/,
       );
       expect(called).toBe(false);
     });

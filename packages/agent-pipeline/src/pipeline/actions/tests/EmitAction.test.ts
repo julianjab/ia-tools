@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { createEvent } from '../../../events/DomainEvent.js';
 import { EventBus } from '../../../events/EventBus.js';
 import type { PipelineExecutionContext } from '../../Runnable.js';
@@ -41,5 +42,37 @@ describe('EmitAction', () => {
     }).run(ctx);
 
     expect(event).toMatchObject({ type: 'triaged', payload: { label: 'bug' } });
+  });
+
+  describe('typed input', () => {
+    const input = z.strictObject({ tripId: z.string() });
+
+    it('without a payload, the validated input is the payload', async () => {
+      const event = await new EmitAction({ type: 'trip.booked', input }).run(makeCtx(), {
+        tripId: 't1',
+      });
+
+      expect(event).toMatchObject({ type: 'trip.booked', payload: { tripId: 't1' } });
+    });
+
+    it('a payload function receives the validated input', async () => {
+      const event = await new EmitAction({
+        type: 'trip.booked',
+        input,
+        payload: (_ctx, value) => ({ id: value?.tripId, source: 'agent' }),
+      }).run(makeCtx(), { tripId: 't1' });
+
+      expect(event).toMatchObject({ payload: { id: 't1', source: 'agent' } });
+    });
+
+    it('rejects an invalid input without publishing', async () => {
+      const bus = new EventBus();
+      const publishSpy = vi.spyOn(bus, 'publish');
+
+      await expect(
+        new EmitAction({ id: 'emit', type: 'x', input }).run(makeCtx(bus), {}),
+      ).rejects.toThrow(/emit: input inválido/);
+      expect(publishSpy).not.toHaveBeenCalled();
+    });
   });
 });
