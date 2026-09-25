@@ -1,12 +1,14 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { z } from 'zod';
 import { FsTool } from '../FsTool.js';
 import { SKIPPED_DIR_NAMES } from '../shared.js';
 
-export interface FsGrepInput {
-  pattern: string;
-  path?: string;
-}
+export const FsGrepInput = z.strictObject({
+  pattern: z.string().min(1).describe('Regex (sintaxis JS)'),
+  path: z.string().optional().describe('Subdirectorio relativo donde buscar, default "."'),
+});
+export type FsGrepInput = z.infer<typeof FsGrepInput>;
 
 const MAX_MATCHES = 200;
 const MAX_FILES_SCANNED = 5000;
@@ -85,20 +87,13 @@ async function walk(
   }
 }
 
-export class FsGrepTool extends FsTool<FsGrepInput> {
+export class FsGrepTool extends FsTool<typeof FsGrepInput> {
   readonly name = 'fs_grep';
   readonly description =
     `Busca un patrón (regex) en los archivos de texto dentro de ${this.baseDir}, recursivo. Salta node_modules/.git/dist/.turbo/.cache, archivos >2MB, y líneas >2000 caracteres.`;
-  readonly inputSchema = {
-    type: 'object',
-    properties: {
-      pattern: { type: 'string', description: 'Regex (sintaxis JS)' },
-      path: { type: 'string', description: 'Subdirectorio relativo donde buscar, default "."' },
-    },
-    required: ['pattern'],
-  };
+  readonly input = FsGrepInput;
 
-  async handler(input: FsGrepInput): Promise<string> {
+  protected async execute(input: FsGrepInput): Promise<string> {
     const startDir = await this.resolveSafePath(input.path ?? '.');
     const regex = new RegExp(input.pattern, 'g');
     const matches: Match[] = [];

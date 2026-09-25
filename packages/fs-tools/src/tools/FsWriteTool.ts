@@ -1,26 +1,21 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { z } from 'zod';
 import { FsTool } from '../FsTool.js';
 
-export interface FsWriteInput {
-  path: string;
-  content: string;
-}
+export const FsWriteInput = z.strictObject({
+  path: z.string().describe('Path relativo a la raíz del worktree'),
+  content: z.string().describe('Contenido completo del archivo'),
+});
+export type FsWriteInput = z.infer<typeof FsWriteInput>;
 
-export class FsWriteTool extends FsTool<FsWriteInput> {
+export class FsWriteTool extends FsTool<typeof FsWriteInput> {
   readonly name = 'fs_write';
   readonly description =
     `Escribe (crea o sobreescribe por completo) un archivo dentro de ${this.baseDir} (path relativo).`;
-  readonly inputSchema = {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'Path relativo a la raíz del worktree' },
-      content: { type: 'string', description: 'Contenido completo del archivo' },
-    },
-    required: ['path', 'content'],
-  };
+  readonly input = FsWriteInput;
 
-  async handler(input: FsWriteInput): Promise<string> {
+  protected async execute(input: FsWriteInput): Promise<string> {
     const absPath = await this.resolveSafePath(input.path);
     await mkdir(dirname(absPath), { recursive: true });
     await writeFile(absPath, input.content, 'utf-8');

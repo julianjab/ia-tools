@@ -1,22 +1,19 @@
 import { readdir } from 'node:fs/promises';
+import { z } from 'zod';
 import { FsTool } from '../FsTool.js';
 
-export interface FsListInput {
-  path?: string;
-}
+export const FsListInput = z.strictObject({
+  path: z.string().optional().describe('Path relativo, default "."'),
+});
+export type FsListInput = z.infer<typeof FsListInput>;
 
-export class FsListTool extends FsTool<FsListInput> {
+export class FsListTool extends FsTool<typeof FsListInput> {
   readonly name = 'fs_list';
   readonly description =
     `Lista archivos y carpetas de un directorio dentro de ${this.baseDir} (path relativo, default: la raíz).`;
-  readonly inputSchema = {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'Path relativo, default "."' },
-    },
-  };
+  readonly input = FsListInput;
 
-  async handler(input: FsListInput): Promise<string> {
+  protected async execute(input: FsListInput): Promise<string> {
     const absPath = await this.resolveSafePath(input.path ?? '.');
     const entries = await readdir(absPath, { withFileTypes: true });
     const listing = entries

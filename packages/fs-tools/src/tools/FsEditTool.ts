@@ -1,12 +1,14 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { z } from 'zod';
 import { FsTool } from '../FsTool.js';
 
-export interface FsEditInput {
-  path: string;
-  oldString: string;
-  newString: string;
-  replaceAll?: boolean;
-}
+export const FsEditInput = z.strictObject({
+  path: z.string().describe('Path relativo a la raíz del worktree'),
+  oldString: z.string().min(1).describe('Texto exacto a reemplazar'),
+  newString: z.string().describe('Texto de reemplazo'),
+  replaceAll: z.boolean().optional().describe('Reemplazar todas las ocurrencias, default false'),
+});
+export type FsEditInput = z.infer<typeof FsEditInput>;
 
 function countOccurrences(haystack: string, needle: string): number {
   if (needle === '') return 0;
@@ -21,25 +23,13 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-export class FsEditTool extends FsTool<FsEditInput> {
+export class FsEditTool extends FsTool<typeof FsEditInput> {
   readonly name = 'fs_edit';
   readonly description =
     `Reemplaza \`oldString\` por \`newString\` en un archivo dentro de ${this.baseDir} — tira si \`oldString\` no aparece, o aparece más de una vez sin \`replaceAll\`.`;
-  readonly inputSchema = {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'Path relativo a la raíz del worktree' },
-      oldString: { type: 'string', description: 'Texto exacto a reemplazar' },
-      newString: { type: 'string', description: 'Texto de reemplazo' },
-      replaceAll: {
-        type: 'boolean',
-        description: 'Reemplazar todas las ocurrencias, default false',
-      },
-    },
-    required: ['path', 'oldString', 'newString'],
-  };
+  readonly input = FsEditInput;
 
-  async handler(input: FsEditInput): Promise<string> {
+  protected async execute(input: FsEditInput): Promise<string> {
     const absPath = await this.resolveSafePath(input.path);
     const content = await readFile(absPath, 'utf-8');
     const occurrences = countOccurrences(content, input.oldString);
