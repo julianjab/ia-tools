@@ -97,6 +97,17 @@ describe('bash_run', () => {
     expect(result.status).not.toBe('exit 0');
   }, 10_000);
 
+  it('stdin va a /dev/null, no queda un pipe abierto — un comando que lee stdin no cuelga hasta timeoutMs', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] } }); // default timeoutMs: 60s
+
+    const result = JSON.parse(await tool.handler({ command: 'cat' }));
+
+    // "cat" sin argumento lee de stdin — con stdin en /dev/null recibe EOF al toque en vez de
+    // colgarse esperando que alguien escriba.
+    expect(result.status).toBe('exit 0');
+    expect(result.stdout).toBe('');
+  }, 5_000);
+
   it('NO hereda el entorno completo del proceso — una var fuera del subset seguro no llega', async () => {
     process.env.FS_TOOLS_TEST_SECRET = 'no-deberia-verse';
     try {
