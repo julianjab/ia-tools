@@ -1,16 +1,12 @@
 export type {
   AgentDefinitionProps,
-  AgentExit,
-  AgentOutput,
-  AgentOutputField,
   AgentVariableValue,
-  CommentTarget,
   McpServerRef,
   SystemPromptRef,
   Tool,
 } from './agent/AgentDefinition.js';
-export { ERROR_EXIT, SUCCESS_EXIT, exitSet } from './agent/AgentDefinition.js';
-export { Agent } from './agent/Agent.js';
+export type { AgentRunResult } from './agent/Agent.js';
+export { Agent, NO_TRANSITION_OUTCOMES } from './agent/Agent.js';
 export type { Provider, ProviderRunContext, ProviderRunOutput } from './agent/Provider.js';
 export { ProviderRegistry, providerRegistry } from './agent/Provider.js';
 export type { ToolInputSchema } from './agent/SchemaTool.js';

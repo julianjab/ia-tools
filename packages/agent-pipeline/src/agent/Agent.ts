@@ -1,19 +1,39 @@
-import { deriveEvent } from '../events/DomainEvent.js';
+import { z } from 'zod';
 import { Runnable } from '../pipeline/Runnable.js';
 import type { PipelineExecutionContext } from '../pipeline/Runnable.js';
+import { AllowedAction } from '../pipeline/actions/Action.js';
 import {
-  type AgentDefinitionProps,
-  type AgentExit,
-  type AgentVariableValue,
-  ERROR_EXIT,
-  type SystemPromptRef,
-  exitSet,
+  type ExitRoutes,
+  type ResolvedExit,
+  resolveRoutes,
+  routeTargets,
+  submitSchemaFor,
+} from '../routing/ExitRoutes.js';
+import type {
+  AgentDefinitionProps,
+  AgentVariableValue,
+  SystemPromptRef,
+  Tool,
 } from './AgentDefinition.js';
-import { type ProviderRegistry, providerRegistry as defaultProviderRegistry } from './Provider.js';
+import {
+  type ProviderRegistry,
+  type ProviderRunOutput,
+  providerRegistry as defaultProviderRegistry,
+} from './Provider.js';
+import { SchemaTool, type ToolInputSchema } from './SchemaTool.js';
 
-/** Outcomes que NO aplican ninguna transición — el run se cortó desde afuera, no es un
- *  resultado del agente. Igual a `NO_TRANSITION_OUTCOMES` de ia-flow. */
-const NO_TRANSITION_OUTCOMES = new Set(['cancelled', 'truncated']);
+/** Outcomes que NO aplican ninguna salida — el run se cortó desde afuera, no es un resultado
+ *  del agente. Igual a `NO_TRANSITION_OUTCOMES` de ia-flow. */
+export const NO_TRANSITION_OUTCOMES = new Set(['cancelled', 'truncated']);
+
+/** Lo que devuelve `Agent.run` y queda en `ctx.steps[id]`. */
+export interface AgentRunResult {
+  output: ProviderRunOutput;
+  /** La salida elegida. `undefined` si la corrida se cortó (`truncated`/`cancelled`). */
+  exit?: string;
+  /** Lo que el modelo entregó en `submit_<exit>`: `{ report?, <idDestino>: input, ... }`. */
+  payload?: Record<string, unknown>;
+}
 
 function getPath(root: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, key) => {
@@ -45,21 +65,45 @@ function resolveSystemPrompts(refs: SystemPromptRef[]): string[] {
   return refs.map((ref) => ref.text).filter((text): text is string => text != null);
 }
 
-function matchExit(exits: Record<string, AgentExit>, outcome: string): AgentExit | undefined {
-  if (NO_TRANSITION_OUTCOMES.has(outcome)) return undefined;
-  return exits[outcome] ?? exits[ERROR_EXIT];
+function acceptsEmpty(agentId: string, exit: ResolvedExit): boolean {
+  return submitSchemaFor(agentId, exit).safeParse({}).success;
+}
+
+interface Submission {
+  exit: string;
+  payload: Record<string, unknown>;
+}
+
+function submitTool(
+  agentId: string,
+  exit: ResolvedExit,
+  onSubmit: (submission: Submission) => void,
+): Tool {
+  const schema = submitSchemaFor(agentId, exit);
+  const description = exit.when
+    ? `Terminá tu turno con la salida "${exit.name}". Usala cuando: ${exit.when}`
+    : `Terminá tu turno con la salida "${exit.name}".`;
+  return new (class extends SchemaTool<ToolInputSchema> {
+    readonly name = `submit_${exit.name}`;
+    readonly description = description;
+    readonly input = schema;
+    readonly terminal = true;
+
+    protected execute(input: Record<string, unknown>): string {
+      onSubmit({ exit: exit.name, payload: input });
+      return `Salida "${exit.name}" registrada. Tu turno terminó.`;
+    }
+  })();
 }
 
 /**
  * Un agente respaldado por un LLM — `Runnable` directo, así que se pone tal cual en
- * `Pipeline.do[]`, con su propio `id` (de `AgentDefinitionProps.id`) como key de `ctx.steps`.
- * No hace falta un paso intermedio que lo resuelva por id desde un registry: reusar el mismo
- * agente en dos pipelines es, como con cualquier otro objeto de JS/TS, importar la misma
- * instancia dos veces.
+ * `Pipeline.do[]` o como destino de una ruta, con su propio `id` como key de `ctx.steps`.
  *
- * Es el único puente entre "cómo se declara un agente" (`AgentDefinitionProps`, config
- * portable de ia-flow) y "cómo lo corre agent-pipeline" (`Runnable.run`) — ningún `Provider`
- * conoce `{{...}}` ni `exits`; eso vive acá, una sola vez.
+ * Termina eligiendo una SALIDA: por cada salida resuelta (ver `resolveRoutes`) el modelo recibe
+ * una tool `submit_<salida>` cuyo schema es el input de los pasos a los que lleva. Qué pasos
+ * corren después, y en qué orden, lo decide `Pipeline` — el agente sólo reporta qué eligió y con
+ * qué datos. Ningún `Provider` conoce `{{...}}` ni las salidas; eso vive acá, una sola vez.
  */
 export class Agent extends Runnable {
   readonly definition: AgentDefinitionProps;
@@ -76,9 +120,21 @@ export class Agent extends Runnable {
     });
     this.definition = definition;
     this.registry = registry;
+    this.assertBaseRoutesTargetActions();
+    this.assertWriteActionsAllowed();
   }
 
-  async run(ctx: PipelineExecutionContext): Promise<unknown> {
+  /** Las rutas BASE del agente — la pipeline las sobrescribe o elimina (ver `resolveRoutes`). */
+  get exitRoutes(): ExitRoutes {
+    const { routes, onError, report } = this.definition;
+    return { routes, onError, report };
+  }
+
+  override acceptsInput(): ToolInputSchema | undefined {
+    return this.definition.input;
+  }
+
+  async run(ctx: PipelineExecutionContext, input?: unknown): Promise<AgentRunResult> {
     const def = this.definition;
     const provider = this.registry.resolve(def.provider);
     if (provider == null) {
@@ -86,6 +142,12 @@ export class Agent extends Runnable {
         `Agent(${def.id}): provider desconocido "${def.provider}" — ¿lo registraste con providerRegistry.register(...)?`,
       );
     }
+
+    const parsedInput = this.parseInput(input);
+    const routes =
+      ctx.routesFor?.(this) ?? resolveRoutes(def.id, this.exitRoutes, { project: ctx.defaults });
+
+    if (def.onStart) await def.onStart.run(ctx);
 
     const payload =
       typeof ctx.event.payload === 'object' && ctx.event.payload !== null
@@ -96,47 +158,106 @@ export class Agent extends Runnable {
       ...payload,
       steps: ctx.steps,
       variables: renderedVariables(variables),
+      input: parsedInput,
     };
-    const prompt = interpolate(def.prompt, root);
 
-    const result = await provider.run({
+    let submission: Submission | undefined;
+    const submitTools = routes.exits.map((exit) =>
+      submitTool(def.id, exit, (next) => {
+        if (submission) {
+          throw new Error(
+            `Ya elegiste la salida "${submission.exit}" — un turno termina con una sola.`,
+          );
+        }
+        submission = next;
+      }),
+    );
+    const actionTools = (def.actions ?? []).map((entry) =>
+      (entry instanceof AllowedAction ? entry.action : entry).asTool(ctx),
+    );
+    const tools = [...(def.tools ?? []), ...actionTools, ...submitTools];
+    this.assertUniqueToolNames(tools);
+
+    const output = await provider.run({
       agentId: def.id,
-      prompt,
+      prompt: interpolate(def.prompt, root),
       systemPrompts: resolveSystemPrompts(def.systemPrompts ?? []),
       variables,
       providerConfig: def.providerConfig ?? {},
       mcpServers: def.mcpServers ?? [],
-      tools: def.tools ?? [],
+      tools,
       ctx,
     });
 
-    const exits = def.exits ?? {};
-    const exit = exitSet(matchExit(exits, result.outcome));
-
-    // `exit == null` significa "sin transición" (truncated/cancelled) o "outcome sin mapear
-    // y sin exits.error de fallback" — en ambos casos NO hay un exit real que emitir, así que
-    // `emitOn` ni se llama. Antes esto caía a `exit ?? 'success'`, inventando un exit 'success'
-    // que nunca pasó y publicando el evento derivado de éxito aunque el run se haya truncado.
-    const derivedType = exit != null ? def.emitOn?.(exit) : undefined;
-    if (derivedType) {
-      const basePayload =
-        typeof result === 'object' && result !== null
-          ? (result as unknown as Record<string, unknown>)
-          : { output: result };
-      // ACOPLAMIENTO DELIBERADO: este `await` significa que si algún Pipeline que escucha
-      // `derivedType` falla, ese fallo (un AggregateError — ver EventBus.publish) se propaga
-      // hasta ACÁ y aborta este paso, aunque el provider ya haya corrido con éxito (y con
-      // cualquier efecto de lado que eso implique, ej. un PR ya abierto). El resultado nunca
-      // llega a `ctx.steps` en ese caso. Es la misma garantía que le da `Engine.dispatch` a
-      // quien llama `bus.publish` en la raíz — un fallo aguas abajo tiene que ser visible, no
-      // tragado en silencio — a costa de que un `Agent` con `emitOn` no sea "fire and forget".
-      // Si preferís que ESTE paso no dependa de lo que pase después, marcá `continueOnError:
-      // true` en la definición.
-      await ctx.bus.publish(
-        deriveEvent(ctx.event, derivedType, { ...basePayload, agentId: def.id }),
+    if (NO_TRANSITION_OUTCOMES.has(output.outcome)) return { output };
+    if (output.outcome === 'error') {
+      throw new Error(
+        `Agent(${def.id}): el provider reportó error${output.summary ? `: ${output.summary}` : ''}`,
       );
     }
 
-    return { output: result, exit };
+    if (!submission) {
+      // Un provider sin tools (un CLI, un modelo sin tool use) no puede llamar `submit_*`: se le
+      // acepta el outcome como nombre de salida, o la única salida, SI esa salida no pide datos.
+      const byOutcome = routes.exits.find((exit) => exit.name === output.outcome);
+      const candidate = byOutcome ?? (routes.exits.length === 1 ? routes.exits[0] : undefined);
+      if (candidate && acceptsEmpty(def.id, candidate)) {
+        submission = { exit: candidate.name, payload: {} };
+      } else {
+        const names = routes.exits.map((exit) => `submit_${exit.name}`).join(', ');
+        throw new Error(
+          `Agent(${def.id}): terminó sin elegir salida — tenía que llamar a ${names}`,
+        );
+      }
+    }
+
+    return { output, exit: submission.exit, payload: submission.payload };
+  }
+
+  private parseInput(input: unknown): Record<string, unknown> {
+    const schema = this.definition.input;
+    if (!schema) return {};
+    const parsed = schema.safeParse(input ?? {});
+    if (!parsed.success) {
+      throw new Error(
+        `Agent(${this.definition.id}): input inválido\n${z.prettifyError(parsed.error)}`,
+      );
+    }
+    return parsed.data as Record<string, unknown>;
+  }
+
+  /** Encadenar agentes lo decide la pipeline, donde se ve el grafo completo: una ruta BASE que
+   *  apuntara a otro agente arrastraría su grafo a cualquier pipeline que incluya a éste. */
+  private assertBaseRoutesTargetActions(): void {
+    const def = this.definition;
+    const targets = [
+      ...Object.values(def.routes ?? {}).flatMap((route) => routeTargets(route?.to)),
+      ...routeTargets(def.onError?.to),
+    ];
+    const agent = targets.find((target) => target instanceof Agent);
+    if (agent) {
+      throw new Error(
+        `Agent(${def.id}): una ruta base apunta al agente "${agent.id}" — encadenar agentes se declara en la pipeline`,
+      );
+    }
+  }
+
+  private assertWriteActionsAllowed(): void {
+    for (const entry of this.definition.actions ?? []) {
+      if (entry instanceof AllowedAction || entry.sideEffects !== 'write') continue;
+      throw new Error(
+        `Agent(${this.definition.id}): la acción "${entry.id}" escribe — pasala como ${entry.id}.allowWrite() si el agente puede usarla`,
+      );
+    }
+  }
+
+  private assertUniqueToolNames(tools: Tool[]): void {
+    const seen = new Set<string>();
+    for (const tool of tools) {
+      if (seen.has(tool.name)) {
+        throw new Error(`Agent(${this.definition.id}): dos tools con el nombre "${tool.name}"`);
+      }
+      seen.add(tool.name);
+    }
   }
 }

@@ -1,33 +1,32 @@
 /**
- * Config declarativa de un agente respaldado por un LLM. Espeja `AgentDefinitionProps` de
- * ia-flow (`v2-platform/packages/engine-v2/src/engine/Agent.ts`) a propósito: portar un
- * agente real de ia-flow a este harness es copiar la forma, no reinventarla — y si
- * `agent-pipeline` termina reemplazando el engine real, este archivo es el punto de partida
- * de ESA pieza (ver la nota de memoria del proyecto sobre ese objetivo).
+ * Config declarativa de un agente respaldado por un LLM. Nació espejando `AgentDefinitionProps`
+ * de ia-flow (`v2-platform/packages/engine-v2/src/engine/Agent.ts`); la parte de SALIDAS ya no:
+ *
+ * - `exits` (status + `when` + `comment`) → `routes`: cada salida lleva a pasos con input tipado,
+ *   y la transición del board es una acción más (`updateIssue.bind({ status })`).
+ * - `comment` → `report`: el cierre del turno es un paso propio, que corre ANTES que los destinos.
+ * - `select_exit` + `submit_output` → una tool `submit_<salida>` por salida, cuyo schema es el
+ *   input de sus destinos. Elegir la salida y entregar los datos son una sola llamada.
+ * - `emitOn` → un `EmitAction` como destino de una ruta.
+ * - `onProcess` → `onStart`, un paso que corre antes del provider.
+ *
+ * Las rutas del agente son la BASE de una cascada (paso > pipeline > agente > proyecto) — ver
+ * `routing/ExitRoutes.ts`. Portar un agente de ia-flow: sus `exits` pasan a `routes` con
+ * `updateIssue.bind({ status: set })` como destino.
  *
  * Vive en `src/`, no en `examples/`: es TypeScript puro, cero I/O, igual de "dominio" que
  * `Pipeline`/`Condition`/`Engine`. Lo que SÍ es infra — un `Provider` concreto que le pega a
- * una API real — vive afuera del paquete (`examples/providers/`), nunca acá.
+ * una API real — vive afuera del paquete, nunca acá.
  *
  * Campos tipados por paridad de forma pero SIN runtime en este harness (documentado en cada
- * uno): worktrees, ExecutionLog, capacidad, editor UI, contrato submit_output son conceptos
- * del engine real de ia-flow que este paquete no modela — implementarlos es trabajo de esa
- * integración, no de este harness genérico.
+ * uno): worktrees, capacidad y verificación del engine son conceptos del engine real de ia-flow
+ * que este paquete no modela.
  */
 import type { ConditionalProps } from '../condition/Conditional.js';
-
-export type CommentTarget = 'issue' | 'pr' | 'pr-else-issue' | 'none';
-
-/** Salida corta: sólo el nombre de status. Salida larga: además declara dónde comentar. */
-export type AgentExit = string | { set: string; when?: string; comment?: CommentTarget };
-
-export const SUCCESS_EXIT = 'success';
-export const ERROR_EXIT = 'error';
-
-export function exitSet(exit: AgentExit | undefined): string | undefined {
-  if (exit == null) return undefined;
-  return typeof exit === 'string' ? exit : exit.set;
-}
+import type { Runnable } from '../pipeline/Runnable.js';
+import type { Action, AllowedAction } from '../pipeline/actions/Action.js';
+import type { ExitRoutes } from '../routing/ExitRoutes.js';
+import type { ToolInputSchema } from './SchemaTool.js';
 
 export interface SystemPromptRef {
   id?: string;
@@ -35,14 +34,6 @@ export interface SystemPromptRef {
 }
 
 export type AgentVariableValue = string | { value: string; full?: string; description?: string };
-
-export interface AgentOutputField {
-  type: 'string' | 'number' | 'boolean';
-  description?: string;
-  enum?: string[];
-  optional?: boolean;
-}
-export type AgentOutput = Record<string, AgentOutputField>;
 
 /** Sin catálogo de MCP acá — a diferencia de `mcpCatalogIds` (ia-flow), esto viaja YA
  *  resuelto: lo que el Provider necesite para conectarse a ESE servidor. */
@@ -58,9 +49,12 @@ export interface Tool<TInput = any> {
   description: string;
   inputSchema: Record<string, unknown>;
   handler: (input: TInput) => Promise<string> | string;
+  /** Una llamada exitosa termina el turno del agente — las `submit_<salida>` que arma `Agent`.
+   *  Un provider que soporte tools corta su loop ahí en vez de esperar un `end_turn`. */
+  terminal?: boolean;
 }
 
-export interface AgentDefinitionProps extends ConditionalProps {
+export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
   id: string;
   /**
    * Id de un `Provider` registrado en `providerRegistry`. A diferencia de ia-flow, acá sólo
@@ -70,30 +64,24 @@ export interface AgentDefinitionProps extends ConditionalProps {
    */
   provider: string;
   prompt: string;
+  /** Lo que el agente recibe cuando lo alcanza una ruta — disponible como `{{input.x}}` en el
+   *  prompt. Un agente que también corre por evento (sin input) necesita campos opcionales. */
+  input?: ToolInputSchema;
   systemPrompts?: SystemPromptRef[];
   variables?: Record<string, AgentVariableValue>;
   tools?: Tool[];
+  /** Acciones que el modelo puede llamar como tools. Una con `sideEffects: 'write'` sólo entra
+   *  con `action.allowWrite()` — escribir tiene que ser una decisión explícita del operador. */
+  actions?: Array<Action | AllowedAction>;
+  /** Corre antes del provider — ej. sacar labels de un ciclo anterior (el `onProcess` de ia-flow). */
+  onStart?: Runnable;
   providerConfig?: Record<string, unknown>;
   mcpServers?: McpServerRef[];
-  exits?: Record<string, AgentExit>;
-  comment?: CommentTarget;
-  /** Si el paso tira, seguir con el siguiente `Runnable` de la Pipeline en vez de abortarla —
-   *  mismo campo que cualquier otro `Runnable` (`RunnableProps.continueOnError`). */
+  /** Si el paso tira y no hay `onError` en la cascada, seguir con el siguiente `Runnable` de la
+   *  Pipeline en vez de abortarla — mismo campo que cualquier otro `Runnable`. */
   continueOnError?: boolean;
-  /**
-   * Si se setea, al terminar emite un DomainEvent derivado con `type: emitOn(exit)` — el
-   * patrón "onFinish"/"onError" de v1 de ia-flow, generalizado: vos decidís el nombre del
-   * evento derivado a partir del `exit` que resolvió este agente.
-   */
-  emitOn?: (exit: string) => string | undefined;
 
   // --- Paridad de forma con AgentDefinitionProps de ia-flow, sin runtime en este harness ---
-  /** Contrato de `submit_output` — necesita el engine real (validación + persistencia). */
-  output?: AgentOutput;
-  /** Simétrico a `output`, mirando el paso anterior de una Pipeline — necesita que
-   *  `PipelineExecutionContext` exponga `nextSchema`, que agent-pipeline no tiene. */
-  expectedInput?: AgentOutput;
-  saveOutput?: boolean;
   /** Necesita `WorkspaceProvisionerPort` (worktrees) — no existe en este harness. */
   requiresBranch?: boolean;
   allowBlocked?: boolean;
@@ -102,5 +90,4 @@ export interface AgentDefinitionProps extends ConditionalProps {
   position?: number;
   /** Comandos que correría el ENGINE en el worktree — necesita un ShellRunner + workspace. */
   verify?: string[];
-  onProcess?: string;
 }
