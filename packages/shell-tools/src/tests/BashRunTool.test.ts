@@ -38,6 +38,15 @@ describe('bash_run', () => {
     await expect(tool.handler({ command: 'ls' })).rejects.toThrow('allowlist');
   });
 
+  it('rechaza un input sin command o con claves de más, sin ejecutar nada', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] } });
+
+    await expect(tool.handler({})).rejects.toThrow(/bash_run: input inválido[\s\S]*→ at command/);
+    await expect(tool.handler({ command: 'echo hola', cwd: '/' })).rejects.toThrow(
+      /Unrecognized key: "cwd"/,
+    );
+  });
+
   it('rechaza un binario invocado por path absoluto — no puede saltarse la deny-list así', async () => {
     const tool = new BashRunTool({ baseDir, policy: { deny: ['rm *'] } });
 
