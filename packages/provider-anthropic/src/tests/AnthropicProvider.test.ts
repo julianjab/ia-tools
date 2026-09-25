@@ -603,6 +603,31 @@ describe('AnthropicProvider.run', () => {
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
 
+    it('a failure tool (fail_turn) does not count towards nudging', async () => {
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({ content: [{ type: 'text', text: 'hola' }], stop_reason: 'end_turn' }),
+      );
+      const fail: Tool = { ...submit('fail_turn', ['reason']), failure: true };
+
+      await providerWith(fetchImpl).run(ctxFor({ tools: [submit('submit_done'), fail] }));
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('a successful fail_turn ends the turn like any terminal tool', async () => {
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({
+          content: [{ type: 'tool_use', id: 'tu_1', name: 'fail_turn', input: { reason: 'x' } }],
+          stop_reason: 'tool_use',
+        }),
+      );
+      const fail: Tool = { ...submit('fail_turn', ['reason']), failure: true };
+
+      await providerWith(fetchImpl).run(ctxFor({ tools: [submit('submit_done'), fail] }));
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
     it('nudges for a single terminal tool with required fields', async () => {
       const fetchImpl = vi.fn(async () =>
         jsonResponse({ content: [{ type: 'text', text: 'hola' }], stop_reason: 'end_turn' }),
