@@ -48,4 +48,19 @@ describe('fs_read', () => {
 
     await expect(tool.handler({ path: 'p' })).rejects.toThrow('no es un archivo regular');
   });
+
+  it('trunca por BYTES reales, no por unidad UTF-16 — un multibyte en el borde no queda partido', async () => {
+    // "é" son 2 bytes en UTF-8 — un archivo de puros "é" fuerza el corte a caer justo en un
+    // límite de carácter multibyte si se cuenta mal.
+    const content = 'é'.repeat(150_000); // 300.000 bytes, bien por encima de MAX_BYTES (256KB)
+    await writeFile(join(baseDir, 'big.txt'), content, 'utf-8');
+    const tool = new FsReadTool(baseDir);
+
+    const result = await tool.handler({ path: 'big.txt' });
+
+    expect(result).toContain('truncado');
+    // El texto devuelto (sin el mensaje de truncado) nunca debería tener MÁS bytes que el tope.
+    const [text] = result.split('\n\n[truncado');
+    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThanOrEqual(256 * 1024);
+  });
 });

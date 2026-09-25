@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -54,5 +55,15 @@ describe('fs_write', () => {
       /fs_write: input inválido[\s\S]*→ at content/,
     );
     await expect(readFile(join(baseDir, 'a.txt'), 'utf-8')).rejects.toThrow(/ENOENT/);
+  });
+
+  it('rechaza escribir sobre un FIFO existente en vez de colgarse esperando un reader', async () => {
+    const fifoPath = join(baseDir, 'p');
+    execFileSync('mkfifo', [fifoPath]);
+    const tool = new FsWriteTool(baseDir);
+
+    await expect(tool.handler({ path: 'p', content: 'x' })).rejects.toThrow(
+      'no es un archivo regular',
+    );
   });
 });
