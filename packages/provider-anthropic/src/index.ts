@@ -13,6 +13,11 @@ export type {
   AnthropicEffort,
   AnthropicMessage,
   AnthropicProviderOptions,
+  AnthropicRunConfig,
   AnthropicThinkingConfig,
 } from './AnthropicProvider.js';
-export { AnthropicProvider } from './AnthropicProvider.js';
+export {
+  AnthropicProvider,
+  parseAnthropicAgentConfig,
+  RUN_CONFIG_DEFAULTS,
+} from './AnthropicProvider.js';

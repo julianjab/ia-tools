@@ -22,22 +22,28 @@ export type AnthropicThinkingConfig =
   | { type: 'enabled'; budgetTokens: number };
 
 /**
- * Todo lo que hace falta para el caso simple es `{ id, model }` — el resto son perillas de
- * ia-flow (`anthropic-api`) que sólo hay que tocar cuando el caso de uso las necesita.
+ * Las perillas de una corrida, con la MISMA estructura en los dos niveles donde se configuran:
+ *
+ * - al registrar el provider (`new AnthropicProvider({ ...defaults })`), para todos sus agentes;
+ * - en el `providerConfig` de cada agente, que pisa clave por clave lo del provider.
+ *
+ * Lo que ninguno de los dos define cae al default del paquete (`RUN_CONFIG_DEFAULTS`).
  */
-export interface AnthropicProviderOptions extends AnthropicClientOptions {
-  /** Id con el que se registra en `providerRegistry` — lo que cada `AgentDefinition` pone en
-   *  `provider: '...'`. */
-  id: string;
-  model: string;
+export interface AnthropicRunConfig {
+  model?: string;
   maxTokens?: number;
-  /** Tope de vueltas del loop de tools, para no quedar colgado si el modelo no converge. */
+  /** Tope de vueltas del loop de tools (respuestas con `tool_use`), para no quedar colgado si el
+   *  modelo no converge. */
   maxToolRounds?: number;
-  /** Deriva `outcome` a partir del texto final de respuesta — default: siempre 'success'. */
-  resolveOutcome?: (text: string) => string;
+  /** Cuántas veces se reanuda un `pause_turn` (runs largos con tools server-side: MCP remoto,
+   *  thinking extendido). Tope aparte: una pausa no es una vuelta de tools. */
+  maxPauseTurnRetries?: number;
+  maxRetries?: number;
   /** Default true — ver `AnthropicSendOptions.stream` en `AnthropicClient`. */
   stream?: boolean;
   thinking?: AnthropicThinkingConfig;
+  /** Atajo de ia-flow para `thinking: { type: 'enabled', budgetTokens }`; gana sobre `thinking`. */
+  thinkingBudgetTokens?: number;
   effort?: AnthropicEffort;
   taskBudgetTokens?: number;
   /** Por default las tools de cada MCP van diferidas (`defer_loading` + una tool de búsqueda
@@ -46,6 +52,19 @@ export interface AnthropicProviderOptions extends AnthropicClientOptions {
   /** Un corte por `max_tokens` reintenta UNA vez con el doble de presupuesto (tope 128000)
    *  antes de reportar `'truncated'`. Default true. */
   bumpMaxTokensOnTruncation?: boolean;
+}
+
+/**
+ * Todo lo que hace falta para el caso simple es `{ id, model }`. El resto de la config de una
+ * corrida (`AnthropicRunConfig`) son los defaults del provider, que cada agente puede pisar.
+ */
+export interface AnthropicProviderOptions extends AnthropicClientOptions, AnthropicRunConfig {
+  /** Id con el que se registra en `providerRegistry` — lo que cada `AgentDefinition` pone en
+   *  `provider: '...'`. */
+  id: string;
+  model: string;
+  /** Deriva `outcome` a partir del texto final de respuesta — default: siempre 'success'. */
+  resolveOutcome?: (text: string) => string;
   onToolCall?: (name: string, input: unknown, toolUseId: string | undefined) => void;
   onToolResult?: (name: string, result: string, toolUseId: string | undefined) => void;
   /** Se llama antes de cada request con la conversación completa — el caller decide si y dónde
@@ -54,16 +73,9 @@ export interface AnthropicProviderOptions extends AnthropicClientOptions {
   onCheckpoint?: (messages: unknown[], ctx: ProviderRunContext) => void | Promise<void>;
 }
 
-/** Override por-agente, leído de `ProviderRunContext.providerConfig` — mismos campos que
- *  `AnthropicApiAgentConfigSchema` de ia-flow, sin Zod (este paquete no depende de él). */
-export interface AnthropicAgentProviderConfig {
-  model?: string;
-  maxTokens?: number;
-  effort?: AnthropicEffort;
-  taskBudgetTokens?: number;
-  thinkingBudgetTokens?: number;
-  maxRetries?: number;
-  eagerMcpTools?: boolean;
+/** El `providerConfig` de un agente: la misma `AnthropicRunConfig` que el provider, más lo que
+ *  sólo tiene sentido para UNA corrida. */
+export interface AnthropicAgentProviderConfig extends AnthropicRunConfig {
   /** Retoma una conversación truncada en vez de arrancar del prompt. */
   resumeMessages?: AnthropicMessage[];
 }
@@ -85,25 +97,93 @@ export interface ToolResultBlock {
   is_error?: true;
 }
 
-const DEFAULT_MAX_TOKENS = 1024;
-const DEFAULT_MAX_TOOL_ROUNDS = 8;
-const DEFAULT_MAX_RETRIES = 3;
 const MAX_TOKEN_BUMP_CEILING = 128_000;
 
-function parseAgentConfig(raw: Record<string, unknown>): AnthropicAgentProviderConfig {
-  const cfg: AnthropicAgentProviderConfig = {};
-  if (typeof raw.model === 'string') cfg.model = raw.model;
-  if (typeof raw.maxTokens === 'number') cfg.maxTokens = raw.maxTokens;
-  if (typeof raw.effort === 'string') cfg.effort = raw.effort as AnthropicEffort;
-  if (typeof raw.taskBudgetTokens === 'number') cfg.taskBudgetTokens = raw.taskBudgetTokens;
-  if (typeof raw.thinkingBudgetTokens === 'number')
-    cfg.thinkingBudgetTokens = raw.thinkingBudgetTokens;
-  if (typeof raw.maxRetries === 'number') cfg.maxRetries = raw.maxRetries;
-  if (typeof raw.eagerMcpTools === 'boolean') cfg.eagerMcpTools = raw.eagerMcpTools;
-  if (Array.isArray(raw.resumeMessages)) {
-    cfg.resumeMessages = raw.resumeMessages as AnthropicMessage[];
+/** Lo que usa una corrida cuando ni el provider ni el agente definen la clave. Pensado para el
+ *  caso simple — un agente que trabaja sobre un repo necesita bastante más (ver el runner). */
+export const RUN_CONFIG_DEFAULTS = {
+  maxTokens: 1024,
+  maxToolRounds: 8,
+  maxPauseTurnRetries: 3,
+  maxRetries: 3,
+  stream: true,
+  eagerMcpTools: false,
+  bumpMaxTokensOnTruncation: true,
+} as const satisfies AnthropicRunConfig;
+
+const EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const isPositiveInt = (value: unknown) => Number.isInteger(value) && (value as number) > 0;
+const isNonNegativeInt = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
+const isBoolean = (value: unknown) => typeof value === 'boolean';
+
+/** Cómo se valida cada clave de `AnthropicRunConfig` — y la lista de las que existen: una clave
+ *  que no está acá se rechaza, así un typo en el `providerConfig` rompe en vez de ignorarse. */
+const RUN_CONFIG_CHECKS: Record<keyof AnthropicRunConfig, (value: unknown) => boolean> = {
+  model: (value) => typeof value === 'string' && value.length > 0,
+  maxTokens: isPositiveInt,
+  maxToolRounds: isPositiveInt,
+  maxPauseTurnRetries: isNonNegativeInt,
+  maxRetries: isNonNegativeInt,
+  stream: isBoolean,
+  thinking: (value) => {
+    const thinking = value as { type?: unknown; budgetTokens?: unknown } | null;
+    return (
+      thinking?.type === 'adaptive' ||
+      (thinking?.type === 'enabled' && isPositiveInt(thinking.budgetTokens))
+    );
+  },
+  thinkingBudgetTokens: isPositiveInt,
+  effort: (value) => EFFORTS.includes(value as AnthropicEffort),
+  taskBudgetTokens: isPositiveInt,
+  eagerMcpTools: isBoolean,
+  bumpMaxTokensOnTruncation: isBoolean,
+};
+
+/**
+ * Valida un `providerConfig` de agente contra la misma estructura del provider. Tira ante una
+ * clave desconocida o un valor con el tipo equivocado — el caller (un runner al montar sus
+ * agentes) lo puede llamar al bootear para fallar antes de la primera corrida.
+ */
+export function parseAnthropicAgentConfig(
+  raw: Record<string, unknown>,
+): AnthropicAgentProviderConfig {
+  const config: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === undefined) continue;
+    if (key === 'resumeMessages') {
+      if (!Array.isArray(value))
+        throw new Error('providerConfig.resumeMessages: tiene que ser una lista');
+      config[key] = value;
+      continue;
+    }
+    if (!Object.hasOwn(RUN_CONFIG_CHECKS, key)) {
+      const known = [...Object.keys(RUN_CONFIG_CHECKS), 'resumeMessages'].join(', ');
+      throw new Error(
+        `providerConfig.${key}: no es una opción de AnthropicProvider (hay: ${known})`,
+      );
+    }
+    if (!RUN_CONFIG_CHECKS[key as keyof AnthropicRunConfig](value)) {
+      throw new Error(`providerConfig.${key}: valor inválido ${JSON.stringify(value)}`);
+    }
+    config[key] = value;
   }
-  return cfg;
+  return config as AnthropicAgentProviderConfig;
+}
+
+type ResolvedRunConfig = AnthropicRunConfig &
+  Required<Pick<AnthropicRunConfig, 'model' | keyof typeof RUN_CONFIG_DEFAULTS>>;
+
+/** La config efectiva de una corrida, clave por clave: la del agente, si no la del provider, si
+ *  no el default del paquete. */
+function resolveRunConfig(
+  provider: AnthropicProviderOptions,
+  agent: AnthropicAgentProviderConfig,
+): ResolvedRunConfig {
+  const resolved: Record<string, unknown> = {};
+  for (const key of Object.keys(RUN_CONFIG_CHECKS) as Array<keyof AnthropicRunConfig>) {
+    resolved[key] = agent[key] ?? provider[key] ?? (RUN_CONFIG_DEFAULTS as AnthropicRunConfig)[key];
+  }
+  return resolved as unknown as ResolvedRunConfig;
 }
 
 /** Mapea `McpServerRef` (id + config libre) → la forma que exige `mcp_servers[]` de la API.
@@ -230,21 +310,22 @@ export class AnthropicProvider implements Provider {
 
   async run(ctx: ProviderRunContext): Promise<ProviderRunOutput> {
     const opts = this.options;
-    const pc = parseAgentConfig(ctx.providerConfig ?? {});
+    const pc = parseAnthropicAgentConfig(ctx.providerConfig ?? {});
+    const cfg = resolveRunConfig(opts, pc);
 
-    const model = pc.model ?? opts.model;
-    const maxTokens = pc.maxTokens ?? opts.maxTokens ?? DEFAULT_MAX_TOKENS;
-    const maxRetries = pc.maxRetries ?? opts.maxRetries ?? DEFAULT_MAX_RETRIES;
-    const maxToolRounds = opts.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
-    const useStream = opts.stream ?? true;
-    const eagerMcpTools = pc.eagerMcpTools ?? opts.eagerMcpTools ?? false;
-    const bumpOnTruncation = opts.bumpMaxTokensOnTruncation ?? true;
+    const model = cfg.model;
+    const maxTokens = cfg.maxTokens;
+    const maxRetries = cfg.maxRetries;
+    const maxToolRounds = cfg.maxToolRounds;
+    const useStream = cfg.stream;
+    const eagerMcpTools = cfg.eagerMcpTools;
+    const bumpOnTruncation = cfg.bumpMaxTokensOnTruncation;
 
     const apiMcpServers = toApiMcpServers(ctx.mcpServers);
     const deferMcpTools = apiMcpServers !== undefined && !eagerMcpTools;
 
     const extraBetas: string[] = [];
-    const taskBudgetTokens = pc.taskBudgetTokens ?? opts.taskBudgetTokens;
+    const taskBudgetTokens = cfg.taskBudgetTokens;
     if (taskBudgetTokens != null) extraBetas.push('task-budgets-2026-03-13');
     if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20');
 
@@ -269,16 +350,18 @@ export class AnthropicProvider implements Provider {
     const terminalTools = ctx.tools.filter((tool) => tool.terminal && !tool.failure);
     let nudged = false;
 
-    for (let round = 0; round <= maxToolRounds; round++) {
+    let toolRounds = 0;
+    let pauses = 0;
+    for (let round = 0; ; round++) {
       await opts.onCheckpoint?.(messages, ctx);
 
       const sendOnce = async (effectiveMaxTokens: number): Promise<AnthropicMessagesResponse> => {
         const thinking = buildThinkingConfig(
-          pc.thinkingBudgetTokens,
+          cfg.thinkingBudgetTokens,
           effectiveMaxTokens,
-          opts.thinking,
+          cfg.thinking,
         );
-        const outputConfig = buildOutputConfig(pc.effort ?? opts.effort, taskBudgetTokens);
+        const outputConfig = buildOutputConfig(cfg.effort, taskBudgetTokens);
         const body: ChatRequest = {
           model,
           max_tokens: effectiveMaxTokens,
@@ -336,8 +419,15 @@ export class AnthropicProvider implements Provider {
         // `end_turn`/`tool_use` normal), es el mecanismo que usa la API para runs largos con
         // tools server-side (MCP remoto, extended thinking): el turno sigue, así que se
         // reenvía la conversación con el contenido parcial agregado, sin turno de usuario de
-        // por medio, y el modelo continúa desde donde quedó. Cuenta contra `maxToolRounds`
-        // igual que una vuelta de tool_use, para no quedar colgado si nunca converge.
+        // por medio, y el modelo continúa desde donde quedó. Tiene su propio tope
+        // (`maxPauseTurnRetries`): una pausa no es una vuelta de tools, pero tampoco puede
+        // repetirse sin fin.
+        if (pauses >= cfg.maxPauseTurnRetries) {
+          throw new Error(
+            `AnthropicProvider(${opts.id}): superó maxPauseTurnRetries (${cfg.maxPauseTurnRetries}) sin converger`,
+          );
+        }
+        pauses++;
         messages = [...messages, { role: 'assistant', content: data.content }];
         continue;
       }
@@ -365,16 +455,18 @@ export class AnthropicProvider implements Provider {
         const text = data.content.find((block) => block.type === 'text')?.text ?? '';
         return { outcome: 'success', summary: text };
       }
+      toolRounds++;
+      if (toolRounds > maxToolRounds) {
+        throw new Error(
+          `AnthropicProvider(${opts.id}): superó maxToolRounds (${maxToolRounds}) sin converger`,
+        );
+      }
       messages = [
         ...messages,
         { role: 'assistant', content: data.content },
         { role: 'user', content: toolResults },
       ];
     }
-
-    throw new Error(
-      `AnthropicProvider(${opts.id}): superó maxToolRounds (${maxToolRounds}) sin converger`,
-    );
   }
 
   @traced(chatTrace)

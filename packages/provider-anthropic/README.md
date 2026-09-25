@@ -53,28 +53,56 @@ AnthropicProvider   implementa Provider (agent-pipeline). Compone un AnthropicCl
 
 | Opción | Qué hace | Default |
 | --- | --- | --- |
+La config de una corrida (`AnthropicRunConfig`) tiene **la misma estructura** en los dos niveles
+donde se define: al registrar el provider (los defaults de todos sus agentes) y en el
+`providerConfig` de cada agente, que la pisa clave por clave. Lo que ninguno define cae al
+default del paquete (`RUN_CONFIG_DEFAULTS`).
+
+| Opción | Qué hace | Default |
+| --- | --- | --- |
+| `model` | Modelo de la Messages API | — (obligatorio en el provider) |
+| `maxTokens` | `max_tokens` de cada request | `1024` |
 | `stream` | Streaming SSE (mantiene la conexión viva en runs largos) | `true` |
 | `maxRetries` | Reintentos en 429/5xx/529 con backoff exponencial + jitter | `3` |
-| `maxToolRounds` | Tope de vueltas del loop de tools | `8` |
+| `maxToolRounds` | Tope de vueltas del loop de tools (respuestas con `tool_use`) | `8` |
+| `maxPauseTurnRetries` | Cuántas veces se reanuda un `pause_turn`; tope aparte de `maxToolRounds` | `3` |
 | `bumpMaxTokensOnTruncation` | Un corte por `max_tokens` reintenta UNA vez con el doble de presupuesto | `true` |
 | `thinking` | Extended thinking — `{ type: 'adaptive' }` o `{ type: 'enabled', budgetTokens }` | apagado |
+| `thinkingBudgetTokens` | Atajo de ia-flow para `thinking: { type: 'enabled', budgetTokens }` (gana sobre `thinking`) | — |
 | `effort` / `taskBudgetTokens` | `output_config` — nivel de esfuerzo / presupuesto total de tokens | apagado |
 | `eagerMcpTools` | Carga el catálogo MCP entero de una, en vez de diferido con búsqueda | `false` |
-| `onCheckpoint(messages, ctx)` | Se llama antes de cada request — el caller decide si/dónde persistir | — |
-| `onToolCall` / `onToolResult` | Observabilidad del loop de tools | — |
-| `onRetry` | Observabilidad de los reintentos HTTP | — |
 
-Todas menos `onCheckpoint`/`onToolCall`/`onToolResult`/`onRetry` también se pueden overridear
-**por agente**, vía `AgentDefinitionProps.providerConfig` (ver `AnthropicAgentProviderConfig`):
+Los defaults del paquete sirven para el caso simple. Un agente que trabaja sobre un repo (leer,
+editar, correr tests, publicar) necesita bastante más: registrá el provider con sus propios
+defaults.
 
 ```ts
+providerRegistry.register(
+  new AnthropicProvider({ id: 'anthropic-api', model: 'claude-sonnet-5', maxTokens: 32000, maxToolRounds: 200 }),
+);
+
 new Agent({
   id: 'x',
   provider: 'anthropic-api',
   prompt: '...',
-  providerConfig: { model: 'claude-haiku-4-5-20251001', maxTokens: 512, effort: 'low' },
+  // Misma estructura: pisa lo del provider sólo para este agente.
+  providerConfig: { model: 'claude-haiku-4-5-20251001', maxTokens: 512, maxToolRounds: 10 },
 });
 ```
+
+Una clave que no existe o con el tipo equivocado en el `providerConfig` hace fallar la corrida
+antes de llamar a la API. `parseAnthropicAgentConfig(raw)` es el mismo chequeo, para que un runner
+valide sus agentes al montarlos y falle en el boot. El `providerConfig` además acepta
+`resumeMessages`, lo único que tiene sentido para una sola corrida.
+
+Solo del provider (no se pisan por agente):
+
+| Opción | Qué hace |
+| --- | --- |
+| `onCheckpoint(messages, ctx)` | Se llama antes de cada request — el caller decide si/dónde persistir |
+| `onToolCall` / `onToolResult` | Observabilidad del loop de tools |
+| `onRetry` | Observabilidad de los reintentos HTTP |
+| `resolveOutcome(text)` | Deriva el `outcome` del texto final |
 
 ## Streaming incremental — `AnthropicClient.send`, no `AnthropicProvider`
 
