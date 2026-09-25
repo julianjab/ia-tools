@@ -32,6 +32,8 @@ export type { EmitActionProps } from './pipeline/actions/EmitAction.js';
 export { EmitAction } from './pipeline/actions/EmitAction.js';
 export type { FunctionActionProps } from './pipeline/actions/FunctionAction.js';
 export { FunctionAction } from './pipeline/actions/FunctionAction.js';
+export type { ActionProps, SideEffects } from './pipeline/actions/Action.js';
+export { Action, AllowedAction, BoundAction } from './pipeline/actions/Action.js';
 export type { HttpActionProps } from './pipeline/actions/HttpAction.js';
 export { HttpAction } from './pipeline/actions/HttpAction.js';
 

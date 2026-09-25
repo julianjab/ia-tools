@@ -1,3 +1,4 @@
+import type { ToolInputSchema } from '../agent/SchemaTool.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus } from '../events/EventBus.js';
@@ -57,5 +58,16 @@ export abstract class Runnable extends Conditional {
     return this.matchesConditions({ ...base, steps: ctx.steps });
   }
 
-  abstract run(ctx: PipelineExecutionContext): Promise<unknown>;
+  /**
+   * El schema del input que este paso acepta cuando lo alcanza una ruta — `undefined` si no
+   * acepta ninguno (el default: `EmitAction`, `HttpAction`, `FunctionAction`). `Action` y `Agent`
+   * lo sobreescriben; de ahí sale lo que un agente tiene que entregar en su `submit_<salida>`.
+   */
+  acceptsInput(): ToolInputSchema | undefined {
+    return undefined;
+  }
+
+  /** `input` sólo llega cuando el paso lo ejecuta una ruta (ver `Pipeline`); un paso lineal de
+   *  `do[]` lo recibe `undefined`. Los pasos que no aceptan input lo ignoran. */
+  abstract run(ctx: PipelineExecutionContext, input?: unknown): Promise<unknown>;
 }
