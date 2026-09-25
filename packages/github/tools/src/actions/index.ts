@@ -9,3 +9,10 @@ export {
 } from './PostCommentAction.js';
 export type { ProjectRef, UpdateIssueActionOptions } from './UpdateIssueAction.js';
 export { UpdateIssueAction, UpdateIssueInput } from './UpdateIssueAction.js';
+export type {
+  ListSubIssuesBriefActionOptions,
+  SubIssueBrief,
+} from './ListSubIssuesBriefAction.js';
+export { ListSubIssuesBriefAction, ListSubIssuesBriefInput } from './ListSubIssuesBriefAction.js';
+export type { UpdateIssueBodyActionOptions } from './UpdateIssueBodyAction.js';
+export { UpdateIssueBodyAction, UpdateIssueBodyInput } from './UpdateIssueBodyAction.js';
