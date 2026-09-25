@@ -5,4 +5,9 @@ export {
   type WorkspaceTargetResolver,
   WorkspaceSession,
 } from './WorkspaceSession.js';
-export { WORKSPACE_TOOLS, WorkspaceToolAction, workspaceAction } from './WorkspaceToolAction.js';
+export {
+  WORKSPACE_TOOLS,
+  type WorkspaceActionOptions,
+  WorkspaceToolAction,
+  workspaceAction,
+} from './WorkspaceToolAction.js';

@@ -50,17 +50,26 @@ export const WORKSPACE_TOOLS: ReadonlySet<string> = new Set([
   'bash_run',
 ]);
 
-/** La Action de `name` sobre el worktree de cada corrida. `policy` sólo aplica a `bash_run`. */
+export interface WorkspaceActionOptions {
+  /** La credencial que `bash_run` le pasa a los `git` de red (ver `BashRunToolOptions`). Sin
+   *  esto, el agente no puede publicar su branch: el worktree no tiene credenciales. */
+  gitCredential?: () => Promise<string | undefined>;
+}
+
+/** La Action de `name` sobre el worktree de cada corrida. `policy` y `options` sólo aplican a
+ *  `bash_run`. */
 export function workspaceAction(
   name: string,
   session: WorkspaceSession,
   policy: BashPolicy = { deny: [] },
+  options: WorkspaceActionOptions = {},
 ): WorkspaceToolAction<ToolInputSchema> {
   if (name === 'bash_run') {
+    const { gitCredential } = options;
     return new WorkspaceToolAction(
       session,
       new BashRunTool({ baseDir: '.', policy }),
-      (dir) => new BashRunTool({ baseDir: dir, policy }),
+      (dir) => new BashRunTool({ baseDir: dir, policy, gitCredential }),
       'write',
       'Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) en el worktree de la task — usa comillas para args con espacios.',
     ) as unknown as WorkspaceToolAction<ToolInputSchema>;
