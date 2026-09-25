@@ -50,4 +50,24 @@ export class GithubClient {
     }
     return (await res.json()) as T;
   }
+
+  /**
+   * Una query/mutation de la GraphQL API (`POST /graphql`) — hace falta para lo que la REST no
+   * cubre, como los campos de un Project v2 (`Status`, `Task Type`). GraphQL responde 200 aun
+   * cuando la operación falla: un `errors` no vacío también se convierte en excepción, con los
+   * mensajes de GitHub, en vez de devolver un `data` a medias.
+   */
+  async graphql<T = unknown>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+    const body = await this.requestJson<{ data?: T; errors?: Array<{ message: string }> }>(
+      '/graphql',
+      { method: 'POST', body: JSON.stringify({ query, variables }) },
+    );
+    if (body.errors && body.errors.length > 0) {
+      throw new Error(
+        `GithubClient: GraphQL → ${body.errors.map((error) => error.message).join('; ')}`,
+      );
+    }
+    if (body.data === undefined) throw new Error('GithubClient: GraphQL respondió sin data');
+    return body.data;
+  }
 }
