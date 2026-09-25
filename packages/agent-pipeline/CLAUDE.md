@@ -57,7 +57,8 @@ src/
 │   ├── tracing.ts           qué deja el Engine en la traza (opciones de @traced/@tagged)
 │   └── tests/
 ├── telemetry/
-│   ├── telemetry.ts         @traced, @tagged, emitLog, atributos heredados (OpenTelemetry por API)
+│   ├── telemetry.ts         @traced, @tagged, atributos heredados (OpenTelemetry por API)
+│   ├── logging.ts           createLogger + sinks (otelSink, consoleSink, los que arme la app)
 │   └── tests/
 ├── index.ts
 └── tests/                index.test.ts
@@ -220,14 +221,23 @@ una salida cuelgan del agente que la eligió. Reglas que no son obvias al leer e
   Las opciones (nombre, atributos heredados, qué registrar del resultado) viven en el
   `tracing.ts` de cada módulo — el cuerpo del método no importa nada de OTel. `telemetry.ts` es
   el ÚNICO archivo que importa `@opentelemetry/*`: re-exporta los tipos (`Attributes`, `Span`,
-  `SpanKind`) y otro paquete instrumenta pasando su `scope`, no un `Tracer`. Nada se inyecta. Si algo que la
+  `SpanKind`) y otro paquete instrumenta pasando su `scope`, no un `Tracer`. Nada se inyecta.
+  (La carpeta `telemetry/` es la única que importa `@opentelemetry/*`.)
+- **Logs compuestos, como en ia-flow pero sin `setLoggerFactory`.** Cada módulo hace
+  `const log = createLogger('<scope>')`; la app elige los destinos una vez con
+  `setLogSinks([consoleSink(), otelSink(), miSink])` (o `addLogSink`). Los sinks se resuelven
+  al EMITIR, así que un logger creado a nivel de módulo, antes del boot, igual los sigue — no
+  hace falta la cola de rebind de ia-flow. Default: sólo `otelSink()` (no-op sin SDK), para que
+  una librería no escriba nada sola. Cada `LogRecord` trae los atributos heredados y el
+  `traceId`/`spanId` activos. Un sink con I/O (archivo rotativo, pino, un POST) lo arma la app:
+  es una función `(record) => void`, y si tira se ignora sin afectar a los demás. Si algo que la
   traza necesita sólo se conoce adentro del método, se devuelve en su resultado (ej. `StepRun`:
   la salida elegida, o el error que cubrió un `onError`) en vez de tocar el span desde el cuerpo.
 - **Decorators legacy** (`experimentalDecorators` en `tsconfig.base.json`), no los TC39: vitest
   4 transforma con oxc, que todavía no soporta los estándar.
 - **El scope del evento se hereda, no se repite.** `event.scope` → atributos `ia.<clave>`
   (`ia.projectId`, `ia.repo`, `ia.issue`, …) guardados en el `Context` de OTel con una clave
-  propia; `@traced`, `withSpan` y `emitLog` los suman a cada span y log creado debajo, también en otros
+  propia; `@traced`, `withSpan` y cada `Logger` los suman a cada span y log creado debajo, también en otros
   paquetes (el provider los recibe sin plumbing). NO va en baggage: el baggage se propaga en los
   headers HTTP salientes y le mandaría el issue a GitHub/Anthropic.
 - **"No pasó nada" también deja traza.** Cada pipeline que escucha el tipo del evento deja un

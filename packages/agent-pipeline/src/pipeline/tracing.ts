@@ -3,16 +3,13 @@
  * no mezcla spans con la lógica.
  */
 import { Agent, type AgentRunResult } from '../agent/Agent.js';
-import {
-  type Attributes,
-  type TraceOptions,
-  emitLog,
-  markError,
-  truncate,
-} from '../telemetry/telemetry.js';
+import { createLogger } from '../telemetry/logging.js';
+import { type Attributes, type TraceOptions, markError, truncate } from '../telemetry/telemetry.js';
 import type { Pipeline, StepRun, StepVia } from './Pipeline.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
 import { AllowedAction } from './actions/Action.js';
+
+const log = createLogger('agent-pipeline.pipeline');
 
 type StepArgs = [Runnable, unknown, PipelineExecutionContext, StepVia, boolean?];
 
@@ -70,7 +67,7 @@ export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
     if ('error' in run) {
       markError(span, run.error);
       span.setAttribute('ia.step.error_handled', run.handledBy);
-      emitLog('error', `paso "${name}" falló: ${run.error.message}`);
+      log.error(`paso "${name}" falló: ${run.error.message}`);
       return;
     }
     if (!(step instanceof Agent)) {
@@ -83,7 +80,7 @@ export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
       ...(output.summary ? { 'ia.agent.summary': truncate(output.summary) } : {}),
     });
     if (!run.exit) {
-      emitLog('warn', `agente "${name}" terminó sin salida (${output.outcome})`);
+      log.warn(`agente "${name}" terminó sin salida (${output.outcome})`);
       return;
     }
     const { exit, payload } = run.exit;
@@ -95,7 +92,7 @@ export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
       ...(exit.report ? { 'ia.route.report': exit.report.id ?? 'report' } : {}),
       'ia.route.payload': truncate(payload),
     });
-    emitLog('info', `agente "${name}" eligió "${exit.name}" → ${targets.join(' → ') || 'fin'}`, {
+    log.info(`agente "${name}" eligió "${exit.name}" → ${targets.join(' → ') || 'fin'}`, {
       'ia.agent.exit': exit.name,
     });
   },

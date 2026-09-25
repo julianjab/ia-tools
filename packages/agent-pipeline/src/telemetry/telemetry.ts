@@ -25,12 +25,10 @@ import {
   createContextKey,
   trace,
 } from '@opentelemetry/api';
-import { SeverityNumber, logs } from '@opentelemetry/api-logs';
 
 export const INSTRUMENTATION_SCOPE = '@ia-tools/agent-pipeline';
 
 const tracer = trace.getTracer(INSTRUMENTATION_SCOPE);
-const logger = logs.getLogger(INSTRUMENTATION_SCOPE);
 const SCOPE_KEY = createContextKey('ia-tools.scope-attributes');
 
 /** Tope de un atributo con contenido libre (inputs, outputs, texto del modelo). */
@@ -208,27 +206,6 @@ export function tagged<This, Args extends unknown[], R>(
       return result;
     };
   };
-}
-
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-
-const SEVERITY: Record<LogLevel, SeverityNumber> = {
-  debug: SeverityNumber.DEBUG,
-  info: SeverityNumber.INFO,
-  warn: SeverityNumber.WARN,
-  error: SeverityNumber.ERROR,
-};
-
-/** Un log correlacionado con la traza activa (trace_id/span_id los pone el SDK) y con los
- *  atributos heredados — en Loki/Datadog se filtra por `ia.issue` igual que las trazas. */
-export function emitLog(level: LogLevel, body: string, attributes: Attributes = {}): void {
-  logger.emit({
-    severityNumber: SEVERITY[level],
-    severityText: level.toUpperCase(),
-    body,
-    attributes: { ...inheritedAttributes(), ...attributes },
-    context: context.active(),
-  });
 }
 
 // El resto del código (este paquete y los que instrumentan con él) no importa

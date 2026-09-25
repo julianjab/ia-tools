@@ -67,8 +67,21 @@ export {
 } from './routing/ExitRoutes.js';
 
 export type {
-  Attributes,
+  ConsoleSinkOptions,
   LogLevel,
+  LogRecord,
+  LogSink,
+  Logger,
+} from './telemetry/logging.js';
+export {
+  addLogSink,
+  consoleSink,
+  createLogger,
+  otelSink,
+  setLogSinks,
+} from './telemetry/logging.js';
+export type {
+  Attributes,
   Span,
   SpanOptions,
   TagOptions,
@@ -77,7 +90,6 @@ export type {
 export {
   INSTRUMENTATION_SCOPE,
   SpanKind,
-  emitLog,
   inheritedAttributes,
   markError,
   scopeAttributes,

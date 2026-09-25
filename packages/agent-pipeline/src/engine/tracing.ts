@@ -3,14 +3,16 @@
  * mezcla spans con la lógica.
  */
 import type { DomainEvent } from '../events/DomainEvent.js';
+import { createLogger } from '../telemetry/logging.js';
 import {
   SpanKind,
   type TagOptions,
   type TraceOptions,
-  emitLog,
   scopeAttributes,
 } from '../telemetry/telemetry.js';
 import type { DispatchOutcome, DispatchPlan, Engine } from './Engine.js';
+
+const log = createLogger('agent-pipeline.engine');
 
 /**
  * `event <type>`: la raíz de la traza de TODO lo que el evento causa (o un hijo, si lo publicó un
@@ -29,8 +31,7 @@ export const dispatchTrace: TraceOptions<Engine, [DomainEvent<any>], DispatchOut
   onResult(span, outcome, event) {
     span.setAttribute('ia.dispatch.outcome', outcome);
     if (event.depth >= this.maxEventDepth) {
-      emitLog(
-        'warn',
+      log.warn(
         `evento "${event.type}" descartado: profundidad ${event.depth} ≥ ${this.maxEventDepth}`,
       );
     }
@@ -61,8 +62,7 @@ export const planTag: TagOptions<Engine, [DomainEvent<any>], DispatchPlan> = {
     }
     const ran = [...running].map((pipeline) => pipeline.id);
     span.setAttribute('ia.pipelines.run', ran);
-    emitLog(
-      ran.length > 0 ? 'info' : 'warn',
+    log[ran.length > 0 ? 'info' : 'warn'](
       ran.length > 0
         ? `evento "${event.type}": corren ${ran.join(', ')}`
         : `evento "${event.type}": ninguna pipeline corre`,

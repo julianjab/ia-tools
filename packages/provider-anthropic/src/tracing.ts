@@ -7,7 +7,7 @@ import {
   SpanKind,
   type Tool,
   type TraceOptions,
-  emitLog,
+  createLogger,
   markError,
   truncate,
 } from '@ia-tools/agent-pipeline';
@@ -17,6 +17,8 @@ import type {
   AnthropicSendOptions,
 } from './AnthropicClient.js';
 import type { AnthropicProvider, ChatRequest, ToolResultBlock } from './AnthropicProvider.js';
+
+const log = createLogger('provider-anthropic');
 
 const scope = '@ia-tools/provider-anthropic';
 
@@ -64,7 +66,7 @@ export const chatTrace: TraceOptions<
           'ia.mcp.server': block.server_name ?? '',
           'ia.tool.input': truncate(block.input),
         });
-        emitLog('info', `tool MCP "${block.server_name}.${block.name}"`, {
+        log.info(`tool MCP "${block.server_name}.${block.name}"`, {
           'gen_ai.tool.name': block.name ?? '',
           'ia.tool.input': truncate(block.input, 500),
         });
@@ -97,17 +99,13 @@ export const toolTrace: TraceOptions<
   onResult(span, result, block) {
     const name = { 'gen_ai.tool.name': block.name ?? '' };
     span.setAttribute('ia.tool.result', truncate(result.content));
-    emitLog('info', `tool "${block.name}"`, {
+    log.info(`tool "${block.name}"`, {
       ...name,
       'ia.tool.input': truncate(block.input, 500),
     });
     if (result.is_error) {
       markError(span, result.content);
-      emitLog(
-        'warn',
-        `tool "${block.name}" devolvió error: ${truncate(result.content, 500)}`,
-        name,
-      );
+      log.warn(`tool "${block.name}" devolvió error: ${truncate(result.content, 500)}`, name);
     }
   },
 };
