@@ -53,6 +53,29 @@ describe('Condition.evaluate', () => {
     ).toBe(false);
   });
 
+  it('notContains over arrays and strings, true when the field is absent', () => {
+    const blocked = new Condition({ field: 'item.labels', op: 'notContains', value: 'blocked' });
+
+    expect(blocked.evaluate({ item: { labels: ['e2e-test'] } })).toBe(true);
+    expect(blocked.evaluate({ item: { labels: ['blocked'] } })).toBe(false);
+    expect(blocked.evaluate({ item: {} })).toBe(true);
+    expect(
+      new Condition({ field: 's', op: 'notContains', value: 'x' }).evaluate({ s: 'abc' }),
+    ).toBe(true);
+  });
+
+  it('matches tests a string field against a regex source', () => {
+    const human = new Condition({
+      field: 'body',
+      op: 'matches',
+      value: '^(?![\\s\\S]*<!-- ia-flow:)',
+    });
+
+    expect(human.evaluate({ body: 'pueden agregar paginación?' })).toBe(true);
+    expect(human.evaluate({ body: 'reporte\n\n<!-- ia-flow:report -->' })).toBe(false);
+    expect(human.evaluate({ body: 3 })).toBe(false);
+  });
+
   it('gt / gte / lt / lte are strict about numeric operands', () => {
     expect(new Condition({ field: 'n', op: 'gt', value: 5 }).evaluate({ n: 10 })).toBe(true);
     expect(new Condition({ field: 'n', op: 'gt', value: 5 }).evaluate({ n: 5 })).toBe(false);
