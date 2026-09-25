@@ -127,6 +127,11 @@ describe('Engine tracing', () => {
       });
     }
     expect(byName('agent refiner').attributes['ia.pipeline.id']).toBe('refine');
+    // Lo que corre por la salida de un agente sabe de qué agente viene.
+    expect(byName('action mark').attributes).toMatchObject({
+      'ia.agent.id': 'refiner',
+      'ia.step.id': 'mark',
+    });
   });
 
   it('records the exit the agent chose and why each step ran', async () => {
