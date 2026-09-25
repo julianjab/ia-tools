@@ -1,15 +1,9 @@
-import { trace } from '@opentelemetry/api';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
-import {
-  SpanKind,
-  emitLog,
-  scopeAttributes,
-  withInheritedAttributes,
-  withSpan,
-} from '../telemetry/telemetry.js';
+import { tagged, traced } from '../telemetry/telemetry.js';
 import type { PipelineSource } from './PipelineSource.js';
+import { dispatchTrace, planTag } from './tracing.js';
 
 /** Tope de la cadena de derivación de eventos (EmitAction, Agent.emitOn). Sin esto un
  *  Pipeline que se re-emite a sí mismo —directo o vía un ciclo de N pipelines— no tiene fondo. */
@@ -34,7 +28,7 @@ interface Candidate {
 }
 
 /** Qué corre para un evento, y lo necesario para explicar por qué no corre el resto. */
-interface DispatchPlan {
+export interface DispatchPlan {
   candidates: Candidate[];
   toRun: Candidate[];
   winningExclusive?: Pipeline;
@@ -48,7 +42,7 @@ interface DispatchPlan {
 export class Engine {
   private readonly bus: EventBus;
   private readonly sources: PipelineSource[];
-  private readonly maxEventDepth: number;
+  readonly maxEventDepth: number;
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus;
@@ -77,43 +71,12 @@ export class Engine {
    * cambio corre SÓLO la de mayor prioridad (menor `position`) entre las exclusive — MÁS
    * cualquier pipeline (exclusive o no) de prioridad todavía mayor que esa (position aún
    * menor), que no queda bloqueada por una exclusive de menor prioridad que ella misma.
-   *
-   * Cada llamada abre el span `event <type>`: la raíz de la traza de TODO lo que el evento causa
-   * (o un hijo, si lo publicó un paso de otra pipeline). Su scope queda heredado como atributos
-   * `ia.<clave>` en cada span y log de abajo — ver `telemetry/telemetry.ts`.
    */
+  @traced(dispatchTrace)
   async dispatch(event: DomainEvent<any>): Promise<DispatchOutcome> {
-    const attributes = {
-      ...scopeAttributes(event.scope),
-      'ia.event.type': event.type,
-      'ia.event.depth': event.depth,
-    };
-    return withInheritedAttributes(attributes, () =>
-      withSpan(
-        `event ${event.type}`,
-        { 'ia.event.occurred_at': event.occurredAt },
-        async (span) => {
-          const outcome = await this.dispatchTraced(event);
-          span.setAttribute('ia.dispatch.outcome', outcome);
-          return outcome;
-        },
-        { kind: SpanKind.CONSUMER },
-      ),
-    );
-  }
+    if (event.depth >= this.maxEventDepth) return 'skipped';
 
-  private async dispatchTraced(event: DomainEvent<any>): Promise<DispatchOutcome> {
-    if (event.depth >= this.maxEventDepth) {
-      emitLog(
-        'warn',
-        `evento "${event.type}" descartado: profundidad ${event.depth} ≥ ${this.maxEventDepth}`,
-      );
-      return 'skipped';
-    }
-
-    const plan = await this.plan(event);
-    this.traceMatch(event, plan);
-    const { toRun } = plan;
+    const { toRun } = await this.decide(event);
     if (toRun.length === 0) return 'skipped';
 
     // `Promise.allSettled`, no `Promise.all`: los pipelines matcheados son independientes, así
@@ -151,6 +114,12 @@ export class Engine {
     return (await this.plan(event)).toRun.map(({ pipeline }) => pipeline);
   }
 
+  /** El `plan` con el que `dispatch` se compromete — a diferencia de `select`, queda en la traza. */
+  @tagged(planTag)
+  private async decide(event: DomainEvent<any>): Promise<DispatchPlan> {
+    return this.plan(event);
+  }
+
   /**
    * La cascada de filtros: primero el `when` de cada fuente (el proyecto) — si no pasa, ninguna
    * de sus pipelines se evalúa —, después cada pipeline (`on`, scope, `when`). Entre las que
@@ -179,38 +148,5 @@ export class Engine {
         )
       : matched;
     return { candidates, toRun, winningExclusive };
-  }
-
-  /**
-   * Qué corre y por qué no corre el resto: un span event `pipeline.match` por cada pipeline que
-   * escucha este tipo de evento (las que escuchan otros tipos serían ruido), y un log con el
-   * resumen. Es lo primero que se mira cuando "no pasó nada".
-   */
-  private traceMatch(event: DomainEvent<any>, plan: DispatchPlan): void {
-    const span = trace.getActiveSpan();
-    const skipped: string[] = [];
-    const running = new Set(plan.toRun.map(({ pipeline }) => pipeline));
-    for (const { pipeline, mismatch } of plan.candidates) {
-      if (!pipeline.on.includes(event.type)) continue;
-      const runs = running.has(pipeline);
-      const reason = runs
-        ? undefined
-        : (mismatch ?? `la tapa la exclusive "${plan.winningExclusive?.id}"`);
-      if (reason) skipped.push(`${pipeline.id} (${reason})`);
-      span?.addEvent('pipeline.match', {
-        'ia.pipeline.id': pipeline.id,
-        'ia.pipeline.runs': runs,
-        ...(reason ? { 'ia.pipeline.skip_reason': reason } : {}),
-      });
-    }
-    const ran = [...running].map((pipeline) => pipeline.id);
-    span?.setAttribute('ia.pipelines.run', ran);
-    emitLog(
-      ran.length > 0 ? 'info' : 'warn',
-      ran.length > 0
-        ? `evento "${event.type}": corren ${ran.join(', ')}`
-        : `evento "${event.type}": ninguna pipeline corre`,
-      { 'ia.pipelines.skipped': skipped },
-    );
   }
 }

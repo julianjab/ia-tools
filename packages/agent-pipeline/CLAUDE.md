@@ -43,6 +43,7 @@ src/
 ├── pipeline/
 │   ├── Pipeline.ts
 │   ├── Runnable.ts          base de todo lo que vive en Pipeline.do[]
+│   ├── tracing.ts           qué deja la Pipeline en la traza (opciones de @traced)
 │   ├── tests/
 │   └── actions/
 │       ├── Action.ts         Action (input tipado) + BoundAction (bind) + AllowedAction (allowWrite)
@@ -53,9 +54,10 @@ src/
 │   └── tests/
 ├── engine/
 │   ├── Engine.ts, PipelineSource.ts, Project.ts
+│   ├── tracing.ts           qué deja el Engine en la traza (opciones de @traced/@tagged)
 │   └── tests/
 ├── telemetry/
-│   ├── telemetry.ts         withSpan, emitLog, atributos heredados (OpenTelemetry por API)
+│   ├── telemetry.ts         @traced, @tagged, emitLog, atributos heredados (OpenTelemetry por API)
 │   └── tests/
 ├── index.ts
 └── tests/                index.test.ts
@@ -210,12 +212,22 @@ proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`rep
 
 Todo lo que corre por causa de UN evento cuelga de UNA traza: `Engine.dispatch` abre el span
 `event <type>` (raíz, o hijo si lo publicó un paso de otra pipeline), `Pipeline.execute` abre
-`pipeline <id>` y `runStep` abre `agent <id>` / `action <id>` por cada paso — los destinos de una
-salida cuelgan del agente que la eligió. Reglas que no son obvias al leer el código:
+`pipeline <id>` y `runDueStep` abre `agent <id>` / `action <id>` por cada paso — los destinos de
+una salida cuelgan del agente que la eligió. Reglas que no son obvias al leer el código:
 
+- **La traza se declara sobre el método, no adentro.** `@traced(opciones)` corre el método en
+  su propio span; `@tagged(opciones)` le suma atributos/eventos al span activo sin abrir otro.
+  Las opciones (nombre, atributos heredados, qué registrar del resultado) viven en el
+  `tracing.ts` de cada módulo — el cuerpo del método no importa nada de OTel. `telemetry.ts` es
+  el ÚNICO archivo que importa `@opentelemetry/*`: re-exporta los tipos (`Attributes`, `Span`,
+  `SpanKind`) y otro paquete instrumenta pasando su `scope`, no un `Tracer`. Nada se inyecta. Si algo que la
+  traza necesita sólo se conoce adentro del método, se devuelve en su resultado (ej. `StepRun`:
+  la salida elegida, o el error que cubrió un `onError`) en vez de tocar el span desde el cuerpo.
+- **Decorators legacy** (`experimentalDecorators` en `tsconfig.base.json`), no los TC39: vitest
+  4 transforma con oxc, que todavía no soporta los estándar.
 - **El scope del evento se hereda, no se repite.** `event.scope` → atributos `ia.<clave>`
   (`ia.projectId`, `ia.repo`, `ia.issue`, …) guardados en el `Context` de OTel con una clave
-  propia; `withSpan` y `emitLog` los suman a cada span y log creado debajo, también en otros
+  propia; `@traced`, `withSpan` y `emitLog` los suman a cada span y log creado debajo, también en otros
   paquetes (el provider los recibe sin plumbing). NO va en baggage: el baggage se propaga en los
   headers HTTP salientes y le mandaría el issue a GitHub/Anthropic.
 - **"No pasó nada" también deja traza.** Cada pipeline que escucha el tipo del evento deja un
