@@ -180,6 +180,15 @@ function stripOrphanedMcpToolUse(messages: AnthropicMessage[]): AnthropicMessage
   return sanitized ?? messages;
 }
 
+/** Vale la pena insistir si el agente no puede cerrar solo: más de una salida, o una única salida
+ *  que pide datos. Con una sola `submit_done` sin campos requeridos, `Agent` la toma sin submit. */
+function needsSubmit(terminalTools: Tool[]): boolean {
+  if (terminalTools.length === 0) return false;
+  if (terminalTools.length > 1) return true;
+  const required = terminalTools[0]?.inputSchema.required;
+  return Array.isArray(required) && required.length > 0;
+}
+
 async function runToolUseBlocks(
   toolUseBlocks: AnthropicContentBlock[],
   tools: Tool[],
@@ -270,6 +279,8 @@ export class AnthropicProvider implements Provider {
     const allTools = [...toolSearch, ...toolDefs, ...(mcpToolsets ?? [])];
 
     let messages: AnthropicMessage[] = pc.resumeMessages ?? [{ role: 'user', content: ctx.prompt }];
+    const terminalTools = ctx.tools.filter((tool) => tool.terminal);
+    let nudged = false;
 
     for (let round = 0; round <= maxToolRounds; round++) {
       await opts.onCheckpoint?.(messages, ctx);
@@ -314,6 +325,21 @@ export class AnthropicProvider implements Provider {
       }
 
       if (data.stop_reason === 'end_turn' || data.stop_reason === 'stop_sequence') {
+        // El agente ofrece tools terminales (`submit_<salida>`) y el modelo cerró sin llamar
+        // ninguna: se le insiste UNA vez. Sin `tool_choice` forzado a propósito — no convive con
+        // extended thinking. Si igual no llama, `Agent` decide (falla o toma la única salida).
+        if (needsSubmit(terminalTools) && !nudged) {
+          nudged = true;
+          messages = [
+            ...messages,
+            { role: 'assistant', content: data.content },
+            {
+              role: 'user',
+              content: `Para terminar tu turno tenés que llamar a una de estas tools: ${terminalTools.map((tool) => tool.name).join(', ')}.`,
+            },
+          ];
+          continue;
+        }
         const text = data.content.find((block) => block.type === 'text')?.text ?? '';
         return { outcome: opts.resolveOutcome?.(text) ?? 'success', summary: text };
       }
@@ -344,6 +370,17 @@ export class AnthropicProvider implements Provider {
         opts.onToolCall,
         opts.onToolResult,
       );
+      // Una tool terminal que devolvió OK (`submit_<salida>` validado) cierra el turno ahí: no
+      // hace falta otra vuelta a la API para que el modelo diga "listo".
+      const submitted = toolUseBlocks.some((block, index) => {
+        const tool = ctx.tools.find((candidate) => candidate.name === block.name);
+        const result = toolResults[index] as { is_error?: boolean } | undefined;
+        return tool?.terminal === true && result?.is_error !== true;
+      });
+      if (submitted) {
+        const text = data.content.find((block) => block.type === 'text')?.text ?? '';
+        return { outcome: 'success', summary: text };
+      }
       messages = [
         ...messages,
         { role: 'assistant', content: data.content },
