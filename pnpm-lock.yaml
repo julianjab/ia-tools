@@ -17,6 +17,9 @@ importers:
       '@ia-tools/agent-pipeline':
         specifier: workspace:*
         version: link:../packages/agent-pipeline
+      '@ia-tools/fs-tools':
+        specifier: workspace:*
+        version: link:../packages/fs-tools
       '@ia-tools/github-api':
         specifier: workspace:*
         version: link:../packages/github/api
@@ -29,9 +32,15 @@ importers:
       '@ia-tools/provider-anthropic':
         specifier: workspace:*
         version: link:../packages/provider-anthropic
+      '@ia-tools/shell-tools':
+        specifier: workspace:*
+        version: link:../packages/shell-tools
       yaml:
         specifier: ^2.6.0
         version: 2.9.1
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
