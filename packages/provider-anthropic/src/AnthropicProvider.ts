@@ -35,8 +35,9 @@ export interface AnthropicRunConfig {
   /** Tope de vueltas del loop de tools (respuestas con `tool_use`), para no quedar colgado si el
    *  modelo no converge. */
   maxToolRounds?: number;
-  /** Cuántas veces se reanuda un `pause_turn` (runs largos con tools server-side: MCP remoto,
-   *  thinking extendido). Tope aparte: una pausa no es una vuelta de tools. */
+  /** Cuántos `pause_turn` SEGUIDOS se reanudan (runs largos con tools server-side: MCP remoto,
+   *  thinking extendido) — vuelve a cero con cada vuelta de tools. Tope aparte: una pausa no
+   *  es una vuelta de tools. */
   maxPauseTurnRetries?: number;
   maxRetries?: number;
   /** Default true — ver `AnthropicSendOptions.stream` en `AnthropicClient`. */
@@ -182,6 +183,13 @@ function resolveRunConfig(
   const resolved: Record<string, unknown> = {};
   for (const key of Object.keys(RUN_CONFIG_CHECKS) as Array<keyof AnthropicRunConfig>) {
     resolved[key] = agent[key] ?? provider[key] ?? (RUN_CONFIG_DEFAULTS as AnthropicRunConfig)[key];
+  }
+  // `thinking` y `thinkingBudgetTokens` son dos formas de la MISMA perilla: se pisan juntas. Si el
+  // agente define cualquiera, las del provider no cuentan — si no, un `thinkingBudgetTokens` del
+  // provider le ganaría al `thinking: adaptive` del agente.
+  if (agent.thinking !== undefined || agent.thinkingBudgetTokens !== undefined) {
+    resolved.thinking = agent.thinking;
+    resolved.thinkingBudgetTokens = agent.thinkingBudgetTokens;
   }
   return resolved as unknown as ResolvedRunConfig;
 }
@@ -456,6 +464,9 @@ export class AnthropicProvider implements Provider {
         return { outcome: 'success', summary: text };
       }
       toolRounds++;
+      // `maxPauseTurnRetries` cuenta pausas SEGUIDAS: una vuelta de tools es progreso, así que
+      // una corrida larga puede pausarse muchas veces en total sin llegar al tope.
+      pauses = 0;
       if (toolRounds > maxToolRounds) {
         throw new Error(
           `AnthropicProvider(${opts.id}): superó maxToolRounds (${maxToolRounds}) sin converger`,
