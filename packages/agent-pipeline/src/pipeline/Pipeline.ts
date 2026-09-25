@@ -99,7 +99,8 @@ export class Pipeline extends Conditional {
   /**
    * Corre `this.do` en orden; cada paso puede leer `ctx.steps` de los anteriores. Un paso
    * saltado (`shouldRun` false) no deja rastro en `ctx.steps`. Un error frena el Pipeline
-   * salvo que el agente tenga `onError` en la cascada o el paso tenga `continueOnError`.
+   * salvo que haya un `onError` que lo maneje (del paso — o la cascada completa, si es un
+   * agente —, de la pipeline o del proyecto) o el paso tenga `continueOnError`.
    */
   async execute(ctx: PipelineExecutionContext): Promise<Record<string, unknown>> {
     const runCtx: PipelineExecutionContext = {
@@ -114,21 +115,24 @@ export class Pipeline extends Conditional {
     return runCtx.steps;
   }
 
+  /** `handleErrors: false` para los pasos que corren DENTRO de un `onError`: si fallara, por
+   *  ejemplo, el `+blocked` del proyecto, volver a aplicar ese mismo `onError` sería un loop. */
   private async runStep(
     step: Runnable,
     input: unknown,
     ctx: PipelineExecutionContext,
+    handleErrors = true,
   ): Promise<void> {
     if (!step.shouldRun(ctx)) return;
     let out: unknown;
     try {
       out = await step.run(ctx, input);
     } catch (err) {
-      const onError = step instanceof Agent ? this.resolve(step, ctx.defaults) : undefined;
-      if (onError?.onError) {
+      const handling = handleErrors ? this.errorHandling(step, ctx) : null;
+      if (handling) {
         const error = err instanceof Error ? err : new Error(String(err));
         if (step.id) ctx.steps[step.id] = { error: error.message };
-        await this.runErrorRoute(onError, onError.onError.route, error, ctx);
+        await this.runErrorRoute(handling.report, handling.route, error, ctx);
         return;
       }
       if (step.continueOnError) return;
@@ -148,17 +152,34 @@ export class Pipeline extends Conditional {
     }
   }
 
+  /** El `onError` que aplica a un paso, y el `report` con el que se anuncia. Un agente usa su
+   *  cascada completa; cualquier otro paso: el suyo > el de la pipeline > el del proyecto. */
+  private errorHandling(
+    step: Runnable,
+    ctx: PipelineExecutionContext,
+  ): { route: ErrorRoute; report: Runnable | null } | null {
+    if (step instanceof Agent) {
+      const resolved = this.resolve(step, ctx.defaults);
+      return resolved.onError
+        ? { route: resolved.onError.route, report: resolved.report?.target ?? null }
+        : null;
+    }
+    const route = firstSet(step.onError, this.defaults.onError, ctx.defaults?.onError);
+    if (!route) return null;
+    return { route, report: firstSet(this.defaults.report, ctx.defaults?.report) ?? null };
+  }
+
   private async runErrorRoute(
-    routes: ResolvedRoutes,
+    report: Runnable | null,
     route: ErrorRoute,
     error: Error,
     ctx: PipelineExecutionContext,
   ): Promise<void> {
-    if (routes.report && route.report) {
-      await this.runStep(routes.report.target, route.report(error), ctx);
+    if (report && route.report) {
+      await this.runStep(report, route.report(error), ctx, false);
     }
     for (const target of routeTargets(route.to)) {
-      await this.runStep(target, route.input?.(error), ctx);
+      await this.runStep(target, route.input?.(error), ctx, false);
     }
   }
 
@@ -215,6 +236,10 @@ export class Pipeline extends Conditional {
       for (const target of routeTargets(resolved.onError?.route.to)) routed.add(target);
       next.set(agent, children);
     }
+    for (const step of this.do) {
+      for (const target of routeTargets(step.onError?.to)) routed.add(target);
+    }
+    for (const target of routeTargets(this.defaults.onError?.to)) routed.add(target);
     this.assertNoCycles(next);
     return routed;
   }
@@ -238,6 +263,14 @@ export class Pipeline extends Conditional {
     };
     for (const agent of next.keys()) walk(agent);
   }
+}
+
+/** El primer valor definido, del nivel más específico al más general. `null` corta: "ninguno". */
+function firstSet<T>(...values: Array<T | null | undefined>): T | null {
+  for (const value of values) {
+    if (value !== undefined) return value;
+  }
+  return null;
 }
 
 /** Type guard útil para quien construye pipelines dinámicamente desde config — distingue un

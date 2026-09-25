@@ -3,7 +3,7 @@ import type { ToolInputSchema } from '../agent/SchemaTool.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus } from '../events/EventBus.js';
-import type { ExitDefaults, ResolvedRoutes } from '../routing/ExitRoutes.js';
+import type { ErrorRoute, ExitDefaults, ResolvedRoutes } from '../routing/ExitRoutes.js';
 
 export interface PipelineExecutionContext {
   event: DomainEvent<any>;
@@ -22,7 +22,12 @@ export interface PipelineExecutionContext {
 export interface RunnableProps extends ConditionalProps {
   /** Nombre del paso — si se setea, su output queda en `ctx.steps[id]` para pasos siguientes. */
   id?: string;
-  /** Si el paso tira, seguir con el siguiente en vez de abortar el Pipeline. */
+  /** Qué correr si el paso tira — gana sobre el `onError` de la pipeline y del proyecto; `null`
+   *  anula los de esos niveles. (Un `Agent` lo declara en su definición: tiene la cascada
+   *  completa, con overrides por pipeline.) */
+  onError?: ErrorRoute | null;
+  /** Si el paso tira y ningún `onError` lo maneja, seguir con el siguiente en vez de abortar el
+   *  Pipeline. Equivale a un `onError` sin destinos, como último recurso. */
   continueOnError?: boolean;
 }
 
@@ -40,11 +45,13 @@ export interface RunnableProps extends ConditionalProps {
  */
 export abstract class Runnable extends Conditional {
   readonly id?: string;
+  readonly onError?: ErrorRoute | null;
   readonly continueOnError: boolean;
 
   constructor(props: RunnableProps) {
     super(props);
     this.id = props.id;
+    this.onError = props.onError;
     this.continueOnError = props.continueOnError ?? false;
   }
 
