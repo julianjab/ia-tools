@@ -46,7 +46,7 @@ importers:
   packages/agent-pipeline:
     dependencies:
       zod:
-        specifier: ^4
+        specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
       '@types/node':
@@ -65,7 +65,7 @@ importers:
         specifier: workspace:*
         version: link:../agent-pipeline
       zod:
-        specifier: ^4
+        specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
       '@types/node':
@@ -115,7 +115,7 @@ importers:
         specifier: workspace:*
         version: link:../api
       zod:
-        specifier: ^4
+        specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
       '@ia-tools/github-auth':
@@ -165,7 +165,7 @@ importers:
         specifier: workspace:*
         version: link:../agent-pipeline
       zod:
-        specifier: ^4
+        specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
       '@types/node':
