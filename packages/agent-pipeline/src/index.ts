@@ -46,4 +46,26 @@ export { Pipeline, isAgent } from './pipeline/Pipeline.js';
 export type { DispatchOutcome, EngineOptions } from './engine/Engine.js';
 export { DEFAULT_MAX_EVENT_DEPTH, Engine } from './engine/Engine.js';
 export type { PipelineSource } from './engine/PipelineSource.js';
+export type { ProjectProps } from './engine/Project.js';
+export { Project } from './engine/Project.js';
 export { StaticPipelineSource } from './engine/PipelineSource.js';
+
+export type {
+  ErrorRoute,
+  ExitDefaults,
+  ExitRoute,
+  ExitRoutes,
+  ResolvedExit,
+  ResolvedRoutes,
+  RouteLayers,
+  RouteOrigin,
+  RouteTarget,
+  RouteTo,
+} from './routing/ExitRoutes.js';
+export {
+  DONE_EXIT,
+  END,
+  resolveRoutes,
+  routeTargets,
+  submitSchemaFor,
+} from './routing/ExitRoutes.js';

@@ -81,6 +81,7 @@ export class Engine {
           steps: {},
           bus: this.bus,
           pipelineId: pipeline.id,
+          defaults: this.pipelines.defaults,
         }),
       ),
     );

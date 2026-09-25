@@ -2,6 +2,7 @@ import type { ToolInputSchema } from '../agent/SchemaTool.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus } from '../events/EventBus.js';
+import type { ExitDefaults, ResolvedRoutes } from '../routing/ExitRoutes.js';
 
 export interface PipelineExecutionContext {
   event: DomainEvent<any>;
@@ -9,6 +10,12 @@ export interface PipelineExecutionContext {
   steps: Record<string, unknown>;
   bus: EventBus;
   pipelineId: string;
+  /** Defaults del proyecto (`onError`, `report`) — el nivel más general de la cascada de rutas.
+   *  Lo pone el `Engine` a partir de `PipelineSource.defaults` (ver `Project`). */
+  defaults?: ExitDefaults;
+  /** Las rutas efectivas de un agente DENTRO de esta pipeline (sus overrides + los defaults).
+   *  Lo pone `Pipeline.execute`; un agente corriendo suelto usa sólo sus rutas base. */
+  routesFor?: (step: Runnable) => ResolvedRoutes | undefined;
 }
 
 export interface RunnableProps extends ConditionalProps {
