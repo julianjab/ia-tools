@@ -20,7 +20,7 @@ import {
   otelSink,
   setLogSinks,
 } from '../logging.js';
-import { withInheritedAttributes, withSpan } from '../telemetry.js';
+import { withInheritedAttributes, withSpan } from '../tracing.js';
 
 const exported = new InMemoryLogRecordExporter();
 
@@ -71,7 +71,7 @@ describe('createLogger', () => {
 
     createLogger().debug('hola');
 
-    expect(records[0]).toMatchObject({ level: 'debug', scope: '@ia-tools/agent-pipeline' });
+    expect(records[0]).toMatchObject({ level: 'debug', scope: '@ia-tools/telemetry' });
   });
 
   it('fans every log out to all the sinks, with inherited attributes and the trace ids', async () => {
