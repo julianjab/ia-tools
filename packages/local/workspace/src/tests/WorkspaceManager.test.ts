@@ -444,7 +444,7 @@ describe('ensureLocalClone', () => {
 
     const clones = shell.calls.filter((c) => c.args.includes('clone'));
     const headerOf = (n: number) =>
-      `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:ghs_${n}`).toString('base64')}`;
+      `http.https://github.com/.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:ghs_${n}`).toString('base64')}`;
     expect(clones[0]?.args).toContain(headerOf(1));
     expect(clones[1]?.args).toContain(headerOf(2));
   });
@@ -470,7 +470,7 @@ describe('ensureLocalClone', () => {
     });
 
     expect(dest).toBe(join(REPOS_BASE, 'acme', 'demo'));
-    // El token va como `-c http.extraHeader`, NO embebido en la URL: `git
+    // El token va como `-c http.<github>.extraHeader` (con los hooks apagados), NO embebido en la URL: `git
     // clone` persiste la URL en `.git/config`, y este clone es la base de los
     // worktrees de los agentes — un PAT ahí sería legible con fs.read.
     // `find` matchea por prefijo y los flags `-c` van antes del subcomando,
@@ -480,7 +480,9 @@ describe('ensureLocalClone', () => {
     expect(clone?.args).toEqual([
       'git',
       '-c',
-      `http.extraHeader=Authorization: Basic ${basic}`,
+      'core.hooksPath=/dev/null',
+      '-c',
+      `http.https://github.com/.extraHeader=Authorization: Basic ${basic}`,
       'clone',
       'https://github.com/acme/demo.git',
       dest,
