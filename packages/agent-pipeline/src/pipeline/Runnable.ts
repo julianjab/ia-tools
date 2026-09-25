@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { ToolInputSchema } from '../agent/SchemaTool.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
@@ -72,6 +73,21 @@ export abstract class Runnable extends Conditional {
    */
   acceptsInput(): ToolInputSchema | undefined {
     return undefined;
+  }
+
+  /** Valida `input` contra `schema` (o `{}` si no llegó) — el helper que usan los pasos que
+   *  declaran un input opcional (`EmitAction`, `HttpAction`, `FunctionAction`). Sin schema,
+   *  devuelve `undefined`: el paso no acepta input y lo que llegue se ignora. */
+  protected parseInput(
+    schema: ToolInputSchema | undefined,
+    input: unknown,
+  ): Record<string, unknown> | undefined {
+    if (!schema) return undefined;
+    const parsed = schema.safeParse(input ?? {});
+    if (!parsed.success) {
+      throw new Error(`${this.id ?? 'paso'}: input inválido\n${z.prettifyError(parsed.error)}`);
+    }
+    return parsed.data as Record<string, unknown>;
   }
 
   /** `input` sólo llega cuando el paso lo ejecuta una ruta (ver `Pipeline`); un paso lineal de

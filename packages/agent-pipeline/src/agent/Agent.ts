@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { Runnable } from '../pipeline/Runnable.js';
 import type { PipelineExecutionContext } from '../pipeline/Runnable.js';
 import { AllowedAction } from '../pipeline/actions/Action.js';
@@ -143,7 +142,7 @@ export class Agent extends Runnable {
       );
     }
 
-    const parsedInput = this.parseInput(input);
+    const parsedInput = this.parseInput(def.input, input) ?? {};
     const routes =
       ctx.routesFor?.(this) ?? resolveRoutes(def.id, this.exitRoutes, { project: ctx.defaults });
 
@@ -212,18 +211,6 @@ export class Agent extends Runnable {
     }
 
     return { output, exit: submission.exit, payload: submission.payload };
-  }
-
-  private parseInput(input: unknown): Record<string, unknown> {
-    const schema = this.definition.input;
-    if (!schema) return {};
-    const parsed = schema.safeParse(input ?? {});
-    if (!parsed.success) {
-      throw new Error(
-        `Agent(${this.definition.id}): input inválido\n${z.prettifyError(parsed.error)}`,
-      );
-    }
-    return parsed.data as Record<string, unknown>;
   }
 
   /** Encadenar agentes lo decide la pipeline, donde se ve el grafo completo: una ruta BASE que

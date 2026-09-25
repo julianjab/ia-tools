@@ -1,12 +1,23 @@
+import type { ToolInputSchema } from '../../agent/SchemaTool.js';
 import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
 
 const BODYLESS_METHODS = new Set(['GET', 'DELETE']);
 
+type StepInput = Record<string, unknown> | undefined;
+/** Lo que se serializa como JSON. Acotado (no `unknown`) para que una función `body` tipe sus
+ *  parámetros sola: `unknown | Función` colapsa a `unknown` y TS pierde el contexto. */
+type JsonBody = string | number | boolean | null | Record<string, unknown> | unknown[];
+
 export interface HttpActionProps extends RunnableProps {
-  url: string | ((ctx: PipelineExecutionContext) => string);
+  url: string | ((ctx: PipelineExecutionContext, input: StepInput) => string);
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  headers?: Record<string, string> | ((ctx: PipelineExecutionContext) => Record<string, string>);
-  body?: unknown | ((ctx: PipelineExecutionContext) => unknown);
+  headers?:
+    | Record<string, string>
+    | ((ctx: PipelineExecutionContext, input: StepInput) => Record<string, string>);
+  /** Sin `body`, el input validado (si hay) ES el body. */
+  body?: JsonBody | ((ctx: PipelineExecutionContext, input: StepInput) => unknown);
+  /** Opcional: qué puede entregarle un agente a este paso como destino de una ruta. */
+  input?: ToolInputSchema;
   /** Corta la request si no responde a tiempo — un host colgado, si no, bloquea el Pipeline
    *  para siempre. Default 30s. */
   timeoutMs?: number;
@@ -26,6 +37,7 @@ export class HttpAction extends Runnable {
   readonly headers?: HttpActionProps['headers'];
   readonly body?: HttpActionProps['body'];
   readonly timeoutMs: number;
+  readonly input?: ToolInputSchema;
 
   constructor(props: HttpActionProps) {
     super(props);
@@ -34,12 +46,18 @@ export class HttpAction extends Runnable {
     this.headers = props.headers;
     this.body = props.body;
     this.timeoutMs = props.timeoutMs ?? 30_000;
+    this.input = props.input;
   }
 
-  async run(ctx: PipelineExecutionContext): Promise<unknown> {
-    const url = typeof this.url === 'function' ? this.url(ctx) : this.url;
-    const headers = typeof this.headers === 'function' ? this.headers(ctx) : this.headers;
-    const body = typeof this.body === 'function' ? this.body(ctx) : this.body;
+  override acceptsInput(): ToolInputSchema | undefined {
+    return this.input;
+  }
+
+  async run(ctx: PipelineExecutionContext, input?: unknown): Promise<unknown> {
+    const parsed = this.parseInput(this.input, input);
+    const url = typeof this.url === 'function' ? this.url(ctx, parsed) : this.url;
+    const headers = typeof this.headers === 'function' ? this.headers(ctx, parsed) : this.headers;
+    const body = typeof this.body === 'function' ? this.body(ctx, parsed) : (this.body ?? parsed);
 
     // `fetch` tira TypeError si un método sin cuerpo (GET/DELETE) lleva `body` — así que acá
     // se omite en vez de dejar que el `body` de la config rompa la request entera.

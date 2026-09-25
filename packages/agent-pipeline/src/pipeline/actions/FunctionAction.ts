@@ -1,7 +1,14 @@
+import type { ToolInputSchema } from '../../agent/SchemaTool.js';
 import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
 
 export interface FunctionActionProps extends RunnableProps {
-  fn: (ctx: PipelineExecutionContext) => Promise<unknown> | unknown;
+  /** `input`: lo que entregó el agente si el paso es destino de una ruta y declara `input`. */
+  fn: (
+    ctx: PipelineExecutionContext,
+    input: Record<string, unknown> | undefined,
+  ) => Promise<unknown> | unknown;
+  /** Opcional: qué puede entregarle un agente a este paso como destino de una ruta. */
+  input?: ToolInputSchema;
 }
 
 /**
@@ -12,13 +19,19 @@ export interface FunctionActionProps extends RunnableProps {
  */
 export class FunctionAction extends Runnable {
   readonly fn: FunctionActionProps['fn'];
+  readonly input?: ToolInputSchema;
 
   constructor(props: FunctionActionProps) {
     super(props);
     this.fn = props.fn;
+    this.input = props.input;
   }
 
-  async run(ctx: PipelineExecutionContext): Promise<unknown> {
-    return this.fn(ctx);
+  override acceptsInput(): ToolInputSchema | undefined {
+    return this.input;
+  }
+
+  async run(ctx: PipelineExecutionContext, input?: unknown): Promise<unknown> {
+    return this.fn(ctx, this.parseInput(this.input, input));
   }
 }
