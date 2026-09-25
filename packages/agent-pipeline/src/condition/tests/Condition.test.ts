@@ -76,6 +76,14 @@ describe('Condition.evaluate', () => {
     expect(human.evaluate({ body: 3 })).toBe(false);
   });
 
+  it('matches rejects an invalid regex when built, not on every evaluate', () => {
+    expect(() => new Condition({ field: 'body', op: 'matches', value: '(abc' })).toThrow(
+      /body matches: regex inválida/,
+    );
+    const nonString = new Condition({ field: 'body', op: 'matches', value: 3 });
+    expect(nonString.evaluate({ body: '3' })).toBe(false);
+  });
+
   it('gt / gte / lt / lte are strict about numeric operands', () => {
     expect(new Condition({ field: 'n', op: 'gt', value: 5 }).evaluate({ n: 10 })).toBe(true);
     expect(new Condition({ field: 'n', op: 'gt', value: 5 }).evaluate({ n: 5 })).toBe(false);
