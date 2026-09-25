@@ -28,12 +28,27 @@ export class Condition {
   readonly op: ConditionOp;
   readonly value?: unknown;
   readonly logic: 'and' | 'or';
+  /** La regex de un `matches`, compilada una vez al construir: un patrón inválido rompe ACÁ (al
+   *  armar la pipeline, como un ruteo mal cableado) y no en cada `evaluate`, donde tiraría dentro
+   *  del dispatch y tumbaría a las demás pipelines del evento. El texto que se testea suele venir
+   *  de terceros (el body de un comentario): el patrón tiene que ser lineal, sin backtracking
+   *  catastrófico. */
+  private readonly pattern?: RegExp;
 
   constructor(row: ConditionRow) {
     this.field = row.field;
     this.op = row.op;
     this.value = row.value;
     this.logic = row.logic ?? 'and';
+    if (row.op === 'matches' && typeof row.value === 'string') {
+      try {
+        this.pattern = new RegExp(row.value);
+      } catch (error) {
+        throw new Error(
+          `condition ${row.field} matches: regex inválida ${JSON.stringify(row.value)} (${(error as Error).message})`,
+        );
+      }
+    }
   }
 
   /** La condición y lo que vino en el payload — para explicar por qué algo no matcheó. */
@@ -75,9 +90,7 @@ export class Condition {
         // `value` es el source de una regex (ej. `^(?![\s\S]*<!-- ia-flow:)`, el filtro de
         // claw-agents para ignorar comentarios del propio pipeline). Sólo matchea strings.
         return (
-          typeof actual === 'string' &&
-          typeof this.value === 'string' &&
-          new RegExp(this.value).test(actual)
+          typeof actual === 'string' && this.pattern !== undefined && this.pattern.test(actual)
         );
       case 'gt':
         return typeof actual === 'number' && typeof this.value === 'number' && actual > this.value;
