@@ -10,7 +10,8 @@ src/
 ├── BashPolicy.ts      matchesPattern()/isDenied()/isAllowed() + DEFAULT_DENY_PATTERNS
 ├── BashRunTool.ts      única Tool del paquete — extiende SchemaTool (input en zod) directo, sin base intermedia
 ├── index.ts
-└── tests/               tokenize.test.ts, BashPolicy.test.ts, BashRunTool.test.ts, index.test.ts
+└── tests/               tokenize.test.ts, BashPolicy.test.ts, BashRunTool.test.ts,
+                         BashRunTool.credential.test.ts, index.test.ts
 ```
 
 Package chico, sin subcarpetas (una sola tool) — a diferencia de `github-tools`/`fs-tools`, acá

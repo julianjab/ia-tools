@@ -21,6 +21,52 @@ export interface BashRunToolOptions {
    *  `DEFAULT_SAFE_ENV_KEYS`) — NUNCA el entorno completo. Pasá esto explícito si el comando
    *  necesita algo puntual del entorno (una API key, un flag de build). */
   env?: Record<string, string>;
+  /**
+   * Credencial de GitHub para los `git` DE RED que corre el agente (`push`, `fetch`, `pull`,
+   * `ls-remote`) — lo que le permite pushear sin que el token esté en disco ni en su entorno. Se
+   * pide en cada comando (un installation token vence a la hora) y viaja SÓLO en el argv de ese
+   * `git`, como `-c http.https://github.com/.extraHeader`: scopeada a GitHub, así un
+   * `git fetch https://otro.host/x` no se la entrega a nadie. Mismo criterio que el `bash_run` de
+   * ia-flow, con un cierre más: git pasa sus `-c` a los procesos hijos (`GIT_CONFIG_PARAMETERS`),
+   * hooks incluidos, y un repo con `core.hooksPath` versionado (`.husky/`) deja al agente editar
+   * el hook que correría con el token. Por eso el comando que lleva la credencial corre SIN hooks
+   * (`core.hooksPath=/dev/null`), y los que no son de red (`commit`, con sus hooks) no la reciben.
+   *
+   * Con esto seteado, además, se rechazan las formas de git que podrían leerla o desviarla (ver
+   * `gitCredentialRisk`). Sin esto, `git` corre como siempre, sin credencial.
+   */
+  gitCredential?: () => Promise<string | undefined>;
+}
+
+/** El scope de la credencial: git sólo la manda a URLs bajo este prefijo. */
+const GITHUB_URL_SCOPE = 'https://github.com/';
+
+/** Los subcomandos de git que hablan con el remoto — los únicos que reciben la credencial. */
+const GIT_NETWORK_SUBCOMMANDS = new Set(['push', 'fetch', 'pull', 'ls-remote']);
+
+/**
+ * Por qué un `git` NO puede recibir la credencial, o `undefined` si puede. Complementa los
+ * chequeos siempre activos de `BashPolicy` (`-c`/`config`/`--config-env`, `--upload-pack`/
+ * `--exec`, `rebase -x`, …) con lo que sólo importa cuando hay un token en juego:
+ *   - opciones globales antes del subcomando (`-C`, `--git-dir`, `--work-tree`, `--exec-path`,
+ *     `--namespace`…): apuntan git a otro repo, cambian de dónde carga sus subcomandos (un
+ *     `git-status` escrito antes correría con el header en `GIT_CONFIG_PARAMETERS`) o corren el
+ *     índice del subcomando. Ningún flujo normal las necesita.
+ *   - `var`: `git var -l` vuelca la config, incluido el header inyectado.
+ *   - `--git-dir`/`--work-tree`/`--exec-path` después del subcomando, por las mismas razones.
+ */
+function gitCredentialRisk(argv: string[]): string | undefined {
+  const subcommandIndex = argv.findIndex((token, i) => i > 0 && !token.startsWith('-'));
+  const globals = argv.slice(1, subcommandIndex === -1 ? undefined : subcommandIndex);
+  if (globals.length > 0) return `opciones globales antes del subcomando (${globals.join(' ')})`;
+  if (argv[subcommandIndex] === 'var') return 'git var (vuelca la config)';
+  const leaking = argv.find(
+    (token) =>
+      token.startsWith('--git-dir') ||
+      token.startsWith('--work-tree') ||
+      token.startsWith('--exec-path'),
+  );
+  return leaking ? `${leaking} (desvía git fuera del worktree)` : undefined;
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -90,6 +136,31 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
     this.description = `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) dentro de ${options.baseDir} — usa comillas para args con espacios.`;
   }
 
+  /**
+   * El argv a spawnear: el del agente tal cual, salvo un `git` con `gitCredential` configurado,
+   * que recibe el header de GitHub justo después de `git` (en git gana el último `-c`, pero el
+   * agente no puede pasar `-c`: lo rechaza la policy siempre). Sin token disponible corre igual,
+   * sin credencial — git dirá "could not read Username" y el agente lo lee.
+   */
+  private async withGitCredential(argv: string[], command: string): Promise<string[]> {
+    if (argv[0] !== 'git' || !this.options.gitCredential) return argv;
+    const risk = gitCredentialRisk(argv);
+    if (risk) throw new Error(`bash_run: git con credencial no admite ${risk}: "${command}"`);
+    const subcommand = argv.find((token, i) => i > 0 && !token.startsWith('-'));
+    if (!subcommand || !GIT_NETWORK_SUBCOMMANDS.has(subcommand)) return argv;
+    const token = await this.options.gitCredential().catch(() => undefined);
+    if (!token) return argv;
+    const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+    return [
+      'git',
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      `http.${GITHUB_URL_SCOPE}.extraHeader=AUTHORIZATION: basic ${basic}`,
+      ...argv.slice(1),
+    ];
+  }
+
   protected async execute(input: BashRunInput): Promise<string> {
     const argv = tokenize(input.command);
     if (argv.length === 0) {
@@ -122,6 +193,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
       throw new Error(`bash_run: comando no está en la allowlist: "${input.command}"`);
     }
 
+    const spawnArgv = await this.withGitCredential(argv, input.command);
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const maxOutputBytes = this.options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
 
@@ -131,7 +203,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
       // sólo el proceso directo. Sin esto, un timeout mata a `npm test` pero deja corriendo a
       // los procesos que `npm test` lanzó, que quedan con stdout/stderr abiertos — `close`
       // nunca llega y la Promise queda colgada para siempre.
-      const child = spawn(argv[0], argv.slice(1), {
+      const child = spawn(spawnArgv[0] as string, spawnArgv.slice(1), {
         cwd: this.options.baseDir,
         shell: false,
         detached: process.platform !== 'win32',
