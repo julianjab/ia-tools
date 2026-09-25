@@ -472,4 +472,145 @@ describe('AnthropicProvider.run', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  describe('terminal tools (submit_<exit>)', () => {
+    const submit = (name: string, required: string[] = [], onCall = vi.fn()): Tool => ({
+      name,
+      description: name,
+      inputSchema: { type: 'object', properties: {}, required },
+      handler: (input: unknown) => {
+        onCall(input);
+        return 'ok';
+      },
+      terminal: true,
+    });
+
+    function providerWith(fetchImpl: unknown) {
+      return new AnthropicProvider({
+        id: 'x',
+        model: 'claude-x',
+        apiKey: 'sk',
+        stream: false,
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+    }
+
+    it('ends the turn as soon as a terminal tool succeeds, without another request', async () => {
+      const onCall = vi.fn();
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({
+          content: [
+            { type: 'text', text: 'PRD listo' },
+            { type: 'tool_use', id: 'tu_1', name: 'submit_done', input: { x: 1 } },
+          ],
+          stop_reason: 'tool_use',
+        }),
+      );
+
+      const result = await providerWith(fetchImpl).run(
+        ctxFor({ tools: [submit('submit_done', [], onCall), submit('submit_back')] }),
+      );
+
+      expect(result).toEqual({ outcome: 'success', summary: 'PRD listo' });
+      expect(onCall).toHaveBeenCalledWith({ x: 1 });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps looping when the terminal tool rejects its input, so the model can fix it', async () => {
+      let calls = 0;
+      const rejecting: Tool = {
+        ...submit('submit_done'),
+        handler: () => {
+          throw new Error('input inválido');
+        },
+      };
+      const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+        calls++;
+        if (calls === 1) {
+          return jsonResponse({
+            content: [{ type: 'tool_use', id: 'tu_1', name: 'submit_done', input: {} }],
+            stop_reason: 'tool_use',
+          });
+        }
+        if (calls === 2) {
+          const body = JSON.parse(init.body as string);
+          expect(body.messages.at(-1).content[0]).toMatchObject({
+            type: 'tool_result',
+            is_error: true,
+          });
+        }
+        return jsonResponse({
+          content: [{ type: 'text', text: 'me rindo' }],
+          stop_reason: 'end_turn',
+        });
+      });
+
+      await providerWith(fetchImpl).run(ctxFor({ tools: [rejecting, submit('submit_back')] }));
+
+      expect(fetchImpl).toHaveBeenCalledTimes(3); // rechazo → end_turn → una insistencia
+    });
+
+    it('nudges once when the model ends without calling any terminal tool', async () => {
+      let calls = 0;
+      const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+        calls++;
+        if (calls === 1) {
+          return jsonResponse({
+            content: [{ type: 'text', text: 'listo' }],
+            stop_reason: 'end_turn',
+          });
+        }
+        const body = JSON.parse(init.body as string);
+        expect(body.messages.at(-1)).toEqual({
+          role: 'user',
+          content:
+            'Para terminar tu turno tenés que llamar a una de estas tools: submit_done, submit_back.',
+        });
+        return jsonResponse({
+          content: [{ type: 'tool_use', id: 'tu_1', name: 'submit_done', input: {} }],
+          stop_reason: 'tool_use',
+        });
+      });
+
+      const result = await providerWith(fetchImpl).run(
+        ctxFor({ tools: [submit('submit_done'), submit('submit_back')] }),
+      );
+
+      expect(result.outcome).toBe('success');
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
+    it('nudges only once: a second end_turn returns and lets the Agent decide', async () => {
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({ content: [{ type: 'text', text: 'no' }], stop_reason: 'end_turn' }),
+      );
+
+      const result = await providerWith(fetchImpl).run(
+        ctxFor({ tools: [submit('submit_done'), submit('submit_back')] }),
+      );
+
+      expect(result).toEqual({ outcome: 'success', summary: 'no' });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not nudge for a single terminal tool that asks for no data', async () => {
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({ content: [{ type: 'text', text: 'hola' }], stop_reason: 'end_turn' }),
+      );
+
+      await providerWith(fetchImpl).run(ctxFor({ tools: [submit('submit_done')] }));
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('nudges for a single terminal tool with required fields', async () => {
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({ content: [{ type: 'text', text: 'hola' }], stop_reason: 'end_turn' }),
+      );
+
+      await providerWith(fetchImpl).run(ctxFor({ tools: [submit('submit_done', ['report'])] }));
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+  });
 });
