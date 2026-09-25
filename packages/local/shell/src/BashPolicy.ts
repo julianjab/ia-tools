@@ -93,15 +93,30 @@ function isDangerousGitConfig(argv: string[]): boolean {
 }
 
 /**
- * `git fetch`/`clone`/`push --upload-pack=<cmd>`/`--exec=<cmd>` hacen que git invoque `<cmd>`
- * como su propio helper de transporte — ejecución arbitraria, mismo nivel que `-c`. El flag
- * puede ir en cualquier posición, igual que `-c`, así que es otro chequeo dedicado en vez de un
- * patrón posicional. Nota de alcance: GNU permite ABREVIAR long options (`--upload-p=...`) —
+ * `git fetch`/`clone`/`ls-remote --upload-pack=<cmd>`, `git push --receive-pack=<cmd>` y
+ * `--exec=<cmd>` (alias de ambos) hacen que git invoque `<cmd>` como su propio helper de
+ * transporte — ejecución arbitraria, mismo nivel que `-c`. `clone`/`ls-remote` aceptan además la
+ * forma corta `-u <cmd>` o pegada `-u<cmd>` (en `fetch`, `-u` es otra cosa: `--update-head-ok`).
+ * Esa forma corta se rechaza si `clone`/`ls-remote` aparece en CUALQUIER posición — no sólo en
+ * `argv[1]`: una opción global (`git -C . clone -u…`) corre el subcomando de lugar. Conservador a
+ * propósito: un `fetch -u` con un argumento que se llame `clone` también cae. El flag puede ir
+ * en cualquier posición, igual que `-c`, así que es otro chequeo dedicado en vez de un patrón
+ * posicional. Nota de alcance: GNU permite ABREVIAR long options (`--upload-p=...`) —
  * `startsWith` no cubre toda abreviación posible; ver README → "Límites honestos".
  */
 function isDangerousGitTransport(argv: string[]): boolean {
   if (argv[0] !== 'git') return false;
-  return argv.some((token) => token.startsWith('--upload-pack') || token.startsWith('--exec'));
+  const takesShortUploadPack = argv.includes('clone') || argv.includes('ls-remote');
+  const shortUploadPack = takesShortUploadPack && argv.some((token) => token.startsWith('-u'));
+  return (
+    shortUploadPack ||
+    argv.some(
+      (token) =>
+        token.startsWith('--upload-pack') ||
+        token.startsWith('--receive-pack') ||
+        token.startsWith('--exec'),
+    )
+  );
 }
 
 /**
@@ -171,7 +186,7 @@ export function isDenied(argv: string[], policy: BashPolicy): string | undefined
     return 'git push (main/master, --delete/--all/--mirror, o refspec force)';
   if (isImplicitGitPush(argv)) return 'git push sin nombrar la branch destino explícitamente';
   if (isDangerousGitTransport(argv))
-    return 'git --upload-pack/--exec (ejecuta un helper arbitrario)';
+    return 'git --upload-pack/--receive-pack/--exec (ejecuta un helper arbitrario)';
   if (isDangerousGitExecSubcommand(argv)) {
     return 'git rebase -x / bisect run / submodule foreach / filter-branch --tree-filter (ejecuta un comando arbitrario)';
   }

@@ -109,8 +109,10 @@ caller ponga en `deny`, mismo criterio que la validación de `argv[0]` calificad
   posición después de `push` (no sólo la 3ra: `git push -u origin main` también cae),
   `+main`/`:main` (force/delete vía sintaxis de refspec, sin pasar por `--force`),
   `--delete`/`-d`/`--all`/`--mirror`, y `HEAD:refs/heads/main`.
-- **`git --upload-pack`/`--exec`** (en `clone`/`fetch`/`push`) — le dicen a git que invoque
-  `<cmd>` como su propio helper de transporte, en cualquier posición entre los demás flags.
+- **`git --upload-pack`/`--receive-pack`/`--exec`** (en `clone`/`fetch`/`ls-remote`/`push`), y
+  la forma corta `-u <cmd>`/`-u<cmd>` de `clone`/`ls-remote` — le dicen a git que invoque `<cmd>`
+  como su propio helper de transporte, en cualquier posición entre los demás flags. Con
+  `gitCredential` es además robo del token: el helper hereda los `-c` por `GIT_CONFIG_PARAMETERS`.
 - **`git -c`/`config`/`--config-env`** — reconfiguran git por invocación o de forma persistente
   (un alias, `core.sshCommand`, `core.pager`, `core.hooksPath`, `credential.helper` corren lo
   que sea vía `sh`). Un patrón posicional (`'git -c *'`, `'git config *'`) sólo mira `argv[1]`,
@@ -187,9 +189,8 @@ categoría completa.
   segmento `.git` de `isDangerousFileOpOnGit` sólo mira `cp`/`mv`/`ln`/`chmod`/`chown`/
   `install`/`rsync` — nunca a git mismo escribiendo su propio output a un path que el modelo
   elige.
-- **Más formas de que git ejecute un comando externo, sin cubrir todavía**: `git push
-  --receive-pack=<cmd>` (mismo vector que `--upload-pack`, apuntando al lado receptor en vez del
-  emisor); `git clone --config=<key>=<cmd> ...` (`--config` es un flag DISTINTO de `-c`/
+- **Más formas de que git ejecute un comando externo, sin cubrir todavía**: `git clone
+  --config=<key>=<cmd> ...` (`--config` es un flag DISTINTO de `-c`/
   `config`, `isDangerousGitConfig` no lo mira); y `git --git-dir=<dir-falso>/--work-tree=<dir>`
   apuntando a un gitdir que `fs_write` armó a mano fuera de cualquier carpeta llamada `.git`
   (`fake/config` con un alias, `git --git-dir=fake <alias>`) — `hasGitSegment` nunca lo ve porque
