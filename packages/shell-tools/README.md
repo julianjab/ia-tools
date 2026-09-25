@@ -172,6 +172,13 @@ categoría completa.
   segmento `.git` de `isDangerousFileOpOnGit` sólo mira `cp`/`mv`/`ln`/`chmod`/`chown`/
   `install`/`rsync` — nunca a git mismo escribiendo su propio output a un path que el modelo
   elige.
+- **Más formas de que git ejecute un comando externo, sin cubrir todavía**: `git push
+  --receive-pack=<cmd>` (mismo vector que `--upload-pack`, apuntando al lado receptor en vez del
+  emisor); `git clone --config=<key>=<cmd> ...` (`--config` es un flag DISTINTO de `-c`/
+  `config`, `isDangerousGitConfig` no lo mira); y `git --git-dir=<dir-falso>/--work-tree=<dir>`
+  apuntando a un gitdir que `fs_write` armó a mano fuera de cualquier carpeta llamada `.git`
+  (`fake/config` con un alias, `git --git-dir=fake <alias>`) — `hasGitSegment` nunca lo ve porque
+  el path nunca tiene un segmento literal `.git`.
 - **Esta lista de chequeos dedicados no se declara completa ni final.** Es una lista de
   bloqueo — por diseño, nunca termina de perseguir bypasses nuevos (otro subcomando de git que
   ejecute un argumento, otro wrapper como `nice`/`timeout`, otro flag `--algo=<comando>` de
