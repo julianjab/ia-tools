@@ -419,3 +419,131 @@ describe('Pipeline routes', () => {
     expect(() => pipeline.routesOf('nope')).toThrow(/no corre ningún agente "nope"/);
   });
 });
+
+describe('Pipeline onError on any step', () => {
+  const failing = (id: string, message = 'boom') =>
+    new FunctionAction({
+      id,
+      fn: () => {
+        throw new Error(message);
+      },
+    });
+
+  it('a step onError handles its own failure and records the error', async () => {
+    const log: string[] = [];
+    const alert = recorder('alert', log);
+    const after = new FunctionAction({ id: 'after', fn: () => 'sigue' });
+
+    const steps = await new Pipeline({
+      id: 'p',
+      on: ['e'],
+      do: [
+        new FunctionAction({
+          id: 'notify',
+          fn: () => {
+            throw new Error('slack caído');
+          },
+          onError: { to: alert },
+        }),
+        after,
+      ],
+    }).execute(ctx());
+
+    expect(log).toEqual(['alert']);
+    expect(steps.notify).toEqual({ error: 'slack caído' });
+    expect(steps.after).toBe('sigue');
+  });
+
+  it('the pipeline onError applies to any failing step, with its report', async () => {
+    const log: string[] = [];
+    const report = recorder('report', log, z.strictObject({ summary: z.string() }));
+
+    await new Pipeline({
+      id: 'p',
+      on: ['e'],
+      do: [failing('http')],
+      report,
+      onError: { to: recorder('blocked', log), report: (err) => ({ summary: err.message }) },
+    }).execute(ctx());
+
+    expect(log).toEqual(['report {"summary":"boom"}', 'blocked']);
+  });
+
+  it('the project onError applies when neither the step nor the pipeline defines one', async () => {
+    const log: string[] = [];
+
+    await new Pipeline({ id: 'p', on: ['e'], do: [failing('http')] }).execute({
+      ...ctx(),
+      defaults: { onError: { to: recorder('blocked', log) } },
+    });
+
+    expect(log).toEqual(['blocked']);
+  });
+
+  it('a step onError of null opts out of the pipeline onError', async () => {
+    const log: string[] = [];
+    const step = new FunctionAction({
+      id: 'x',
+      fn: () => {
+        throw new Error('boom');
+      },
+      onError: null,
+    });
+
+    await expect(
+      new Pipeline({
+        id: 'p',
+        on: ['e'],
+        do: [step],
+        onError: { to: recorder('blocked', log) },
+      }).execute(ctx()),
+    ).rejects.toThrow('boom');
+    expect(log).toEqual([]);
+  });
+
+  it('continueOnError still works as the last resort when no onError handles it', async () => {
+    const steps = await new Pipeline({
+      id: 'p',
+      on: ['e'],
+      do: [
+        new FunctionAction({
+          id: 'x',
+          fn: () => {
+            throw new Error('boom');
+          },
+          continueOnError: true,
+        }),
+        new FunctionAction({ id: 'after', fn: () => 'sigue' }),
+      ],
+    }).execute(ctx());
+
+    expect(steps.after).toBe('sigue');
+  });
+
+  it('a failure inside an error route propagates instead of re-entering onError', async () => {
+    const blocked = failing('blocked', 'sin permisos para la label');
+
+    await expect(
+      new Pipeline({
+        id: 'p',
+        on: ['e'],
+        do: [failing('http')],
+        onError: { to: blocked },
+      }).execute(ctx()),
+    ).rejects.toThrow('sin permisos para la label');
+  });
+
+  it('an error route target listed in do[] does not also run on its own', async () => {
+    const log: string[] = [];
+    const blocked = recorder('blocked', log);
+
+    await new Pipeline({
+      id: 'p',
+      on: ['e'],
+      do: [new FunctionAction({ id: 'ok', fn: () => null }), blocked],
+      onError: { to: blocked },
+    }).execute(ctx());
+
+    expect(log).toEqual([]);
+  });
+});
