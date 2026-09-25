@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { Agent } from '../../agent/Agent.js';
 import { ProviderRegistry } from '../../agent/Provider.js';
 import { Condition } from '../../condition/Condition.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
+import { END } from '../../routing/ExitRoutes.js';
 import { Pipeline, isAgent } from '../Pipeline.js';
+import type { PipelineExecutionContext } from '../Runnable.js';
+import { Action } from '../actions/Action.js';
 import { FunctionAction } from '../actions/FunctionAction.js';
 
 function fakeRegistry(outcome = 'success', summary = 'a-out') {
@@ -66,10 +70,7 @@ describe('Pipeline.execute', () => {
       id: 'p',
       on: ['a'],
       do: [
-        new Agent(
-          { id: 'first', provider: 'fake', prompt: 'p', exits: { success: 'success' } },
-          registry,
-        ),
+        new Agent({ id: 'first', provider: 'fake', prompt: 'p' }, registry),
         new FunctionAction({ id: 'second', fn: (ctx) => ctx.steps.first }),
       ],
     });
@@ -78,7 +79,8 @@ describe('Pipeline.execute', () => {
 
     expect(steps.first).toEqual({
       output: { outcome: 'success', summary: 'a-out' },
-      exit: 'success',
+      exit: 'done',
+      payload: {},
     });
     expect(steps.second).toEqual(steps.first);
   });
@@ -171,5 +173,249 @@ describe('isAgent', () => {
     const functionAction = new FunctionAction({ fn: () => undefined });
     expect(isAgent(agent)).toBe(true);
     expect(isAgent(functionAction)).toBe(false);
+  });
+});
+
+// --- Rutas ---------------------------------------------------------------------------------
+
+/** Qué hace el "modelo" de cada agente: llamar un submit con un payload, o fallar. */
+type Script = Record<string, { submit: string; payload?: unknown } | { fail: string }>;
+
+function scriptedRegistry(script: Script, prompts: Record<string, string> = {}) {
+  return new ProviderRegistry().register({
+    id: 'fake',
+    run: async (ctx) => {
+      prompts[ctx.agentId] = ctx.prompt;
+      const step = script[ctx.agentId];
+      if (!step) return { outcome: 'success' };
+      if ('fail' in step) throw new Error(step.fail);
+      await ctx.tools.find((tool) => tool.name === step.submit)?.handler(step.payload ?? {});
+      return { outcome: 'success' };
+    },
+  });
+}
+
+/** Una acción que anota en `log` cada vez que corre, con su input. */
+function recorder(id: string, log: string[], input = z.strictObject({})) {
+  return new (class extends Action<typeof input> {
+    readonly description = id;
+    readonly input = input;
+    execute(value: unknown) {
+      log.push(`${id}${Object.keys(value as object).length ? ` ${JSON.stringify(value)}` : ''}`);
+      return id;
+    }
+  })({ id });
+}
+
+function ctx(): PipelineExecutionContext {
+  return { event: createEvent('e', {}), steps: {}, bus: new EventBus(), pipelineId: '' };
+}
+
+describe('Pipeline routes', () => {
+  it('runs the report first, then the chosen exit destinations in order', async () => {
+    const log: string[] = [];
+    const report = recorder('report', log, z.strictObject({ summary: z.string() }));
+    const toBuild = recorder('to_build', log);
+    const notify = recorder('notify', log);
+    const other = recorder('other', log);
+    const reviewer = new Agent(
+      {
+        id: 'reviewer',
+        provider: 'fake',
+        prompt: 'p',
+        report,
+        routes: { back_to_build: { to: [toBuild, notify] }, approved: { to: other } },
+      },
+      scriptedRegistry({
+        reviewer: { submit: 'submit_back_to_build', payload: { report: { summary: 'falla X' } } },
+      }),
+    );
+
+    await new Pipeline({ id: 'p', on: ['e'], do: [reviewer] }).execute(ctx());
+
+    expect(log).toEqual(['report {"summary":"falla X"}', 'to_build', 'notify']);
+  });
+
+  it('a step reachable through a route does not run on its own in do[]', async () => {
+    const log: string[] = [];
+    const notify = recorder('notify', log);
+    const triage = new Agent(
+      {
+        id: 'triage',
+        provider: 'fake',
+        prompt: 'p',
+        routes: { actionable: { to: notify }, not_actionable: { to: END } },
+      },
+      scriptedRegistry({ triage: { submit: 'submit_not_actionable' } }),
+    );
+
+    await new Pipeline({ id: 'p', on: ['e'], do: [triage, notify] }).execute(ctx());
+
+    expect(log).toEqual([]);
+  });
+
+  it('chains agents: the model output of one is the typed input of the next', async () => {
+    const prompts: Record<string, string> = {};
+    const registry = scriptedRegistry(
+      { triage: { submit: 'submit_actionable', payload: { refiner: { summary: 'paginar' } } } },
+      prompts,
+    );
+    const triage = new Agent(
+      {
+        id: 'triage',
+        provider: 'fake',
+        prompt: 'p',
+        routes: { actionable: { when: 'Pide un cambio' }, not_actionable: { to: END } },
+      },
+      registry,
+    );
+    const refiner = new Agent(
+      {
+        id: 'refiner',
+        provider: 'fake',
+        prompt: 'Ajustá: {{input.summary}}',
+        input: z.strictObject({ summary: z.string().optional() }),
+      },
+      registry,
+    );
+
+    const steps = await new Pipeline({
+      id: 'comment-refine',
+      on: ['e'],
+      do: [triage, refiner],
+      routes: { triage: { routes: { actionable: { to: refiner } } } },
+    }).execute(ctx());
+
+    expect(prompts.refiner).toBe('Ajustá: paginar');
+    expect(steps.refiner).toMatchObject({ exit: 'done' });
+  });
+
+  it('onError runs the error report and destinations instead of failing the pipeline', async () => {
+    const log: string[] = [];
+    const report = recorder('report', log, z.strictObject({ summary: z.string() }));
+    const blocked = recorder('blocked', log);
+    const implementer = new Agent(
+      { id: 'implementer', provider: 'fake', prompt: 'p', report },
+      scriptedRegistry({ implementer: { fail: 'sin acceso al repo' } }),
+    );
+
+    const steps = await new Pipeline({
+      id: 'p',
+      on: ['e'],
+      do: [implementer],
+      onError: { to: blocked, report: (err) => ({ summary: `Falló: ${err.message}` }) },
+    }).execute(ctx());
+
+    expect(log).toEqual(['report {"summary":"Falló: sin acceso al repo"}', 'blocked']);
+    expect(steps.implementer).toEqual({ error: 'sin acceso al repo' });
+  });
+
+  it('the project onError applies when neither the agent nor the pipeline defines one', async () => {
+    const log: string[] = [];
+    const blocked = recorder('blocked', log);
+    const implementer = new Agent(
+      { id: 'implementer', provider: 'fake', prompt: 'p' },
+      scriptedRegistry({ implementer: { fail: 'boom' } }),
+    );
+
+    await new Pipeline({ id: 'p', on: ['e'], do: [implementer] }).execute({
+      ...ctx(),
+      defaults: { onError: { to: blocked } },
+    });
+
+    expect(log).toEqual(['blocked']);
+  });
+
+  it('without onError anywhere, an agent failure still aborts the pipeline', async () => {
+    const implementer = new Agent(
+      { id: 'implementer', provider: 'fake', prompt: 'p' },
+      scriptedRegistry({ implementer: { fail: 'boom' } }),
+    );
+
+    await expect(
+      new Pipeline({ id: 'p', on: ['e'], do: [implementer] }).execute(ctx()),
+    ).rejects.toThrow('boom');
+  });
+
+  describe('validation at construction', () => {
+    const registry = scriptedRegistry({});
+
+    it('rejects a vocabulary-only exit the pipeline did not give a destination', () => {
+      const triage = new Agent(
+        { id: 'triage', provider: 'fake', prompt: 'p', routes: { actionable: { when: 'x' } } },
+        registry,
+      );
+
+      expect(() => new Pipeline({ id: 'p', on: ['e'], do: [triage] })).toThrow(
+        /"actionable" no tiene destino/,
+      );
+    });
+
+    it('rejects overrides for an agent the pipeline does not run', () => {
+      expect(
+        () =>
+          new Pipeline({
+            id: 'p',
+            on: ['e'],
+            do: [],
+            routes: { ghost: { routes: {} } },
+          }),
+      ).toThrow(/routes.ghost sobrescribe un agente que la pipeline no corre/);
+    });
+
+    it('rejects a cycle between agents', () => {
+      const a = new Agent(
+        { id: 'a', provider: 'fake', prompt: 'p', routes: { next: {} } },
+        registry,
+      );
+      const b = new Agent(
+        { id: 'b', provider: 'fake', prompt: 'p', routes: { next: {} } },
+        registry,
+      );
+
+      expect(
+        () =>
+          new Pipeline({
+            id: 'p',
+            on: ['e'],
+            do: [a],
+            routes: { a: { routes: { next: { to: b } } }, b: { routes: { next: { to: a } } } },
+          }),
+      ).toThrow(/ciclo entre agentes \(a → b → a\)/);
+    });
+
+    it('rejects two different agents with the same id', () => {
+      const one = new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry);
+      const two = new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry);
+
+      expect(() => new Pipeline({ id: 'p', on: ['e'], do: [one, two] })).toThrow(
+        /dos agentes distintos con el id "x"/,
+      );
+    });
+  });
+
+  it('routesOf shows the effective routes with their origin', () => {
+    const blocked = new FunctionAction({ id: 'blocked', fn: () => null });
+    const refiner = new Agent(
+      {
+        id: 'refiner',
+        provider: 'fake',
+        prompt: 'p',
+        routes: { done: { to: END }, back_to_build: { to: END } },
+      },
+      scriptedRegistry({}),
+    );
+    const pipeline = new Pipeline({
+      id: 'p',
+      on: ['e'],
+      do: [refiner],
+      routes: { refiner: { routes: { back_to_build: null } } },
+    });
+
+    const routes = pipeline.routesOf('refiner', { onError: { to: blocked } });
+
+    expect(routes.exits.map((exit) => [exit.name, exit.origin])).toEqual([['done', 'agent']]);
+    expect(routes.onError?.origin).toBe('project');
+    expect(() => pipeline.routesOf('nope')).toThrow(/no corre ningún agente "nope"/);
   });
 });

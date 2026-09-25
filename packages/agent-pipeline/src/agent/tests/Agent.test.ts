@@ -1,15 +1,34 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { Condition } from '../../condition/Condition.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import type { PipelineExecutionContext } from '../../pipeline/Runnable.js';
+import { Action } from '../../pipeline/actions/Action.js';
+import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
+import { END } from '../../routing/ExitRoutes.js';
 import { Agent } from '../Agent.js';
-import { ERROR_EXIT, SUCCESS_EXIT } from '../AgentDefinition.js';
+import type { Tool } from '../AgentDefinition.js';
 import type { Provider, ProviderRunContext } from '../Provider.js';
 import { ProviderRegistry } from '../Provider.js';
 
 function registerFakeProvider(id: string, run: Provider['run']): ProviderRegistry {
   return new ProviderRegistry().register({ id, run });
+}
+
+/** Un provider que "llama" una tool como lo haría el modelo, y termina. Como un provider real,
+ *  un rechazo de la tool no lo tumba: queda en `errors` (lo que vería el modelo). */
+function callingProvider(name: string, input: unknown, errors: string[] = []): ProviderRegistry {
+  return registerFakeProvider('fake', async (ctx) => {
+    const tool = ctx.tools.find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`el agente no ofreció ${name}`);
+    try {
+      await tool.handler(input);
+    } catch (err) {
+      errors.push((err as Error).message);
+    }
+    return { outcome: 'success' };
+  });
 }
 
 function ctxFor(
@@ -19,9 +38,52 @@ function ctxFor(
   return { event: createEvent('t', payload), steps, bus: new EventBus(), pipelineId: 'p1' };
 }
 
+const UpdateIssueInput = z.strictObject({
+  status: z.string().optional(),
+  comment: z.string().optional(),
+});
+
+class UpdateIssue extends Action<typeof UpdateIssueInput> {
+  readonly description = 'Actualiza el issue';
+  readonly input = UpdateIssueInput;
+  constructor() {
+    super({ id: 'update_issue' });
+  }
+  execute() {
+    return null;
+  }
+}
+
+const SearchInput = z.strictObject({ query: z.string() });
+
+class Search extends Action<typeof SearchInput> {
+  readonly description = 'Busca tareas';
+  readonly input = SearchInput;
+  override readonly sideEffects = 'none' as const;
+  constructor() {
+    super({ id: 'search_tasks' });
+  }
+  execute() {
+    return [];
+  }
+}
+
+const NotifyInput = z.strictObject({ summary: z.string() });
+
+class Notify extends Action<typeof NotifyInput> {
+  readonly description = 'Notifica';
+  readonly input = NotifyInput;
+  constructor() {
+    super({ id: 'notify' });
+  }
+  execute() {
+    return null;
+  }
+}
+
 describe('Agent', () => {
   it('is a Runnable — inherits id/when/continueOnError from the definition', () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: SUCCESS_EXIT }));
+    const registry = registerFakeProvider('fake', async () => ({ outcome: 'success' }));
     const agent = new Agent(
       {
         id: 'x',
@@ -51,7 +113,7 @@ describe('Agent', () => {
     let receivedPrompt = '';
     const registry = registerFakeProvider('fake', async (ctx) => {
       receivedPrompt = ctx.prompt;
-      return { outcome: SUCCESS_EXIT };
+      return { outcome: 'success' };
     });
 
     const agent = new Agent(
@@ -67,7 +129,7 @@ describe('Agent', () => {
     let receivedPrompt = '';
     const registry = registerFakeProvider('fake', async (ctx) => {
       receivedPrompt = ctx.prompt;
-      return { outcome: SUCCESS_EXIT };
+      return { outcome: 'success' };
     });
 
     const agent = new Agent(
@@ -88,7 +150,7 @@ describe('Agent', () => {
     let receivedPrompt = '';
     const registry = registerFakeProvider('fake', async (ctx) => {
       receivedPrompt = ctx.prompt;
-      return { outcome: SUCCESS_EXIT };
+      return { outcome: 'success' };
     });
 
     const agent = new Agent({ id: 'x', provider: 'fake', prompt: 'Valor: {{typo}}' }, registry);
@@ -101,7 +163,7 @@ describe('Agent', () => {
     let received: string[] = [];
     const registry = registerFakeProvider('fake', async (ctx) => {
       received = ctx.systemPrompts;
-      return { outcome: SUCCESS_EXIT };
+      return { outcome: 'success' };
     });
 
     const agent = new Agent(
@@ -118,60 +180,11 @@ describe('Agent', () => {
     expect(received).toEqual(['uno', 'dos']);
   });
 
-  it('matches the outcome against exits and returns the resolved exit string', async () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: 'actionable' }));
-
-    const agent = new Agent(
-      {
-        id: 'x',
-        provider: 'fake',
-        prompt: 'p',
-        exits: { actionable: 'actionable', 'not-actionable': 'not-actionable' },
-      },
-      registry,
-    );
-    const result = (await agent.run(ctxFor())) as { output: unknown; exit?: string };
-
-    expect(result.exit).toBe('actionable');
-    expect(result.output).toEqual({ outcome: 'actionable' });
-  });
-
-  it('an outcome not declared in exits falls back to the ERROR_EXIT entry', async () => {
-    const registry = registerFakeProvider('fake', async () => ({
-      outcome: 'something-unexpected',
-    }));
-
-    const agent = new Agent(
-      {
-        id: 'x',
-        provider: 'fake',
-        prompt: 'p',
-        exits: { [SUCCESS_EXIT]: SUCCESS_EXIT, [ERROR_EXIT]: 'failed' },
-      },
-      registry,
-    );
-    const result = (await agent.run(ctxFor())) as { exit?: string };
-
-    expect(result.exit).toBe('failed');
-  });
-
-  it('cancelled/truncated outcomes resolve to no exit at all (NO_TRANSITION_OUTCOMES)', async () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: 'cancelled' }));
-
-    const agent = new Agent(
-      { id: 'x', provider: 'fake', prompt: 'p', exits: { [ERROR_EXIT]: 'failed' } },
-      registry,
-    );
-    const result = (await agent.run(ctxFor())) as { exit?: string };
-
-    expect(result.exit).toBeUndefined();
-  });
-
-  it('passes tools, providerConfig and mcpServers through to the provider untouched', async () => {
+  it('passes tools, providerConfig and mcpServers through to the provider', async () => {
     let received: ProviderRunContext | undefined;
     const registry = registerFakeProvider('fake', async (ctx) => {
       received = ctx;
-      return { outcome: SUCCESS_EXIT };
+      return { outcome: 'success' };
     });
 
     const tool = { name: 't', description: 'd', inputSchema: {}, handler: () => 'x' };
@@ -188,98 +201,266 @@ describe('Agent', () => {
     );
     await agent.run(ctxFor());
 
-    expect(received?.tools).toEqual([tool]);
+    expect(received?.tools[0]).toBe(tool);
     expect(received?.providerConfig).toEqual({ model: 'x' });
     expect(received?.mcpServers).toEqual([{ id: 'gh', config: { url: 'https://x' } }]);
   });
 
-  it('emitOn publishes a derived event named after the resolved exit', async () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: 'triaged' }));
-    const bus = new EventBus();
-    const published: string[] = [];
-    bus.subscribe('*', (event) => {
-      published.push(event.type);
+  describe('input', () => {
+    const agentWithInput = (registry: ProviderRegistry) =>
+      new Agent(
+        {
+          id: 'refiner',
+          provider: 'fake',
+          prompt: 'Ajustá el PRD: {{input.summary}}',
+          input: z.strictObject({ summary: z.string().optional() }),
+        },
+        registry,
+      );
+
+    it('validates the input and exposes it as {{input.x}}', async () => {
+      let receivedPrompt = '';
+      const registry = registerFakeProvider('fake', async (ctx) => {
+        receivedPrompt = ctx.prompt;
+        return { outcome: 'success' };
+      });
+
+      await agentWithInput(registry).run(ctxFor(), { summary: 'agregar paginación' });
+
+      expect(receivedPrompt).toBe('Ajustá el PRD: agregar paginación');
     });
 
-    const agent = new Agent(
+    it('rejects an invalid input before calling the provider', async () => {
+      let called = false;
+      const registry = registerFakeProvider('fake', async () => {
+        called = true;
+        return { outcome: 'success' };
+      });
+
+      await expect(agentWithInput(registry).run(ctxFor(), { summary: 3 })).rejects.toThrow(
+        /Agent\(refiner\): input inválido[\s\S]*→ at summary/,
+      );
+      expect(called).toBe(false);
+    });
+
+    it('declares its input through acceptsInput, and none when it has no schema', () => {
+      const registry = new ProviderRegistry();
+
+      expect(agentWithInput(registry).acceptsInput()).toBeDefined();
+      expect(new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry).acceptsInput()).toBe(
+        undefined,
+      );
+    });
+  });
+
+  describe('exits', () => {
+    const updateIssue = new UpdateIssue();
+    const routes = {
+      done: { when: 'El PRD quedó listo', to: updateIssue.bind({ status: 'Refined' }) },
+      back_to_build: { when: 'Falla la implementación', to: updateIssue.bind({ status: 'Build' }) },
+    };
+
+    it('offers one terminal submit_<exit> tool per exit, described by its `when`', async () => {
+      let tools: Tool[] = [];
+      const registry = registerFakeProvider('fake', async (ctx) => {
+        tools = ctx.tools;
+        await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({});
+        return { outcome: 'success' };
+      });
+
+      await new Agent({ id: 'refiner', provider: 'fake', prompt: 'p', routes }, registry).run(
+        ctxFor(),
+      );
+
+      expect(tools.map((tool) => [tool.name, tool.terminal])).toEqual([
+        ['submit_done', true],
+        ['submit_back_to_build', true],
+      ]);
+      expect(tools[1]?.description).toMatch(/Usala cuando: Falla la implementación/);
+    });
+
+    it('returns the exit the model submitted, with its payload', async () => {
+      const registry = callingProvider('submit_back_to_build', {
+        update_issue: { comment: 'el test de X falla' },
+      });
+
+      const result = await new Agent(
+        { id: 'refiner', provider: 'fake', prompt: 'p', routes },
+        registry,
+      ).run(ctxFor());
+
+      expect(result.exit).toBe('back_to_build');
+      expect(result.payload).toEqual({ update_issue: { comment: 'el test de X falla' } });
+    });
+
+    it('the submit schema asks for each destination input, minus the fields fixed by bind', async () => {
+      const errors: string[] = [];
+      const registry = callingProvider('submit_done', { update_issue: { status: 'Done' } }, errors);
+      const agent = new Agent({ id: 'refiner', provider: 'fake', prompt: 'p', routes }, registry);
+
+      // El modelo recibe el rechazo (el status lo fijó el operador con bind). Si igual termina sin
+      // un submit válido y hay más de una salida, la corrida no adivina: falla.
+      await expect(agent.run(ctxFor())).rejects.toThrow(/terminó sin elegir salida/);
+      expect(errors[0]).toMatch(/submit_done: input inválido[\s\S]*Unrecognized key: "status"/);
+    });
+
+    it('rejects a second submit in the same turn', async () => {
+      const registry = registerFakeProvider('fake', async (ctx) => {
+        await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({});
+        await ctx.tools.find((tool) => tool.name === 'submit_back_to_build')?.handler({});
+        return { outcome: 'success' };
+      });
+
+      await expect(
+        new Agent({ id: 'refiner', provider: 'fake', prompt: 'p', routes }, registry).run(ctxFor()),
+      ).rejects.toThrow(/Ya elegiste la salida "done"/);
+    });
+
+    it('an agent without declared exits gets an implicit "done", chosen without a submit', async () => {
+      const registry = registerFakeProvider('fake', async () => ({ outcome: 'success' }));
+
+      const result = await new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry).run(
+        ctxFor(),
+      );
+
+      expect(result.exit).toBe('done');
+      expect(result.payload).toEqual({});
+    });
+
+    it('a provider without tools can pick an exit by outcome name when it needs no data', async () => {
+      const registry = registerFakeProvider('fake', async () => ({ outcome: 'back_to_build' }));
+
+      const result = await new Agent(
+        { id: 'refiner', provider: 'fake', prompt: 'p', routes },
+        registry,
+      ).run(ctxFor());
+
+      expect(result.exit).toBe('back_to_build');
+    });
+
+    it('fails when the model ends without submitting and the exit needs data', async () => {
+      const registry = registerFakeProvider('fake', async () => ({ outcome: 'success' }));
+      const agent = new Agent(
+        {
+          id: 'triage',
+          provider: 'fake',
+          prompt: 'p',
+          routes: { actionable: { to: new Notify() }, not_actionable: { to: END } },
+        },
+        registry,
+      );
+
+      await expect(agent.run(ctxFor())).rejects.toThrow(
+        /terminó sin elegir salida — tenía que llamar a submit_actionable, submit_not_actionable/,
+      );
+    });
+
+    it('cancelled/truncated outcomes resolve to no exit at all', async () => {
+      const registry = registerFakeProvider('fake', async () => ({ outcome: 'truncated' }));
+
+      const result = await new Agent(
+        { id: 'refiner', provider: 'fake', prompt: 'p', routes },
+        registry,
+      ).run(ctxFor());
+
+      expect(result.exit).toBeUndefined();
+    });
+
+    it('an "error" outcome throws, so the pipeline can apply onError', async () => {
+      const registry = registerFakeProvider('fake', async () => ({
+        outcome: 'error',
+        summary: 'sin acceso al repo',
+      }));
+
+      await expect(
+        new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry).run(ctxFor()),
+      ).rejects.toThrow(/el provider reportó error: sin acceso al repo/);
+    });
+
+    it('rejects a base route that points to another agent', () => {
+      const registry = new ProviderRegistry();
+      const other = new Agent({ id: 'implementer', provider: 'fake', prompt: 'p' }, registry);
+
+      expect(
+        () =>
+          new Agent(
+            { id: 'refiner', provider: 'fake', prompt: 'p', routes: { done: { to: other } } },
+            registry,
+          ),
+      ).toThrow(/una ruta base apunta al agente "implementer"/);
+    });
+  });
+
+  describe('actions', () => {
+    it('gives read actions to the model as tools', async () => {
+      let names: string[] = [];
+      const registry = registerFakeProvider('fake', async (ctx) => {
+        names = ctx.tools.map((tool) => tool.name);
+        return { outcome: 'success' };
+      });
+
+      await new Agent(
+        { id: 'chat', provider: 'fake', prompt: 'p', actions: [new Search()] },
+        registry,
+      ).run(ctxFor());
+
+      expect(names).toEqual(['search_tasks', 'submit_done']);
+    });
+
+    it('rejects a writing action unless it is passed through allowWrite()', () => {
+      const registry = new ProviderRegistry();
+
+      expect(
+        () =>
+          new Agent(
+            { id: 'chat', provider: 'fake', prompt: 'p', actions: [new UpdateIssue()] },
+            registry,
+          ),
+      ).toThrow(/la acción "update_issue" escribe — pasala como update_issue.allowWrite\(\)/);
+      expect(
+        () =>
+          new Agent(
+            {
+              id: 'chat',
+              provider: 'fake',
+              prompt: 'p',
+              actions: [new UpdateIssue().allowWrite()],
+            },
+            registry,
+          ),
+      ).not.toThrow();
+    });
+
+    it('rejects two tools with the same name', async () => {
+      const registry = registerFakeProvider('fake', async () => ({ outcome: 'success' }));
+      const clash = { name: 'search_tasks', description: 'd', inputSchema: {}, handler: () => '' };
+
+      await expect(
+        new Agent(
+          { id: 'chat', provider: 'fake', prompt: 'p', tools: [clash], actions: [new Search()] },
+          registry,
+        ).run(ctxFor()),
+      ).rejects.toThrow(/dos tools con el nombre "search_tasks"/);
+    });
+  });
+
+  it('onStart runs before the provider', async () => {
+    const order: string[] = [];
+    const registry = registerFakeProvider('fake', async () => {
+      order.push('provider');
+      return { outcome: 'success' };
+    });
+
+    await new Agent(
       {
-        id: 'triage',
+        id: 'implementer',
         provider: 'fake',
         prompt: 'p',
-        exits: { triaged: 'triaged' },
-        emitOn: (exit) => `agent.${exit}`,
+        onStart: new FunctionAction({ fn: () => order.push('onStart') }),
       },
       registry,
-    );
-    await agent.run({ ...ctxFor(), bus });
+    ).run(ctxFor());
 
-    expect(published).toEqual(['agent.triaged']);
-  });
-
-  it('a truncated/cancelled outcome (no exit) never calls emitOn, even though it defines one', async () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: 'truncated' }));
-    const bus = new EventBus();
-    const published: string[] = [];
-    bus.subscribe('*', (event) => {
-      published.push(event.type);
-    });
-    const emitOn = vi.fn(() => 'agent.success');
-
-    const agent = new Agent({ id: 'x', provider: 'fake', prompt: 'p', emitOn }, registry);
-    await agent.run({ ...ctxFor(), bus });
-
-    expect(emitOn).not.toHaveBeenCalled();
-    expect(published).toEqual([]);
-  });
-
-  it('an unmapped outcome with no exits.error fallback (no exit) never calls emitOn', async () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: 'weird' }));
-    const bus = new EventBus();
-    const published: string[] = [];
-    bus.subscribe('*', (event) => {
-      published.push(event.type);
-    });
-    const emitOn = vi.fn(() => 'agent.success');
-
-    const agent = new Agent({ id: 'x', provider: 'fake', prompt: 'p', emitOn }, registry);
-    await agent.run({ ...ctxFor(), bus });
-
-    expect(emitOn).not.toHaveBeenCalled();
-    expect(published).toEqual([]);
-  });
-
-  it('without emitOn, nothing gets published', async () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: SUCCESS_EXIT }));
-    const bus = new EventBus();
-    const publishSpy = { called: false };
-    bus.subscribe('*', () => {
-      publishSpy.called = true;
-    });
-
-    const agent = new Agent({ id: 'x', provider: 'fake', prompt: 'p' }, registry);
-    await agent.run({ ...ctxFor(), bus });
-
-    expect(publishSpy.called).toBe(false);
-  });
-
-  it('a downstream publish failure propagates and aborts this step (documented coupling)', async () => {
-    const registry = registerFakeProvider('fake', async () => ({ outcome: SUCCESS_EXIT }));
-    const bus = new EventBus();
-    bus.subscribe('derived', () => {
-      throw new Error('downstream boom');
-    });
-
-    const agent = new Agent(
-      {
-        id: 'x',
-        provider: 'fake',
-        prompt: 'p',
-        exits: { [SUCCESS_EXIT]: 'success' },
-        emitOn: () => 'derived',
-      },
-      registry,
-    );
-
-    await expect(agent.run({ ...ctxFor(), bus })).rejects.toThrow(AggregateError);
+    expect(order).toEqual(['onStart', 'provider']);
   });
 });

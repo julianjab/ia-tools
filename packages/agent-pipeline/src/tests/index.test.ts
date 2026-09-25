@@ -12,9 +12,11 @@ describe('package entrypoint', () => {
     expect(lib.ProviderRegistry).toBeDefined();
     expect(lib.providerRegistry).toBeDefined();
     expect(lib.SchemaTool).toBeDefined();
-    expect(lib.exitSet).toBeTypeOf('function');
-    expect(lib.SUCCESS_EXIT).toBe('success');
-    expect(lib.ERROR_EXIT).toBe('error');
+    expect(lib.NO_TRANSITION_OUTCOMES).toBeInstanceOf(Set);
+    expect(lib.Action).toBeDefined();
+    expect(lib.Project).toBeDefined();
+    expect(lib.resolveRoutes).toBeTypeOf('function');
+    expect(lib.END).toBeTypeOf('symbol');
     expect(lib.EmitAction).toBeDefined();
     expect(lib.FunctionAction).toBeDefined();
     expect(lib.HttpAction).toBeDefined();
@@ -34,12 +36,7 @@ describe('package entrypoint', () => {
     const pipeline = new lib.Pipeline({
       id: 'p',
       on: ['a'],
-      do: [
-        new lib.Agent(
-          { id: 'echo', provider: 'echo-provider', prompt: 'p', exits: { success: 'success' } },
-          registry,
-        ),
-      ],
+      do: [new lib.Agent({ id: 'echo', provider: 'echo-provider', prompt: 'p' }, registry)],
     });
     const bus = new lib.EventBus();
     const engine = new lib.Engine({

@@ -59,7 +59,6 @@ describe('Engine.dispatch', () => {
             id: 'triage',
             provider: 'triage-provider',
             prompt: '{{title}}',
-            exits: { success: 'success' },
           },
           registry,
         ),
@@ -68,7 +67,6 @@ describe('Engine.dispatch', () => {
             id: 'fix',
             provider: 'fix-provider',
             prompt: 'fix it',
-            exits: { success: 'success' },
             when: Condition.fromRows([
               { field: 'steps.triage.output.summary', op: 'eq', value: 'true' },
             ]),
@@ -86,7 +84,9 @@ describe('Engine.dispatch', () => {
     const outcome = await engine.dispatch(createEvent('github.issue.opened', { title: 'fix bug' }));
 
     expect(outcome).toBe('dispatched');
-    expect(seen).toEqual([{ output: { outcome: 'success', summary: 'patched' }, exit: 'success' }]);
+    expect(seen).toEqual([
+      { output: { outcome: 'success', summary: 'patched' }, exit: 'done', payload: {} },
+    ]);
   });
 
   it('skips a step whose when does not match, and does not run its agent', async () => {
