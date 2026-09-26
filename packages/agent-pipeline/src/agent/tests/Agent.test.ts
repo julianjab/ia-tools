@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { Condition } from '../../condition/Condition.js';
 import { createEvent } from '../../events/DomainEvent.js';
@@ -506,5 +506,51 @@ describe('Agent', () => {
     ).run(ctxFor());
 
     expect(order).toEqual(['onStart', 'provider']);
+  });
+
+  it('onStart accepts a list and runs it in order, before the provider', async () => {
+    const order: string[] = [];
+    const registry = registerFakeProvider('fake', async () => {
+      order.push('provider');
+      return { outcome: 'success' };
+    });
+
+    await new Agent(
+      {
+        id: 'implementer',
+        provider: 'fake',
+        prompt: 'p',
+        onStart: [
+          new FunctionAction({ fn: () => order.push('clear-labels') }),
+          new FunctionAction({ fn: () => order.push('link-branch') }),
+        ],
+      },
+      registry,
+    ).run(ctxFor());
+
+    expect(order).toEqual(['clear-labels', 'link-branch', 'provider']);
+  });
+
+  it('a failing onStart step stops the agent before the provider', async () => {
+    const provider = vi.fn(async () => ({ outcome: 'success' }));
+    const registry = registerFakeProvider('fake', provider);
+    const agent = new Agent(
+      {
+        id: 'implementer',
+        provider: 'fake',
+        prompt: 'p',
+        onStart: [
+          new FunctionAction({
+            fn: () => {
+              throw new Error('no se pudo vincular la rama');
+            },
+          }),
+        ],
+      },
+      registry,
+    );
+
+    await expect(agent.run(ctxFor())).rejects.toThrow('no se pudo vincular la rama');
+    expect(provider).not.toHaveBeenCalled();
   });
 });
