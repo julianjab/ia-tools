@@ -32,6 +32,12 @@ src/
   (nombre, `inherit`, `attributes`, `onResult`, `kind`, `scope`); `@tagged(opciones)` le suma al
   span activo sin abrir otro. Cada callback corre con `this` = la instancia. Por convención las
   opciones viven en un `tracing.ts` al lado del módulo instrumentado, no inline.
+  `@taggedSync` es `@tagged` para un método sincrónico: uno que decide sin ceder el turno y que
+  no puede volverse `async` sin abrir una carrera.
+- **Una traza nueva, no un hijo, para lo que el span sólo dispara.** `inFreshContext(fn)` corre
+  sin span activo ni atributos heredados (lo de adentro abre una traza propia), y el `links` de
+  `@traced` cita de dónde vino con un `captureSpanLink()` tomado antes. Así un trabajo diferido no
+  queda colgado —con los atributos equivocados— de un span que ya terminó.
 - **Cada paquete pasa su `scope`** (instrumentation scope), no un `Tracer`. Nada se inyecta.
 - **Atributos heredados, no baggage.** `withInheritedAttributes` / `inherit` guardan `ia.*` en el
   `Context` con una clave propia; cada span y log creado debajo los lleva, en cualquier paquete.

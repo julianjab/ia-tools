@@ -18,6 +18,8 @@ import {
   type AttributeValue,
   type Attributes,
   type Context,
+  type Link,
+  ROOT_CONTEXT,
   type Span,
   SpanKind,
   SpanStatusCode,
@@ -82,8 +84,30 @@ export function withInheritedAttributes<T>(attributes: Attributes, fn: () => T):
   return context.with(context.active().setValue(SCOPE_KEY, merged), fn);
 }
 
+/** Un enlace a otro span (de esta u otra traza): "esto pasó por causa de aquello", sin ser su
+ *  hijo. Se captura con `captureSpanLink` y se pasa en `links`. */
+export type SpanLink = Link;
+
+/** El span activo como enlace, para citarlo desde un span que se abre después en otra traza. Sin
+ *  span activo, `undefined`. */
+export function captureSpanLink(): SpanLink | undefined {
+  const span = trace.getActiveSpan();
+  return span ? { context: span.spanContext() } : undefined;
+}
+
+/**
+ * Corre `fn` sin span activo ni atributos heredados: lo que abra ahí empieza una traza nueva. Para
+ * trabajo que se dispara DESDE un span pero no es parte de él (ej. un evento que se vuelve a
+ * despachar al cerrar la corrida que lo tenía); con `links` se cita de dónde vino.
+ */
+export function inFreshContext<T>(fn: () => T): T {
+  return context.with(ROOT_CONTEXT, fn);
+}
+
 export interface SpanOptions {
   kind?: SpanKind;
+  /** Spans (de otras trazas) que causaron este. */
+  links?: SpanLink[];
   /** Instrumentation scope propio, para instrumentar desde otro paquete (un provider). */
   scope?: string;
 }
@@ -104,6 +128,7 @@ export async function withSpan<T>(
     {
       kind: options.kind ?? SpanKind.INTERNAL,
       attributes: { ...inheritedAttributes(), ...attributes },
+      ...(options.links?.length ? { links: options.links } : {}),
     },
     async (span) => {
       try {
@@ -156,6 +181,8 @@ export interface TraceOptions<This, Args extends unknown[], R> extends TagOption
   kind?: SpanKind;
   /** Instrumentation scope propio, para instrumentar desde otro paquete (un provider). */
   scope?: string;
+  /** Spans de otras trazas que causaron este (ver `captureSpanLink`). */
+  links?(this: This, ...args: Args): SpanLink[] | undefined;
 }
 
 /** Errores ya logueados por un `@traced` de más adentro: un error sube por varios métodos
@@ -208,7 +235,11 @@ export function traced<This, Args extends unknown[], R>(
             options.onResult?.call(this, span, result, ...args);
             return result;
           },
-          { kind: options.kind, scope: options.scope },
+          {
+            kind: options.kind,
+            scope: options.scope,
+            links: options.links?.apply(this, args) ?? [],
+          },
         );
       const inherit = options.inherit?.apply(this, args);
       return inherit ? withInheritedAttributes(inherit, run) : run();
@@ -230,6 +261,30 @@ export function tagged<This, Args extends unknown[], R>(
       const span = trace.getActiveSpan();
       if (span && options.attributes) span.setAttributes(options.attributes.apply(this, args));
       const result = await method.apply(this, args);
+      if (span) options.onResult?.call(this, span, result, ...args);
+      return result;
+    };
+  };
+}
+
+/**
+ * `@taggedSync(opciones)`: como `@tagged`, para un método SINCRÓNICO — uno que tiene que decidir
+ * sin ceder el turno (una decisión que otro despacho no puede ver a medias). `onResult` corre
+ * antes de devolver.
+ */
+export function taggedSync<This, Args extends unknown[], R>(
+  options: TagOptions<This, Args, R>,
+): (
+  target: This,
+  key: string | symbol,
+  descriptor: TypedPropertyDescriptor<(this: This, ...args: Args) => R>,
+) => void {
+  return (_target, _key, descriptor) => {
+    const method = descriptor.value as (this: This, ...args: Args) => R;
+    descriptor.value = function (this: This, ...args: Args): R {
+      const span = trace.getActiveSpan();
+      if (span && options.attributes) span.setAttributes(options.attributes.apply(this, args));
+      const result = method.apply(this, args);
       if (span) options.onResult?.call(this, span, result, ...args);
       return result;
     };
