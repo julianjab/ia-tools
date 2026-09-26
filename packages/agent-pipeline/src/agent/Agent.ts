@@ -224,6 +224,7 @@ export class Agent extends Runnable {
       mcpServers: def.mcpServers ?? [],
       tools,
       ctx,
+      ...(ctx.execution ? { inbox: () => ctx.execution?.drain() ?? [] } : {}),
     });
 
     if (NO_TRANSITION_OUTCOMES.has(output.outcome)) return { output };

@@ -17,6 +17,9 @@ export interface PipelineExecutionContext {
   /** Las rutas efectivas de un agente DENTRO de esta pipeline (sus overrides + los defaults).
    *  Lo pone `Pipeline.execute`; un agente corriendo suelto usa sólo sus rutas base. */
   routesFor?: (step: Runnable) => ResolvedRoutes | undefined;
+  /** La ejecución de esta corrida, si el `Engine` lleva ejecuciones: lo que le llegó mientras
+   *  corre (`ifRunning: inject`). Un agente se la pasa a su provider como `inbox`. */
+  execution?: { drain(): string[] };
 }
 
 export interface RunnableProps extends ConditionalProps {

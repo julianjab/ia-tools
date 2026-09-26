@@ -205,6 +205,26 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
 `Pipeline` valida todo el cableado en su constructor llamando a `resolveRoutes` sin el nivel
 proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
 
+## Ejecuciones — `engine/Execution.ts`
+
+Con `EngineOptions.executions`, cada corrida de una pipeline CON agentes sobre una task (la
+`executionKey` del evento; default, su `scope`) es una `Execution`. Eso le da al engine el control
+que antes tenía la cola de cada app: una task nunca corre dos a la vez, un tope global de
+ejecuciones en paralelo, y qué hacer con un evento para una task ocupada (`Pipeline.ifRunning`):
+`wait` (default, espera y corre después), `inject` (se lo entrega a la que corre — el agente lo
+recibe por `ProviderRunContext.inbox` en su próxima vuelta — y no arranca nada) o `skip`.
+Reglas que no son obvias al leer el código:
+
+- **Sin `executions`, nada cambia.** Todo lo que matchea corre en paralelo, como siempre. Lo mismo
+  para pipelines sin agentes y eventos sin task (sin scope): no son ejecuciones.
+- **Un evento más profundo que el que abrió la ejecución en curso nació adentro de ella** (un
+  `EmitAction` de esa corrida): no espera ni se inyecta, corre sin más. Esperarla sería esperarse
+  a sí misma. `DomainEvent` no guarda de qué evento viene; `depth` alcanza para esto.
+- **`ExecutionStore` es la costura para persistir.** `InMemoryExecutionStore` alcanza para un
+  proceso; pausas y recuperación tras un reinicio implementan la misma interfaz en otro paquete.
+- **El formato del mensaje inyectado es de la app** (`formatMessage`): el engine no sabe qué es un
+  comentario o una review.
+
 ## Telemetría — con `@ia-tools/telemetry`
 
 Los decorators y el logger viven en `@ia-tools/telemetry` (ver su CLAUDE.md); acá sólo se

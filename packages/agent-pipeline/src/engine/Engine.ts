@@ -2,6 +2,7 @@ import { createLogger, tagged, traced } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
+import type { ExecutionStore } from './Execution.js';
 import type { PipelineSource } from './PipelineSource.js';
 import { dispatchTrace, planTag } from './tracing.js';
 
@@ -15,9 +16,35 @@ export interface EngineOptions {
    *  defaults. La prioridad `exclusive`/`position` se decide entre TODAS. */
   pipelines: PipelineSource | PipelineSource[];
   maxEventDepth?: number;
+  /**
+   * Con esto, cada corrida de una pipeline con agentes es una EJECUCIÓN de la task del evento:
+   * una task nunca corre dos a la vez, y un evento para una task con una ejecución en curso se
+   * resuelve con el `ifRunning` de la pipeline (esperar, inyectárselo o descartarlo). Sin esto,
+   * el comportamiento es el de siempre: todo lo que matchea corre en paralelo.
+   */
+  executions?: ExecutionStore;
+  /** A qué task pertenece un evento. Default: el `scope` del evento (sin scope, no hay task y no
+   *  hay ejecución). */
+  executionKey?: (event: DomainEvent<any>) => string | undefined;
+  /** Cómo se lee un evento inyectado en la conversación del agente. Default: tipo + payload. */
+  formatMessage?: (event: DomainEvent<any>) => string;
 }
 
-export type DispatchOutcome = 'dispatched' | 'skipped';
+/** `injected`: nada arrancó, pero el evento le llegó a una ejecución en curso. */
+export type DispatchOutcome = 'dispatched' | 'injected' | 'skipped';
+
+/** La task de un evento: su `scope` con las claves ordenadas — dos eventos de la misma task
+ *  dan la misma clave aunque el scope se haya armado en otro orden. */
+export function scopeExecutionKey(event: DomainEvent<any>): string | undefined {
+  const scope = event.scope ?? {};
+  const keys = Object.keys(scope).sort();
+  if (keys.length === 0) return undefined;
+  return JSON.stringify(keys.map((key) => [key, scope[key]]));
+}
+
+function defaultMessage(event: DomainEvent<any>): string {
+  return `Evento ${event.type}: ${JSON.stringify(event.payload)}`;
+}
 
 /** Una pipeline con la fuente de la que salió — sus defaults son los de ESA fuente. */
 interface Candidate {
@@ -44,11 +71,17 @@ export class Engine {
   private readonly bus: EventBus;
   private readonly sources: PipelineSource[];
   readonly maxEventDepth: number;
+  readonly executions?: ExecutionStore;
+  private readonly executionKey: (event: DomainEvent<any>) => string | undefined;
+  private readonly formatMessage: (event: DomainEvent<any>) => string;
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus;
     this.sources = [opts.pipelines].flat();
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH;
+    this.executions = opts.executions;
+    this.executionKey = opts.executionKey ?? scopeExecutionKey;
+    this.formatMessage = opts.formatMessage ?? defaultMessage;
   }
 
   /**
@@ -80,21 +113,20 @@ export class Engine {
     const { toRun } = await this.decide(event);
     if (toRun.length === 0) return 'skipped';
 
+    const runs: Array<() => Promise<unknown>> = [];
+    let injected = false;
+    for (const candidate of toRun) {
+      const next = this.resolveRunning(candidate, event);
+      if (next === 'injected') injected = true;
+      else if (next) runs.push(next);
+    }
+    if (runs.length === 0) return injected ? 'injected' : 'skipped';
+
     // `Promise.allSettled`, no `Promise.all`: los pipelines matcheados son independientes, así
     // que un fallo en uno no debe cortar a los demás a mitad de camino — y quien llamó
     // `dispatch` (o el `AggregateError` de `EventBus.publish`, vía `start()`) tiene que ver
     // TODOS los fallos, no sólo el primero que ganó la carrera.
-    const results = await Promise.allSettled(
-      toRun.map(({ pipeline, source }) =>
-        pipeline.execute({
-          event,
-          steps: {},
-          bus: this.bus,
-          pipelineId: pipeline.id,
-          defaults: source.defaults,
-        }),
-      ),
-    );
+    const results = await Promise.allSettled(runs.map((run) => run()));
     const failures = results.filter(
       (result): result is PromiseRejectedResult => result.status === 'rejected',
     );
@@ -105,6 +137,72 @@ export class Engine {
       );
     }
     return 'dispatched';
+  }
+
+  /**
+   * Qué hacer con una pipeline que matcheó: correrla (la corrida a lanzar), o nada porque el
+   * evento se le entregó a la ejecución en curso de su task (`injected`) o se descartó (`null`).
+   *
+   * Sólo las pipelines con agentes, en un engine con `executions` y un evento con task, pasan
+   * por acá — el resto corre como siempre. Un evento MÁS profundo que el que abrió la ejecución
+   * en curso nació adentro de ella: esperarla sería esperarse a sí misma, así que corre sin más.
+   */
+  private resolveRunning(
+    candidate: Candidate,
+    event: DomainEvent<any>,
+  ): (() => Promise<unknown>) | 'injected' | null {
+    const { pipeline } = candidate;
+    const key = this.executions && pipeline.runsAgents ? this.executionKey(event) : undefined;
+    if (!this.executions || key === undefined) return () => this.execute(candidate, event);
+
+    const running = this.executions.running(key);
+    if (running && event.depth > running.depth) return () => this.execute(candidate, event);
+    if (running?.status === 'running' && pipeline.ifRunning === 'inject') {
+      running.deliver(this.formatMessage(event));
+      this.log.info(`evento "${event.type}" inyectado en ${running.id} (${running.pipelineId})`, {
+        'ia.execution.id': running.id,
+        'ia.pipeline.id': pipeline.id,
+      });
+      return 'injected';
+    }
+    if (running?.status === 'running' && pipeline.ifRunning === 'skip') {
+      this.log.info(`evento "${event.type}" descartado: ${running.id} sigue corriendo`, {
+        'ia.execution.id': running.id,
+        'ia.pipeline.id': pipeline.id,
+      });
+      return null;
+    }
+    const executions = this.executions;
+    return async () => {
+      const execution = await executions.start({
+        key,
+        pipelineId: pipeline.id,
+        depth: event.depth,
+      });
+      try {
+        const result = await this.execute(candidate, event, execution);
+        executions.finish(execution, 'done');
+        return result;
+      } catch (err) {
+        executions.finish(execution, 'failed');
+        throw err;
+      }
+    };
+  }
+
+  private execute(
+    { pipeline, source }: Candidate,
+    event: DomainEvent<any>,
+    execution?: { drain(): string[] },
+  ): Promise<Record<string, unknown>> {
+    return pipeline.execute({
+      event,
+      steps: {},
+      bus: this.bus,
+      pipelineId: pipeline.id,
+      defaults: source.defaults,
+      ...(execution ? { execution } : {}),
+    });
   }
 
   /**

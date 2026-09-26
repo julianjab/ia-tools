@@ -25,6 +25,8 @@ export type StepRun =
   | { output: unknown; exit?: { exit: ResolvedExit; payload: Record<string, unknown> } }
   | { error: Error; handledBy: 'onError' | 'continueOnError' };
 
+export type IfRunning = 'wait' | 'inject' | 'skip';
+
 export interface PipelineProps extends ConditionalProps, ExitDefaults {
   id: string;
   /** Tipos de DomainEvent que este pipeline escucha — al menos uno. */
@@ -39,6 +41,15 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
   position?: number;
   /** Si matchea, impide que corran los pipelines de menor prioridad para este evento. */
   exclusive?: boolean;
+  /**
+   * Qué hacer si la task del evento ya tiene una ejecución corriendo (una task nunca corre dos a
+   * la vez). Sólo aplica a pipelines con agentes y a un `Engine` con `executions`:
+   * - `wait` (default): espera a que termine y corre después.
+   * - `inject`: le entrega el evento a la ejecución que corre — el agente lo lee en su próxima
+   *   vuelta — y esta pipeline no arranca.
+   * - `skip`: lo descarta.
+   */
+  ifRunning?: IfRunning;
   do: Runnable[];
   /**
    * Overrides de rutas por agente (clave: el `id` del agente) — el nivel "paso" de la cascada.
@@ -67,6 +78,7 @@ export class Pipeline extends Conditional {
   readonly enabled: boolean;
   readonly position: number;
   readonly exclusive: boolean;
+  readonly ifRunning: IfRunning;
   readonly do: Runnable[];
   readonly defaults: ExitDefaults;
   private readonly stepRoutes: Record<string, ExitRoutes>;
@@ -80,10 +92,16 @@ export class Pipeline extends Conditional {
     this.enabled = props.enabled ?? true;
     this.position = props.position ?? 0;
     this.exclusive = props.exclusive ?? false;
+    this.ifRunning = props.ifRunning ?? 'wait';
     this.do = props.do;
     this.defaults = { onError: props.onError, report: props.report };
     this.stepRoutes = props.routes ?? {};
     this.routedTargets = this.validate();
+  }
+
+  /** Si algún paso (o destino de una salida) es un agente: sólo esas corridas son ejecuciones. */
+  get runsAgents(): boolean {
+    return this.reachableAgents().size > 0;
   }
 
   /** Las rutas efectivas de un agente en esta pipeline, con el origen de cada una. Con

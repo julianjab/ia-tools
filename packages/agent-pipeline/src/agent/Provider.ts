@@ -13,6 +13,10 @@ export interface ProviderRunContext {
   mcpServers: McpServerRef[];
   tools: Tool[];
   ctx: PipelineExecutionContext;
+  /** Mensajes que llegaron mientras el agente corre (`ifRunning: inject`), en orden — y los saca
+   *  de la bandeja. Un provider con loop lo consulta antes de cada vuelta y los suma al próximo
+   *  turno del usuario; uno sin loop puede ignorarlo. */
+  inbox?: () => string[];
 }
 
 /** Lo que un Provider reporta al terminar. `outcome` es el nombre que `matchExit` busca en

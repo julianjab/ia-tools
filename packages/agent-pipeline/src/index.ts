@@ -36,11 +36,18 @@ export { HttpAction } from './pipeline/actions/HttpAction.js';
 export type { PipelineExecutionContext, RunnableProps } from './pipeline/Runnable.js';
 export { Runnable } from './pipeline/Runnable.js';
 
-export type { PipelineProps } from './pipeline/Pipeline.js';
+export type { IfRunning, PipelineProps } from './pipeline/Pipeline.js';
 export { Pipeline, isAgent } from './pipeline/Pipeline.js';
 
 export type { DispatchOutcome, EngineOptions } from './engine/Engine.js';
-export { DEFAULT_MAX_EVENT_DEPTH, Engine } from './engine/Engine.js';
+export { DEFAULT_MAX_EVENT_DEPTH, Engine, scopeExecutionKey } from './engine/Engine.js';
+export type {
+  ExecutionStatus,
+  ExecutionStore,
+  InMemoryExecutionStoreOptions,
+  StartExecution,
+} from './engine/Execution.js';
+export { Execution, InMemoryExecutionStore } from './engine/Execution.js';
 export type { PipelineSource } from './engine/PipelineSource.js';
 export type { ProjectProps } from './engine/Project.js';
 export { Project } from './engine/Project.js';
