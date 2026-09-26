@@ -4,6 +4,7 @@ import { ProviderRegistry, type ProviderRunContext } from '../../agent/Provider.
 import { type DomainEvent, createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import { type IfRunning, Pipeline } from '../../pipeline/Pipeline.js';
+import { EmitAction } from '../../pipeline/actions/EmitAction.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
 import { Engine, scopeExecutionKey } from '../Engine.js';
 import { InMemoryExecutionStore } from '../Execution.js';
@@ -205,7 +206,7 @@ describe('Engine with executions', () => {
     await build;
   });
 
-  it('a deeper event from ANOTHER execution still waits for the task', async () => {
+  it('an event born in ANOTHER execution queues for the task without blocking its emitter', async () => {
     const implementer = heldImplementer();
     const ran: string[] = [];
     const helper = new Agent(
@@ -225,14 +226,48 @@ describe('Engine with executions', () => {
 
     const build = engine.dispatch(event('build'));
     await implementer.running;
-    const foreign = engine.dispatch(
-      createEvent('derived', {}, { scope: TASK, depth: 5, executionId: 'exec-otra' }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Vuelve enseguida (no espera el turno de la task), pero la corrida queda en cola.
+    expect(
+      await engine.dispatch(
+        createEvent('derived', {}, { scope: TASK, depth: 5, executionId: 'exec-otra' }),
+      ),
+    ).toBe('dispatched');
     expect(ran).toEqual([]);
     implementer.release();
-    await Promise.all([build, foreign]);
-    expect(ran).toEqual(['helper']);
+    await build;
+    await vi.waitFor(() => expect(ran).toEqual(['helper']));
+  });
+
+  it('an execution that emits to another task does not deadlock under a cap of one', async () => {
+    const ran: string[] = [];
+    const agent = (id: string) =>
+      new Agent(
+        { id, provider: `p-${id}`, prompt: 'p' },
+        new ProviderRegistry().register({
+          id: `p-${id}`,
+          run: async () => {
+            ran.push(id);
+            return { outcome: 'success' };
+          },
+        }),
+      );
+    const emitter = new Pipeline({
+      id: 'emitter',
+      on: ['start'],
+      do: [
+        agent('first'),
+        new EmitAction({ type: 'follow-up', scope: { projectId: 'p', issue: 'otra-task' } }),
+      ],
+    });
+    const followUp = rule('follow-up', 'follow-up', agent('second'));
+    const { engine } = engineWith(
+      [emitter, followUp],
+      new InMemoryExecutionStore({ maxConcurrent: 1 }),
+    );
+    engine.start();
+
+    expect(await engine.dispatch(event('start'))).toBe('dispatched');
+    await vi.waitFor(() => expect(ran).toEqual(['first', 'second']));
   });
 
   it('skip also drops the event while the task is waiting for its turn', async () => {
@@ -263,20 +298,28 @@ describe('Engine with executions', () => {
     expect(implementer.runs).toEqual(['build']);
   });
 
-  it('re-dispatches what arrived after the agent last read its inbox, once the run closes', async () => {
+  it('re-dispatches what arrived after the agent last read its inbox — only to the rule that injected it', async () => {
     const implementer = heldImplementer({ drains: false });
+    const plain: string[] = [];
     const { engine } = engineWith([
       rule('build', 'build', implementer.agent),
       rule('comment-build', 'issue_comment', implementer.agent, 'inject'),
+      new Pipeline({
+        id: 'react',
+        on: ['issue_comment'],
+        do: [new FunctionAction({ fn: () => plain.push('react') })],
+      }),
     ]);
 
     const build = engine.dispatch(event('build'));
     await implementer.running;
-    expect(await engine.dispatch(event('issue_comment', { body: 'tarde' }))).toBe('injected');
+    await engine.dispatch(event('issue_comment', { body: 'tarde' }));
     implementer.release();
     await build;
 
     await vi.waitFor(() => expect(implementer.runs).toEqual(['build', 'comment-build']));
+    // La pipeline sin agentes ya corrió con ese comentario: el re-despacho no la repite.
+    expect(plain).toEqual(['react']);
   });
 
   it('leaves pipelines without agents and events without a task untouched', async () => {

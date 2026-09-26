@@ -74,16 +74,16 @@ describe('InMemoryExecutionStore', () => {
     execution.enter('implementer');
     expect(execution.activeAgent).toBe('implementer');
 
-    execution.deliver('primero', comment);
-    execution.deliver('segundo', comment);
+    execution.deliver('primero', comment, 'comment-build');
+    execution.deliver('segundo', comment, 'comment-build');
     expect(execution.drain()).toEqual(['primero', 'segundo']);
     expect(execution.drain()).toEqual([]);
     expect(execution.unread()).toEqual([]);
 
-    execution.deliver('tarde', comment);
+    execution.deliver('tarde', comment, 'comment-build');
     execution.leave();
     expect(execution.activeAgent).toBeUndefined();
-    expect(execution.unread()).toEqual([comment]);
+    expect(execution.unread()).toEqual([{ event: comment, pipelineId: 'comment-build' }]);
   });
 
   it('ignores a second finish and rejects a cap below one', async () => {
