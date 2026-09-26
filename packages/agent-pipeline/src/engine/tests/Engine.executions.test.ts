@@ -76,6 +76,55 @@ describe('Engine with executions', () => {
     expect(implementer.inbox).toEqual([['issue_comment: usá el enum']]);
   });
 
+  it('inject only talks to its own agents: with another agent running, it waits', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const reviewing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const reviewerInbox: string[][] = [];
+    const reviewer = new Agent(
+      { id: 'reviewer', provider: 'rev', prompt: 'p' },
+      new ProviderRegistry().register({
+        id: 'rev',
+        run: async (ctx) => {
+          started();
+          await gate;
+          reviewerInbox.push(ctx.inbox?.() ?? []);
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    const implementerRuns: string[] = [];
+    const implementer = new Agent(
+      { id: 'implementer', provider: 'impl', prompt: 'p' },
+      new ProviderRegistry().register({
+        id: 'impl',
+        run: async (ctx) => {
+          implementerRuns.push(ctx.ctx.pipelineId);
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    const { engine } = engineWith([
+      rule('review', 'review', reviewer),
+      rule('comment-review', 'issue_comment', implementer, 'inject'),
+    ]);
+
+    const review = engine.dispatch(event('review'));
+    await reviewing;
+    const comment = engine.dispatch(event('issue_comment', { body: 'para el implementer' }));
+    release();
+
+    expect(await comment).toBe('dispatched');
+    await review;
+    expect(reviewerInbox).toEqual([[]]);
+    expect(implementerRuns).toEqual(['comment-review']);
+  });
+
   it('with no execution running, the same rule starts one', async () => {
     const implementer = heldImplementer();
     const { engine } = engineWith([
