@@ -553,4 +553,19 @@ describe('Agent', () => {
     await expect(agent.run(ctxFor())).rejects.toThrow('no se pudo vincular la rama');
     expect(provider).not.toHaveBeenCalled();
   });
+
+  it('hands its provider the execution inbox, and none outside an execution', async () => {
+    const seen: Array<string[] | undefined> = [];
+    const registry = registerFakeProvider('fake', async (ctx) => {
+      seen.push(ctx.inbox?.());
+      return { outcome: 'success' };
+    });
+    const agent = new Agent({ id: 'implementer', provider: 'fake', prompt: 'p' }, registry);
+    const inbox = ['comentario nuevo'];
+
+    await agent.run({ ...ctxFor(), execution: { drain: () => inbox.splice(0) } });
+    await agent.run(ctxFor());
+
+    expect(seen).toEqual([['comentario nuevo'], undefined]);
+  });
 });
