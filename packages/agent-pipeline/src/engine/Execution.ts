@@ -25,6 +25,8 @@ export class Execution {
     readonly pipelineId: string,
     /** La profundidad del evento que la abrió: uno más profundo nació ADENTRO de ella. */
     readonly depth: number,
+    /** Los agentes de su pipeline: `inject` sólo le entrega eventos de reglas que comparten uno. */
+    readonly agentIds: readonly string[] = [],
   ) {}
 
   /** Deja un mensaje para la próxima vuelta del agente que está corriendo. */
@@ -48,6 +50,7 @@ export interface StartExecution {
   key: string;
   pipelineId: string;
   depth: number;
+  agentIds?: readonly string[];
 }
 
 /**
@@ -97,7 +100,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return this.byKey.get(key);
   }
 
-  async start({ key, pipelineId, depth }: StartExecution): Promise<Execution> {
+  async start({ key, pipelineId, depth, agentIds = [] }: StartExecution): Promise<Execution> {
     this.waitingCount++;
     const previous = this.tails.get(key) ?? Promise.resolve();
     let release!: () => void;
@@ -114,7 +117,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
       this.waitingCount--;
     }
 
-    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, depth);
+    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, depth, agentIds);
     this.byKey.set(key, execution);
     void execution.finished.then(() => {
       if (this.byKey.get(key) === execution) this.byKey.delete(key);

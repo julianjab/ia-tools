@@ -157,7 +157,8 @@ export class Engine {
 
     const running = this.executions.running(key);
     if (running && event.depth > running.depth) return () => this.execute(candidate, event);
-    if (running?.status === 'running' && pipeline.ifRunning === 'inject') {
+    const ownAgent = running?.agentIds.some((id) => pipeline.agentIds.includes(id)) ?? false;
+    if (running?.status === 'running' && pipeline.ifRunning === 'inject' && ownAgent) {
       running.deliver(this.formatMessage(event));
       this.log.info(`evento "${event.type}" inyectado en ${running.id} (${running.pipelineId})`, {
         'ia.execution.id': running.id,
@@ -178,6 +179,7 @@ export class Engine {
         key,
         pipelineId: pipeline.id,
         depth: event.depth,
+        agentIds: pipeline.agentIds,
       });
       try {
         const result = await this.execute(candidate, event, execution);

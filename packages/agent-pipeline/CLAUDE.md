@@ -215,6 +215,10 @@ ejecuciones en paralelo, y qué hacer con un evento para una task ocupada (`Pipe
 recibe por `ProviderRunContext.inbox` en su próxima vuelta — y no arranca nada) o `skip`.
 Reglas que no son obvias al leer el código:
 
+- **`inject` sólo le habla a un agente de la misma regla.** Si lo que corre en la task es otro
+  agente (un reviewer, y el comentario era para triage → implementer), la regla espera como
+  `wait`: inyectárselo al reviewer perdería el pedido.
+
 - **Sin `executions`, nada cambia.** Todo lo que matchea corre en paralelo, como siempre. Lo mismo
   para pipelines sin agentes y eventos sin task (sin scope): no son ejecuciones.
 - **Un evento más profundo que el que abrió la ejecución en curso nació adentro de ella** (un

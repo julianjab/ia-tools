@@ -45,8 +45,8 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
    * Qué hacer si la task del evento ya tiene una ejecución corriendo (una task nunca corre dos a
    * la vez). Sólo aplica a pipelines con agentes y a un `Engine` con `executions`:
    * - `wait` (default): espera a que termine y corre después.
-   * - `inject`: le entrega el evento a la ejecución que corre — el agente lo lee en su próxima
-   *   vuelta — y esta pipeline no arranca.
+   * - `inject`: si lo que corre es uno de SUS agentes, le entrega el evento — lo lee en su
+   *   próxima vuelta — y esta pipeline no arranca. Si corre otro agente, espera como `wait`.
    * - `skip`: lo descarta.
    */
   ifRunning?: IfRunning;
@@ -102,6 +102,11 @@ export class Pipeline extends Conditional {
   /** Si algún paso (o destino de una salida) es un agente: sólo esas corridas son ejecuciones. */
   get runsAgents(): boolean {
     return this.reachableAgents().size > 0;
+  }
+
+  /** Los ids de los agentes que esta pipeline puede correr. */
+  get agentIds(): string[] {
+    return [...this.reachableAgents().keys()];
   }
 
   /** Las rutas efectivas de un agente en esta pipeline, con el origen de cada una. Con
