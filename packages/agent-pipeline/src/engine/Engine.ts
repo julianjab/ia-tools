@@ -3,7 +3,7 @@ import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
 import type { ExecutionHandle } from '../pipeline/Runnable.js';
-import type { ExecutionStore } from './Execution.js';
+import type { ExecutionStore, UnreadDelivery } from './Execution.js';
 import type { PipelineSource } from './PipelineSource.js';
 import { dispatchTrace, planTag } from './tracing.js';
 
@@ -112,16 +112,30 @@ export class Engine {
     if (event.depth >= this.maxEventDepth) return 'skipped';
 
     const { toRun } = await this.decide(event);
+    return this.runCandidates(toRun, event);
+  }
+
+  /** Corre las pipelines elegidas para `event`, resolviendo antes las que chocan con una
+   *  ejecución en curso de su task (`ifRunning`). */
+  private async runCandidates(
+    toRun: Candidate[],
+    event: DomainEvent<any>,
+  ): Promise<DispatchOutcome> {
     if (toRun.length === 0) return 'skipped';
 
     const runs: Array<() => Promise<unknown>> = [];
     let injected = false;
+    let detached = false;
     for (const candidate of toRun) {
       const next = this.resolveRunning(candidate, event);
       if (next === 'injected') injected = true;
-      else if (next) runs.push(next);
+      else if (next === null) continue;
+      else if (next.detach) {
+        detached = true;
+        this.runDetached(next.run, event);
+      } else runs.push(next.run);
     }
-    if (runs.length === 0) return injected ? 'injected' : 'skipped';
+    if (runs.length === 0) return detached ? 'dispatched' : injected ? 'injected' : 'skipped';
 
     // `Promise.allSettled`, no `Promise.all`: los pipelines matcheados son independientes, así
     // que un fallo en uno no debe cortar a los demás a mitad de camino — y quien llamó
@@ -141,6 +155,21 @@ export class Engine {
   }
 
   /**
+   * Una corrida que no se espera: la de un evento nacido dentro de una ejecución que tiene que abrir
+   * OTRA (otra task). `EmitAction` espera a `publish`, y `publish` a `dispatch`: si esperara acá a
+   * que esa otra task tenga turno y lugar, la ejecución que lo emitió lo esperaría ocupando su
+   * propio lugar — con el tope agotado, o con dos tasks que se emiten entre sí, nunca terminaría
+   * ninguna. Sus errores van al log: nadie más los está esperando.
+   */
+  private runDetached(run: () => Promise<unknown>, event: DomainEvent<any>): void {
+    run().catch((err: unknown) => {
+      this.log.error(
+        `"${event.type}" (lanzado desde ${event.executionId}) falló: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
+
+  /**
    * Qué hacer con una pipeline que matcheó: correrla (la corrida a lanzar), o nada porque el
    * evento se le entregó al agente que corre en su task (`injected`) o se descartó (`null`).
    *
@@ -151,20 +180,21 @@ export class Engine {
   private resolveRunning(
     candidate: Candidate,
     event: DomainEvent<any>,
-  ): (() => Promise<unknown>) | 'injected' | null {
+  ): { run: () => Promise<unknown>; detach: boolean } | 'injected' | null {
     const { pipeline } = candidate;
     const executions = this.executions;
     const key = executions && pipeline.runsAgents ? this.executionKey(event) : undefined;
-    if (!executions || key === undefined) return () => this.execute(candidate, event);
+    const direct = { run: () => this.execute(candidate, event), detach: false };
+    if (!executions || key === undefined) return direct;
 
     const current = executions.current(key);
-    if (current && event.executionId === current.id) return () => this.execute(candidate, event);
+    if (current && event.executionId === current.id) return direct;
 
     // `inject` sólo le habla a un agente de ESTA regla que esté en su loop con el modelo: entre
     // pasos, o si corre otro agente, no hay quién lo lea — espera como `wait`.
     const active = current?.activeAgent;
     if (pipeline.ifRunning === 'inject' && active && pipeline.agentIds.includes(active)) {
-      current.deliver(this.formatMessage(event), event);
+      current.deliver(this.formatMessage(event), event, pipeline.id);
       this.log.info(`evento "${event.type}" inyectado a ${active} (${current.id})`, {
         'ia.execution.id': current.id,
         'ia.pipeline.id': pipeline.id,
@@ -177,7 +207,7 @@ export class Engine {
       });
       return null;
     }
-    return async () => {
+    const run = async () => {
       const execution = await executions.start({
         key,
         pipelineId: pipeline.id,
@@ -195,21 +225,31 @@ export class Engine {
         this.redispatch(unread, execution.id);
       }
     };
+    // Nacido dentro de OTRA ejecución (hacia esta task): no se espera, ver `runDetached`.
+    return { run, detach: event.executionId !== undefined };
   }
 
   /**
    * Lo que se le entregó a una ejecución y ningún agente llegó a leer (llegó después de su última
-   * vuelta) vuelve a despacharse al cerrarla: ya sin nada corriendo, su regla arranca normal. Así
-   * un `inject` nunca pierde un evento.
+   * vuelta) vuelve a despacharse al cerrarla, SÓLO contra la regla que lo había inyectado — las
+   * demás que matchearon ese evento ya corrieron con él. Ya sin nada corriendo, esa regla arranca
+   * normal. Así un `inject` nunca pierde un evento.
    */
-  private redispatch(events: DomainEvent<any>[], executionId: string): void {
-    for (const event of events) {
+  private redispatch(unread: UnreadDelivery[], executionId: string): void {
+    for (const { event, pipelineId } of unread) {
       this.log.info(`evento "${event.type}" sin leer en ${executionId}: se vuelve a despachar`);
-      this.dispatch(event).catch((err: unknown) => {
-        this.log.error(
-          `re-despacho de "${event.type}" falló: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      this.plan(event)
+        .then(({ toRun }) =>
+          this.runCandidates(
+            toRun.filter((candidate) => candidate.pipeline.id === pipelineId),
+            event,
+          ),
+        )
+        .catch((err: unknown) => {
+          this.log.error(
+            `re-despacho de "${event.type}" falló: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
     }
   }
 

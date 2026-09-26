@@ -50,6 +50,7 @@ export type {
   ExecutionStore,
   InMemoryExecutionStoreOptions,
   StartExecution,
+  UnreadDelivery,
 } from './engine/Execution.js';
 export { Execution, InMemoryExecutionStore } from './engine/Execution.js';
 export type { PipelineSource } from './engine/PipelineSource.js';

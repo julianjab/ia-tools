@@ -16,7 +16,15 @@ export type ExecutionStatus = 'running' | 'done' | 'failed';
 interface Delivered {
   message: string;
   event: DomainEvent<any>;
+  /** La regla que lo inyectó: si nadie lo lee, se vuelve a despachar SÓLO contra ella. */
+  pipelineId: string;
   read: boolean;
+}
+
+/** Un evento entregado que ningún agente leyó, con la regla que lo había inyectado. */
+export interface UnreadDelivery {
+  event: DomainEvent<any>;
+  pipelineId: string;
 }
 
 export class Execution {
@@ -53,10 +61,10 @@ export class Execution {
     this.agent = undefined;
   }
 
-  /** Deja un mensaje para la próxima vuelta del agente activo; `event` es el evento que lo trajo,
-   *  por si nadie llega a leerlo. */
-  deliver(message: string, event: DomainEvent<any>): void {
-    this.delivered.push({ message, event, read: false });
+  /** Deja un mensaje para la próxima vuelta del agente activo. `event` y `pipelineId` (la regla
+   *  que lo inyectó) son para volver a despacharlo si nadie llega a leerlo. */
+  deliver(message: string, event: DomainEvent<any>, pipelineId: string): void {
+    this.delivered.push({ message, event, pipelineId, read: false });
   }
 
   /** Lo que llegó desde la última vez, en orden — y lo marca leído. */
@@ -67,8 +75,10 @@ export class Execution {
   }
 
   /** Los eventos entregados que ningún agente leyó. */
-  unread(): DomainEvent<any>[] {
-    return this.delivered.filter((entry) => !entry.read).map((entry) => entry.event);
+  unread(): UnreadDelivery[] {
+    return this.delivered
+      .filter((entry) => !entry.read)
+      .map(({ event, pipelineId }) => ({ event, pipelineId }));
   }
 
   /** @internal lo llama el store al cerrarla. */

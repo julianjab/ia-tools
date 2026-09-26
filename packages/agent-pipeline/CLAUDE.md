@@ -220,8 +220,9 @@ Reglas que no son obvias al leer el código:
   antes/después de un agente, o si corre otro agente (un reviewer, y el comentario era para
   triage → implementer), no hay quién lo lea: la regla espera como `wait`.
 - **Nada inyectado se pierde.** Lo que llegó después de la última vuelta del agente queda sin leer
-  (`Execution.unread()`); al cerrar la ejecución el engine lo vuelve a despachar y, ya sin nada
-  corriendo, su regla arranca normal.
+  (`Execution.unread()`); al cerrar la ejecución el engine lo vuelve a despachar SÓLO contra la
+  regla que lo inyectó (las demás que matchean ya lo corrieron la primera vez) y, ya sin nada
+  corriendo, arranca normal.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
   `busy`; `inject` mira el agente activo de `current`.
@@ -229,7 +230,10 @@ Reglas que no son obvias al leer el código:
   para pipelines sin agentes y eventos sin task (sin scope): no son ejecuciones.
 - **Un evento que nació ADENTRO de la ejecución en curso no la espera** (sería esperarse a sí
   misma). Lo sabe por `DomainEvent.executionId`, que pone el `EmitAction` de esa corrida y
-  `deriveEvent` hereda. Uno de otra ejecución, aunque sea más profundo, espera su turno.
+  `deriveEvent` hereda. Uno de otra ejecución, aunque sea más profundo, espera su turno — pero
+  **desacoplado**: el `dispatch` no lo espera, así la ejecución que lo emitió no retiene su lugar
+  bajo el tope esperando a otra task (con tope 1, o dos tasks que se emiten entre sí, sería un
+  deadlock). Sus errores van al log, no al que emitió.
 - **`ExecutionStore` es la costura para persistir.** `InMemoryExecutionStore` alcanza para un
   proceso; pausas y recuperación tras un reinicio implementan la misma interfaz en otro paquete.
 - **El formato del mensaje inyectado es de la app** (`formatMessage`): el engine no sabe qué es un
