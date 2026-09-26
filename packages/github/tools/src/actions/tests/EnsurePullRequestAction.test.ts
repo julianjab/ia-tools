@@ -17,8 +17,15 @@ interface Call {
   body?: Record<string, unknown>;
 }
 
-/** Un GitHub falso por ruta REST: PRs abiertos de la rama, la rama remota, el repo y el issue. */
-function fakeGithub(options: { openPr?: { body: string | null }; branchStatus?: number } = {}) {
+interface FakePr {
+  body: string | null;
+  state?: 'open' | 'closed';
+  merged_at?: string | null;
+}
+
+/** Un GitHub falso por ruta REST: los PRs de la rama (cualquier estado), el compare contra la
+ *  base, el repo y el issue. */
+function fakeGithub(options: { pr?: FakePr; compareStatus?: number; aheadBy?: number } = {}) {
   const calls: Call[] = [];
   const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
     const { pathname, search } = new URL(url);
@@ -31,19 +38,16 @@ function fakeGithub(options: { openPr?: { body: string | null }; branchStatus?: 
     const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 
     if (method === 'GET' && pathname.endsWith('/pulls')) {
+      const pr = options.pr;
       return json(
-        options.openPr
-          ? [
-              {
-                number: 1642,
-                html_url: 'https://github.com/x/pull/1642',
-                body: options.openPr.body,
-              },
-            ]
+        pr
+          ? [{ number: 1642, html_url: 'https://github.com/x/pull/1642', state: 'open', ...pr }]
           : [],
       );
     }
-    if (pathname.includes('/branches/')) return json({}, options.branchStatus ?? 200);
+    if (pathname.includes('/compare/')) {
+      return json({ ahead_by: options.aheadBy ?? 2 }, options.compareStatus ?? 200);
+    }
     if (method === 'POST' && pathname.endsWith('/pulls')) {
       return json({ number: 1700, html_url: 'https://github.com/x/pull/1700', body: '' }, 201);
     }
@@ -59,16 +63,16 @@ function fakeGithub(options: { openPr?: { body: string | null }; branchStatus?: 
 }
 
 describe('EnsurePullRequestAction', () => {
-  it('looks up the open PR of the task branch', async () => {
-    const { client, calls } = fakeGithub({ openPr: { body: 'Closes #1640' } });
+  it('looks up every PR of the task branch, whatever its state', async () => {
+    const { client, calls } = fakeGithub({ pr: { body: 'Closes #1640' } });
     await new EnsurePullRequestAction({ client }).run(ctxFor(), {});
     expect(calls[0]?.path).toBe(
-      '/repos/la-haus/subscriptions/pulls?state=open&head=la-haus%3Aia-flow-local%2F1640',
+      '/repos/la-haus/subscriptions/pulls?state=all&head=la-haus%3Aia-flow-local%2F1640',
     );
   });
 
   it('leaves a PR that already closes the issue untouched', async () => {
-    const { client, writes } = fakeGithub({ openPr: { body: 'Arregla todo.\n\nFixes #1640' } });
+    const { client, writes } = fakeGithub({ pr: { body: 'Arregla todo.\n\nFixes #1640' } });
 
     const result = await new EnsurePullRequestAction({ client }).run(ctxFor(), {});
 
@@ -77,7 +81,7 @@ describe('EnsurePullRequestAction', () => {
   });
 
   it('appends Closes #n to a PR body that does not close the issue, keeping the rest', async () => {
-    const { client, writes } = fakeGithub({ openPr: { body: 'Descripción del modelo.\n' } });
+    const { client, writes } = fakeGithub({ pr: { body: 'Descripción del modelo.\n' } });
 
     const result = await new EnsurePullRequestAction({ client }).run(ctxFor(), {});
 
@@ -92,16 +96,19 @@ describe('EnsurePullRequestAction', () => {
   });
 
   it('writes just Closes #n on an empty PR body', async () => {
-    const { client, writes } = fakeGithub({ openPr: { body: null } });
+    const { client, writes } = fakeGithub({ pr: { body: null } });
     await new EnsurePullRequestAction({ client }).run(ctxFor(), {});
     expect(writes()[0]?.body).toEqual({ body: 'Closes #1640' });
   });
 
-  it('opens the PR when the branch is published but has none', async () => {
-    const { client, writes } = fakeGithub();
+  it('opens the PR when the branch has its own commits but no PR', async () => {
+    const { client, calls, writes } = fakeGithub();
 
     const result = await new EnsurePullRequestAction({ client }).run(ctxFor(), {});
 
+    expect(calls.map((c) => c.path)).toContain(
+      '/repos/la-haus/subscriptions/compare/main...ia-flow-local%2F1640',
+    );
     expect(writes()).toEqual([
       {
         method: 'POST',
@@ -117,19 +124,40 @@ describe('EnsurePullRequestAction', () => {
     expect(result).toContain('PR #1700 abierto');
   });
 
-  it('fails when nothing was published, instead of moving on without a PR', async () => {
-    const { client, writes } = fakeGithub({ branchStatus: 404 });
+  it('fails when the branch is not on the remote', async () => {
+    const { client, writes } = fakeGithub({ compareStatus: 404 });
     await expect(new EnsurePullRequestAction({ client }).run(ctxFor(), {})).rejects.toThrow(
       /no está en la-haus\/subscriptions/,
     );
     expect(writes()).toEqual([]);
   });
 
-  it('fails on any other error reading the branch', async () => {
-    const { client } = fakeGithub({ branchStatus: 500 });
+  it('fails when the branch exists but has no commits of its own (link_branch created it)', async () => {
+    const { client, writes } = fakeGithub({ aheadBy: 0 });
+    await expect(new EnsurePullRequestAction({ client }).run(ctxFor(), {})).rejects.toThrow(
+      /no tiene commits por delante de main/,
+    );
+    expect(writes()).toEqual([]);
+  });
+
+  it('fails on any other error comparing the branch', async () => {
+    const { client } = fakeGithub({ compareStatus: 500 });
     await expect(new EnsurePullRequestAction({ client }).run(ctxFor(), {})).rejects.toThrow(
       /→ 500/,
     );
+  });
+
+  it('never opens a second PR for a branch whose PR was merged or closed', async () => {
+    for (const [pr, how] of [
+      [{ body: 'Closes #1640', state: 'closed', merged_at: '2026-09-25T00:00:00Z' }, 'se mergeó'],
+      [{ body: 'Closes #1640', state: 'closed', merged_at: null }, 'se cerró sin mergear'],
+    ] as const) {
+      const { client, writes } = fakeGithub({ pr });
+      await expect(new EnsurePullRequestAction({ client }).run(ctxFor(), {})).rejects.toThrow(
+        new RegExp(`PR #1642 de ia-flow-local/1640 ${how}`),
+      );
+      expect(writes()).toEqual([]);
+    }
   });
 
   it('takes the issue and branch from the event, never from the model', async () => {
