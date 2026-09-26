@@ -173,7 +173,7 @@ export class Agent extends Runnable {
     const routes =
       ctx.routesFor?.(this) ?? resolveRoutes(def.id, this.exitRoutes, { project: ctx.defaults });
 
-    if (def.onStart) await def.onStart.run(ctx);
+    for (const step of [def.onStart ?? []].flat()) await step.run(ctx);
 
     const payload =
       typeof ctx.event.payload === 'object' && ctx.event.payload !== null

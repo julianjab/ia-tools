@@ -76,8 +76,10 @@ export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
   /** Acciones que el modelo puede llamar como tools. Una con `sideEffects: 'write'` sólo entra
    *  con `action.allowWrite()` — escribir tiene que ser una decisión explícita del operador. */
   actions?: Array<Action | AllowedAction>;
-  /** Corre antes del provider — ej. sacar labels de un ciclo anterior (el `onProcess` de ia-flow). */
-  onStart?: Runnable;
+  /** Corre antes del provider — ej. sacar labels de un ciclo anterior (el `onProcess` de ia-flow),
+   *  o preparar lo que el modelo no debería decidir (vincular la rama de la task al issue). Una
+   *  lista corre en orden; si un paso tira, el agente no arranca. */
+  onStart?: Runnable | Runnable[];
   providerConfig?: Record<string, unknown>;
   mcpServers?: McpServerRef[];
   /** Si el paso tira y no hay `onError` en la cascada, seguir con el siguiente `Runnable` de la
