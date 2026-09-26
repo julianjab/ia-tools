@@ -9,8 +9,11 @@ import {
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLogger, otelSink, setLogSinks } from '../logging.js';
 import {
+  captureSpanLink,
+  inFreshContext,
   scopeAttributes,
   tagged,
+  taggedSync,
   traced,
   truncate,
   withInheritedAttributes,
@@ -131,6 +134,58 @@ describe('@traced / @tagged', () => {
     await expect(new Worker().fail()).rejects.toThrow('falló');
 
     expect(byName('Worker.fail').status).toEqual({ code: SpanStatusCode.ERROR, message: 'falló' });
+  });
+});
+
+describe('@taggedSync / links / inFreshContext', () => {
+  class Relay {
+    @taggedSync<Relay, [number], string>({
+      onResult: (span, result, n) => span.addEvent('decided', { 'ia.n': n, 'ia.result': result }),
+    })
+    decide(n: number): string {
+      return n > 0 ? 'go' : 'stop';
+    }
+
+    @traced<Relay, [ReturnType<typeof captureSpanLink>], void>({
+      name: 'later',
+      links: (origin) => (origin ? [origin] : []),
+    })
+    async later(_origin: ReturnType<typeof captureSpanLink>): Promise<void> {}
+  }
+
+  it('@taggedSync records on the active span before returning, without yielding', async () => {
+    const relay = new Relay();
+    await withSpan('outer', {}, async () => {
+      expect(relay.decide(2)).toBe('go');
+    });
+    expect(byName('outer').events.map((e) => [e.name, e.attributes])).toEqual([
+      ['decided', { 'ia.n': 2, 'ia.result': 'go' }],
+    ]);
+    // Sin span activo no hace nada.
+    expect(relay.decide(0)).toBe('stop');
+  });
+
+  it('inFreshContext starts a new trace that links back to the captured span', async () => {
+    const relay = new Relay();
+    let origin: ReturnType<typeof captureSpanLink>;
+    let later: Promise<void> | undefined;
+    await withInheritedAttributes({ 'ia.issue': 7 }, () =>
+      withSpan('origin', {}, async () => {
+        origin = captureSpanLink();
+        later = inFreshContext(() => relay.later(origin));
+      }),
+    );
+    await later;
+
+    const span = byName('later');
+    expect(parentOf(span)).toBeUndefined();
+    expect(span.spanContext().traceId).not.toBe(byName('origin').spanContext().traceId);
+    expect(span.links.map((link) => link.context.spanId)).toEqual([
+      byName('origin').spanContext().spanId,
+    ]);
+    // Tampoco arrastra lo heredado del contexto de donde se disparó.
+    expect(span.attributes['ia.issue']).toBeUndefined();
+    expect(captureSpanLink()).toBeUndefined();
   });
 });
 
