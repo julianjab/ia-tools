@@ -622,6 +622,71 @@ describe('AnthropicProvider.run', () => {
     });
   });
 
+  describe('inbox (messages injected while the agent runs)', () => {
+    const noop: Tool = { name: 'noop', description: 'd', inputSchema: {}, handler: () => 'x' };
+    const bodies: Array<{ messages: Array<{ role: string; content: unknown }> }> = [];
+    const provider = (responses: unknown[]) => {
+      bodies.length = 0;
+      let call = 0;
+      return new AnthropicProvider({
+        id: 'x',
+        model: 'claude-x',
+        apiKey: 'sk',
+        stream: false,
+        fetchImpl: vi.fn(async (_url: string, init: RequestInit) => {
+          bodies.push(JSON.parse(init.body as string));
+          return jsonResponse(responses[call++]);
+        }) as unknown as typeof fetch,
+      });
+    };
+    const toolUse = {
+      content: [{ type: 'tool_use', id: 'tu_1', name: 'noop', input: {} }],
+      stop_reason: 'tool_use',
+    };
+    const done = { content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' };
+
+    it('adds what arrived to the next user turn, after the tool results', async () => {
+      const inbox = [[], ['Comentario de @julian: usá el enum']];
+      await provider([toolUse, done]).run(
+        ctxFor({ tools: [noop], inbox: () => inbox.shift() ?? [] }),
+      );
+
+      const turn = bodies[1]?.messages.at(-1);
+      expect(turn?.role).toBe('user');
+      expect(turn?.content).toEqual([
+        { type: 'tool_result', tool_use_id: 'tu_1', content: 'x' },
+        {
+          type: 'text',
+          text: '[Mensaje recibido mientras trabajabas]\nComentario de @julian: usá el enum',
+        },
+      ]);
+    });
+
+    it('joins a message that arrived before the first request to the prompt', async () => {
+      await provider([done]).run(ctxFor({ inbox: () => ['antes de arrancar'] }));
+
+      expect(bodies[0]?.messages).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'hola' },
+            { type: 'text', text: '[Mensaje recibido mientras trabajabas]\nantes de arrancar' },
+          ],
+        },
+      ]);
+    });
+
+    it('keeps the inbox for later while a pause_turn continuation is pending', async () => {
+      const paused = { content: [{ type: 'text', text: 'a mitad' }], stop_reason: 'pause_turn' };
+      const inbox = vi.fn(() => ['llegó durante la pausa']);
+      await provider([paused, done]).run(ctxFor({ inbox }));
+
+      // La continuación del pause_turn sale con el asistente al final: sin inyectar ni vaciar.
+      expect(bodies[1]?.messages.at(-1)?.role).toBe('assistant');
+      expect(inbox).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('terminal tools (submit_<exit>)', () => {
     const submit = (name: string, required: string[] = [], onCall = vi.fn()): Tool => ({
       name,
