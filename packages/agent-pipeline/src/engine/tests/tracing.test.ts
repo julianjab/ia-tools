@@ -12,11 +12,12 @@ import {
   type ReadableSpan,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Agent } from '../../agent/Agent.js';
 import { ProviderRegistry } from '../../agent/Provider.js';
 import { Condition } from '../../condition/Condition.js';
 import { Engine } from '../../engine/Engine.js';
+import { InMemoryExecutionStore } from '../../engine/Execution.js';
 import { StaticPipelineSource } from '../../engine/PipelineSource.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
@@ -222,5 +223,138 @@ describe('Engine tracing', () => {
       'ia.agent.exit': 'done',
     });
     expect(chose?.spanContext?.traceId).toBe(byName('agent refiner').spanContext().traceId);
+  });
+});
+
+describe('Engine tracing — executions', () => {
+  const TASK = { projectId: 'p', issue: 7 };
+  const task = (type: string, body?: string) =>
+    createEvent(type, body ? { body } : {}, { scope: TASK });
+
+  /** Un implementer que queda en su loop hasta `release`; al salir lee su inbox si `drains`. */
+  function setup({ drains = true, ifRunning = 'inject' as const } = {}) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const running = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const registry = new ProviderRegistry().register({
+      id: 'held',
+      run: async (ctx) => {
+        entered();
+        await gate;
+        if (drains) ctx.inbox?.();
+        return { outcome: 'success' };
+      },
+    });
+    const implementer = new Agent({ id: 'implementer', provider: 'held', prompt: 'p' }, registry);
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: new StaticPipelineSource([
+        new Pipeline({ id: 'build', on: ['build'], do: [implementer] }),
+        new Pipeline({ id: 'comment-build', on: ['issue_comment'], ifRunning, do: [implementer] }),
+      ]),
+      executions: new InMemoryExecutionStore(),
+    });
+    return { engine, running, release };
+  }
+
+  const eventSpans = (type: string) =>
+    spans.getFinishedSpans().filter((span) => span.name === `event ${type}`);
+  const ifRunningOf = (span: ReadableSpan) =>
+    span.events.filter((e) => e.name === 'pipeline.if_running').map((e) => e.attributes);
+  const logBodies = () => logRecords.getFinishedLogRecords().map((record) => String(record.body));
+
+  it('an injected event says which execution and agent got it, and the agent span when it read it', async () => {
+    const { engine, running, release } = setup();
+    const build = engine.dispatch(task('build'));
+    await running;
+    await engine.dispatch(task('issue_comment', 'hola'));
+    release();
+    await build;
+
+    const [comment] = eventSpans('issue_comment');
+    expect(comment?.attributes['ia.dispatch.outcome']).toBe('injected');
+    expect(ifRunningOf(comment as ReadableSpan)).toEqual([
+      {
+        'ia.pipeline.id': 'comment-build',
+        'ia.pipeline.if_running': 'injected',
+        'ia.execution.id': 'exec-1',
+        'ia.agent.id': 'implementer',
+      },
+    ]);
+    expect(ifRunningOf(byName('event build'))).toEqual([
+      { 'ia.pipeline.id': 'build', 'ia.pipeline.if_running': 'starts' },
+    ]);
+
+    const pipeline = byName('pipeline build');
+    expect(pipeline.attributes).toMatchObject({ 'ia.execution.id': 'exec-1' });
+    expect(pipeline.attributes['ia.execution.wait_ms']).toEqual(expect.any(Number));
+    const agent = byName('agent implementer');
+    // Heredado: todo lo de la corrida dice de qué ejecución es.
+    expect(agent.attributes['ia.execution.id']).toBe('exec-1');
+    expect(
+      agent.events.filter((e) => e.name === 'inbox.delivered').map((e) => e.attributes),
+    ).toEqual([{ 'ia.inbox.count': 1, 'ia.execution.id': 'exec-1' }]);
+
+    expect(logBodies()).toEqual(
+      expect.arrayContaining([
+        'evento "issue_comment" inyectado a implementer (exec-1)',
+        'agente implementer leyó 1 mensaje(s) inyectado(s)',
+        'exec-1 abre: build',
+        'exec-1 cierra: done',
+      ]),
+    );
+  });
+
+  it('an event that waits for a busy task says behind which execution', async () => {
+    const { engine, running, release } = setup({ ifRunning: 'wait' as never });
+    const build = engine.dispatch(task('build'));
+    await running;
+    const comment = engine.dispatch(task('issue_comment', 'hola'));
+    await Promise.resolve();
+    release();
+    await Promise.all([build, comment]);
+
+    expect(ifRunningOf(byName('event issue_comment'))).toEqual([
+      {
+        'ia.pipeline.id': 'comment-build',
+        'ia.pipeline.if_running': 'waits',
+        'ia.execution.id': 'exec-1',
+      },
+    ]);
+    expect(logBodies()).toContain(
+      'evento "issue_comment" espera para comment-build: la task está ocupada (exec-1)',
+    );
+  });
+
+  it('an unread injection is re-dispatched in a new trace that links back to the original event', async () => {
+    const { engine, running, release } = setup({ drains: false });
+    const build = engine.dispatch(task('build'));
+    await running;
+    await engine.dispatch(task('issue_comment', 'tarde'));
+    release();
+    await build;
+    await vi.waitFor(() => expect(eventSpans('issue_comment')).toHaveLength(2));
+    await vi.waitFor(() => byName('pipeline comment-build'));
+
+    const [original, redelivered] = eventSpans('issue_comment') as [ReadableSpan, ReadableSpan];
+    expect(parentOf(redelivered)).toBeUndefined();
+    expect(redelivered.spanContext().traceId).not.toBe(byName('event build').spanContext().traceId);
+    expect(redelivered.links.map((link) => link.context.spanId)).toEqual([
+      original.spanContext().spanId,
+    ]);
+    expect(redelivered.attributes).toMatchObject({
+      'ia.dispatch.redelivered_from': 'exec-1',
+      'ia.dispatch.pipeline': 'comment-build',
+      'ia.dispatch.outcome': 'dispatched',
+      'ia.issue': 7,
+    });
+    // Lo de la corrida de `build` no se cuela en la traza nueva.
+    expect(redelivered.attributes['ia.pipeline.id']).toBeUndefined();
+    expect(parentOf(byName('pipeline comment-build'))).toBe(redelivered.spanContext().spanId);
   });
 });
