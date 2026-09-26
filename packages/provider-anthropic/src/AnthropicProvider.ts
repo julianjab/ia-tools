@@ -288,6 +288,30 @@ function stripOrphanedMcpToolUse(messages: AnthropicMessage[]): AnthropicMessage
 
 /** Vale la pena insistir si el agente no puede cerrar solo: más de una salida, o una única salida
  *  que pide datos. Con una sola `submit_done` sin campos requeridos, `Agent` la toma sin submit. */
+/**
+ * Lo que llegó mientras el agente corre (`ctx.inbox`, `ifRunning: inject`) entra al turno del
+ * usuario que está por mandarse — después de los `tool_result`, que la API exige primero. Sólo
+ * si el último mensaje es del usuario: tras un `pause_turn` el último es del asistente (el turno
+ * sigue), así que el inbox espera a la vuelta siguiente en vez de cortar esa continuación.
+ */
+function withInjectedMessages(
+  messages: AnthropicMessage[],
+  inbox: (() => string[]) | undefined,
+): AnthropicMessage[] {
+  const last = messages.at(-1);
+  if (!inbox || last?.role !== 'user') return messages;
+  const injected = inbox();
+  if (injected.length === 0) return messages;
+  const blocks = injected.map((text) => ({
+    type: 'text',
+    text: `[Mensaje recibido mientras trabajabas]\n${text}`,
+  }));
+  const content = Array.isArray(last.content)
+    ? [...last.content, ...blocks]
+    : [{ type: 'text', text: String(last.content) }, ...blocks];
+  return [...messages.slice(0, -1), { role: 'user', content }];
+}
+
 function needsSubmit(terminalTools: Tool[]): boolean {
   if (terminalTools.length === 0) return false;
   if (terminalTools.length > 1) return true;
@@ -362,6 +386,7 @@ export class AnthropicProvider implements Provider {
     let toolRounds = 0;
     let pauses = 0;
     for (let round = 0; ; round++) {
+      messages = withInjectedMessages(messages, ctx.inbox);
       await opts.onCheckpoint?.(messages, ctx);
 
       const sendOnce = async (effectiveMaxTokens: number): Promise<AnthropicMessagesResponse> => {
