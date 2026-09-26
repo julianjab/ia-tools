@@ -41,6 +41,11 @@ function assertIssueNumber(value: number): number {
   return value;
 }
 
+/** Arma `/repos/{owner}/{repo}` (+ `suffix`), validando y encodeando owner y repo. */
+export function repoPath(owner: string, repo: string, suffix = ''): string {
+  return `/repos/${assertSafeSegment('owner', owner)}/${assertSafeSegment('repo', repo)}${suffix}`;
+}
+
 /** Arma `/repos/{owner}/{repo}/issues/{number}` (+ `suffix`), validando y encodeando cada
  *  segmento — el único lugar que construye estos paths, para que ninguna tool nueva se olvide. */
 export function issuePath(owner: string, repo: string, number: number, suffix = ''): string {

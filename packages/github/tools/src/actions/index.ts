@@ -1,5 +1,23 @@
-export type { IssueRef, IssueRefResolver, PrNumberResolver } from './issueRef.js';
-export { issueFromPayload, prFromPayload } from './issueRef.js';
+export type {
+  BranchResolver,
+  IssueRef,
+  IssueRefResolver,
+  PrNumberResolver,
+} from './issueRef.js';
+export {
+  assertSafeBranch,
+  branchFromPayload,
+  issueFromPayload,
+  prFromPayload,
+} from './issueRef.js';
+export type { EnsurePullRequestActionOptions } from './EnsurePullRequestAction.js';
+export {
+  EnsurePullRequestAction,
+  EnsurePullRequestInput,
+  closesIssue,
+} from './EnsurePullRequestAction.js';
+export type { LinkBranchActionOptions } from './LinkBranchAction.js';
+export { LinkBranchAction, LinkBranchInput } from './LinkBranchAction.js';
 export type { PostCommentActionOptions } from './PostCommentAction.js';
 export {
   CommentTarget,
