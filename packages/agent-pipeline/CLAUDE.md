@@ -263,6 +263,14 @@ Reglas que no son obvias al leer el código:
   evento que no dispara nada igual abre su span.
 - **Un error manejado igual se ve.** Un paso que falla y lo cubre un `onError` queda en ERROR con
   `ia.step.error_handled`; el `onError` corre como hijo con `ia.step.via: onError`.
+- **Lo que pasó con un evento frente a una ejecución.** `pipeline.match` se registra al planear,
+  antes de mirar las ejecuciones: para las pipelines que pasan por ellas, `resolveRunning` deja
+  además un span event `pipeline.if_running` (`starts`, `waits`, `injected`, `skipped`, `nested`)
+  con la `ia.execution.id` con la que chocó (e `ia.agent.id` si se inyectó). `pipeline <id>`
+  hereda `ia.execution.id` a toda la corrida y lleva `ia.execution.wait_ms`; el agente deja
+  `inbox.delivered` cuando lee lo inyectado. Un inyectado sin leer se re-despacha en una traza
+  NUEVA (`inFreshContext`) con un link al `event <type>` que lo inyectó y
+  `ia.dispatch.redelivered_from` — no cuelga de la corrida que cerró.
 - **Tests con el SDK en memoria** (`devDependencies`): `engine/tests/tracing.test.ts`.
 
 ## Antes de tocar código

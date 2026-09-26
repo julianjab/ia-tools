@@ -1,11 +1,19 @@
-import { createLogger, tagged, traced } from '@ia-tools/telemetry';
+import {
+  type SpanLink,
+  captureSpanLink,
+  createLogger,
+  inFreshContext,
+  tagged,
+  taggedSync,
+  traced,
+} from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
 import type { ExecutionHandle } from '../pipeline/Runnable.js';
 import type { ExecutionStore, UnreadDelivery } from './Execution.js';
 import type { PipelineSource } from './PipelineSource.js';
-import { dispatchTrace, planTag } from './tracing.js';
+import { dispatchTrace, ifRunningTag, planTag, redeliverTrace } from './tracing.js';
 
 /** Tope de la cadena de derivación de eventos (EmitAction, Agent.emitOn). Sin esto un
  *  Pipeline que se re-emite a sí mismo —directo o vía un ciclo de N pipelines— no tiene fondo. */
@@ -48,11 +56,32 @@ function defaultMessage(event: DomainEvent<any>): string {
 }
 
 /** Una pipeline con la fuente de la que salió — sus defaults son los de ESA fuente. */
-interface Candidate {
+export interface Candidate {
   pipeline: Pipeline;
   source: PipelineSource;
   /** Por qué no corre, si no corre por la fuente o por la propia pipeline. */
   mismatch?: string;
+}
+
+/**
+ * Qué hizo el engine con una pipeline que matcheó, frente a la ejecución de su task:
+ * - `direct`: no pasa por ejecuciones (sin `executions`, sin agentes o sin task).
+ * - `nested`: nació dentro de la ejecución en curso — corre sin esperarla.
+ * - `starts`: la task está libre, abre su ejecución.
+ * - `waits`: la task está ocupada — corre cuando se libere (`ifRunning: wait`, o un `inject` sin
+ *   agente de la regla en su loop).
+ * - `injected`: se le entregó al agente que corre (`agentId`).
+ * - `skipped`: la task está ocupada y la regla es `skip`.
+ */
+export interface Resolution {
+  decision: 'direct' | 'nested' | 'starts' | 'waits' | 'injected' | 'skipped';
+  /** La corrida a lanzar, salvo `injected`/`skipped`. */
+  run?: () => Promise<unknown>;
+  /** Corre sin que `dispatch` la espere (ver `runDetached`). */
+  detach?: boolean;
+  /** La ejecución con la que chocó: la que corre en la task, si ya arrancó. */
+  executionId?: string;
+  agentId?: string;
 }
 
 /** Qué corre para un evento, y lo necesario para explicar por qué no corre el resto. */
@@ -75,6 +104,9 @@ export class Engine {
   readonly executions?: ExecutionStore;
   private readonly executionKey: (event: DomainEvent<any>) => string | undefined;
   private readonly formatMessage: (event: DomainEvent<any>) => string;
+  /** El span del despacho que inyectó cada evento: si nadie lo lee, su re-despacho abre una
+   *  traza nueva que lo cita (`redeliverTrace`). */
+  private readonly origins = new WeakMap<DomainEvent<any>, SpanLink>();
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus;
@@ -127,13 +159,13 @@ export class Engine {
     let injected = false;
     let detached = false;
     for (const candidate of toRun) {
-      const next = this.resolveRunning(candidate, event);
-      if (next === 'injected') injected = true;
-      else if (next === null) continue;
-      else if (next.detach) {
+      const { decision, run, detach } = this.resolveRunning(candidate, event);
+      if (decision === 'injected') injected = true;
+      if (!run) continue;
+      if (detach) {
         detached = true;
-        this.runDetached(next.run, event);
-      } else runs.push(next.run);
+        this.runDetached(run, event);
+      } else runs.push(run);
     }
     if (runs.length === 0) return detached ? 'dispatched' : injected ? 'injected' : 'skipped';
 
@@ -170,49 +202,50 @@ export class Engine {
   }
 
   /**
-   * Qué hacer con una pipeline que matcheó: correrla (la corrida a lanzar), o nada porque el
-   * evento se le entregó al agente que corre en su task (`injected`) o se descartó (`null`).
+   * Qué hacer con una pipeline que matcheó (ver `Resolution`). Sincrónico a propósito: decide y
+   * marca la task ocupada sin ceder el turno, así otro despacho no la ve libre a medias. Lo que
+   * decidió queda en la traza del evento (`ifRunningTag`).
    *
    * Sólo las pipelines con agentes, en un engine con `executions` y un evento con task, pasan
-   * por acá — el resto corre como siempre. Un evento que nació ADENTRO de la ejecución en curso
-   * (un `EmitAction` suyo) corre sin esperarla: sería esperarse a sí misma.
+   * por las ejecuciones — el resto corre como siempre. Un evento que nació ADENTRO de la
+   * ejecución en curso (un `EmitAction` suyo) corre sin esperarla: sería esperarse a sí misma.
    */
-  private resolveRunning(
-    candidate: Candidate,
-    event: DomainEvent<any>,
-  ): { run: () => Promise<unknown>; detach: boolean } | 'injected' | null {
+  @taggedSync(ifRunningTag)
+  private resolveRunning(candidate: Candidate, event: DomainEvent<any>): Resolution {
     const { pipeline } = candidate;
     const executions = this.executions;
     const key = executions && pipeline.runsAgents ? this.executionKey(event) : undefined;
-    const direct = { run: () => this.execute(candidate, event), detach: false };
-    if (!executions || key === undefined) return direct;
+    const direct = () => this.execute(candidate, event);
+    if (!executions || key === undefined) return { decision: 'direct', run: direct };
 
     const current = executions.current(key);
-    if (current && event.executionId === current.id) return direct;
+    const executionId = current?.id;
+    if (current && event.executionId === current.id) {
+      return { decision: 'nested', run: direct, executionId };
+    }
 
     // `inject` sólo le habla a un agente de ESTA regla que esté en su loop con el modelo: entre
     // pasos, o si corre otro agente, no hay quién lo lea — espera como `wait`.
     const active = current?.activeAgent;
     if (pipeline.ifRunning === 'inject' && active && pipeline.agentIds.includes(active)) {
       current.deliver(this.formatMessage(event), event, pipeline.id);
-      this.log.info(`evento "${event.type}" inyectado a ${active} (${current.id})`, {
-        'ia.execution.id': current.id,
-        'ia.pipeline.id': pipeline.id,
-      });
-      return 'injected';
+      const origin = captureSpanLink();
+      if (origin) this.origins.set(event, origin);
+      return { decision: 'injected', executionId, agentId: active };
     }
-    if (pipeline.ifRunning === 'skip' && executions.busy(key)) {
-      this.log.info(`evento "${event.type}" descartado: la task está ocupada`, {
-        'ia.pipeline.id': pipeline.id,
-      });
-      return null;
-    }
+    const busy = executions.busy(key);
+    if (pipeline.ifRunning === 'skip' && busy) return { decision: 'skipped', executionId };
+
     const run = async () => {
       const execution = await executions.start({
         key,
         pipelineId: pipeline.id,
         agentIds: pipeline.agentIds,
       });
+      this.log.info(
+        `${execution.id} abre: ${pipeline.id}${execution.waitedMs > 0 ? ` (esperó ${execution.waitedMs} ms)` : ''}`,
+        { 'ia.execution.id': execution.id, 'ia.execution.wait_ms': execution.waitedMs },
+      );
       let status: 'done' | 'failed' = 'done';
       try {
         return await this.execute(candidate, event, execution);
@@ -222,11 +255,20 @@ export class Engine {
       } finally {
         const unread = execution.unread();
         executions.finish(execution, status);
+        this.log[status === 'failed' ? 'warn' : 'info'](`${execution.id} cierra: ${status}`, {
+          'ia.execution.id': execution.id,
+          'ia.execution.duration_ms': Date.now() - Date.parse(execution.startedAt),
+        });
         this.redispatch(unread, execution.id);
       }
     };
-    // Nacido dentro de OTRA ejecución (hacia esta task): no se espera, ver `runDetached`.
-    return { run, detach: event.executionId !== undefined };
+    return {
+      decision: busy ? 'waits' : 'starts',
+      run,
+      // Nacido dentro de OTRA ejecución (hacia esta task): no se espera, ver `runDetached`.
+      detach: event.executionId !== undefined,
+      ...(executionId ? { executionId } : {}),
+    };
   }
 
   /**
@@ -234,23 +276,33 @@ export class Engine {
    * vuelta) vuelve a despacharse al cerrarla, SÓLO contra la regla que lo había inyectado — las
    * demás que matchearon ese evento ya corrieron con él. Ya sin nada corriendo, esa regla arranca
    * normal. Así un `inject` nunca pierde un evento.
+   *
+   * Corre en una traza nueva (no es parte de la corrida que cierra) que cita la del despacho que
+   * lo inyectó: desde el evento se llega a lo que terminó causando.
    */
   private redispatch(unread: UnreadDelivery[], executionId: string): void {
     for (const { event, pipelineId } of unread) {
-      this.log.info(`evento "${event.type}" sin leer en ${executionId}: se vuelve a despachar`);
-      this.plan(event)
-        .then(({ toRun }) =>
-          this.runCandidates(
-            toRun.filter((candidate) => candidate.pipeline.id === pipelineId),
-            event,
-          ),
-        )
-        .catch((err: unknown) => {
-          this.log.error(
-            `re-despacho de "${event.type}" falló: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
+      this.log.info(`evento "${event.type}" sin leer en ${executionId}: se vuelve a despachar`, {
+        'ia.execution.id': executionId,
+      });
+      const origin = this.origins.get(event);
+      // El error ya lo logueó `@traced` adentro de su span; acá sólo no queda sin manejar.
+      inFreshContext(() => this.redeliver(event, pipelineId, executionId, origin)).catch(() => {});
     }
+  }
+
+  @traced(redeliverTrace)
+  private async redeliver(
+    event: DomainEvent<any>,
+    pipelineId: string,
+    _executionId: string,
+    _origin: SpanLink | undefined,
+  ): Promise<DispatchOutcome> {
+    const { toRun } = await this.plan(event);
+    return this.runCandidates(
+      toRun.filter((candidate) => candidate.pipeline.id === pipelineId),
+      event,
+    );
   }
 
   private execute(

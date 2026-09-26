@@ -38,9 +38,16 @@ export const pipelineTrace: TraceOptions<
     return `pipeline ${this.id}`;
   },
   scope: SCOPE,
-  inherit() {
-    return { 'ia.pipeline.id': this.id };
+  // `ia.execution.id` también se hereda: cada span y log de la corrida (el provider, una tool)
+  // dice de qué ejecución es.
+  inherit(ctx) {
+    return {
+      'ia.pipeline.id': this.id,
+      ...(ctx.execution ? { 'ia.execution.id': ctx.execution.id } : {}),
+    };
   },
+  attributes: (ctx) =>
+    ctx.execution?.waitedMs === undefined ? {} : { 'ia.execution.wait_ms': ctx.execution.waitedMs },
 };
 
 /**

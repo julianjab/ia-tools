@@ -1,6 +1,7 @@
+import { createLogger, taggedSync } from '@ia-tools/telemetry';
 import { z } from 'zod';
 import { Runnable } from '../pipeline/Runnable.js';
-import type { PipelineExecutionContext } from '../pipeline/Runnable.js';
+import type { ExecutionHandle, PipelineExecutionContext } from '../pipeline/Runnable.js';
 import { AllowedAction } from '../pipeline/actions/Action.js';
 import {
   type ExitRoutes,
@@ -21,6 +22,7 @@ import {
   providerRegistry as defaultProviderRegistry,
 } from './Provider.js';
 import { SchemaTool, type ToolInputSchema } from './SchemaTool.js';
+import { inboxTag } from './tracing.js';
 
 /** Outcomes que NO aplican ninguna salida — el run se cortó desde afuera, no es un resultado
  *  del agente. Igual a `NO_TRANSITION_OUTCOMES` de ia-flow. */
@@ -132,6 +134,7 @@ function submitTool(
  * qué datos. Ningún `Provider` conoce `{{...}}` ni las salidas; eso vive acá, una sola vez.
  */
 export class Agent extends Runnable {
+  readonly log = createLogger('agent-pipeline.agent');
   readonly definition: AgentDefinitionProps;
   private readonly registry: ProviderRegistry;
 
@@ -228,7 +231,7 @@ export class Agent extends Runnable {
         mcpServers: def.mcpServers ?? [],
         tools,
         ctx,
-        ...(execution ? { inbox: () => execution.drain() } : {}),
+        ...(execution ? { inbox: () => this.readInbox(execution) } : {}),
       })
       .finally(() => execution?.leave());
 
@@ -262,6 +265,13 @@ export class Agent extends Runnable {
 
   /** Encadenar agentes lo decide la pipeline, donde se ve el grafo completo: una ruta BASE que
    *  apuntara a otro agente arrastraría su grafo a cualquier pipeline que incluya a éste. */
+  /** Lo inyectado desde la última vuelta, para el provider. Deja en la traza del agente cuándo
+   *  lo leyó (`inboxTag`). */
+  @taggedSync(inboxTag)
+  private readInbox(execution: ExecutionHandle): string[] {
+    return execution.drain();
+  }
+
   private assertBaseRoutesTargetActions(): void {
     const def = this.definition;
     const targets = [

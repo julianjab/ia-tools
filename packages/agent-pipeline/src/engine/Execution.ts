@@ -28,7 +28,10 @@ export interface UnreadDelivery {
 }
 
 export class Execution {
-  readonly startedAt = new Date().toISOString();
+  private readonly startedMs = Date.now();
+  readonly startedAt = new Date(this.startedMs).toISOString();
+  /** Cuánto esperó turno (su task ocupada) o lugar bajo el tope antes de arrancar. */
+  readonly waitedMs: number;
   status: ExecutionStatus = 'running';
   private readonly delivered: Delivered[] = [];
   private agent: string | undefined;
@@ -44,7 +47,11 @@ export class Execution {
     readonly pipelineId: string,
     /** Los agentes de su pipeline. */
     readonly agentIds: readonly string[] = [],
-  ) {}
+    /** Cuándo se pidió (`Date.now()` del `start`); default: ahora, sin espera. */
+    queuedAt: number = Date.now(),
+  ) {
+    this.waitedMs = Math.max(0, this.startedMs - queuedAt);
+  }
 
   /** El agente que está AHORA en su loop con el modelo — el único que puede leer el inbox. Entre
    *  pasos, o antes/después de un agente, no hay ninguno. */
@@ -151,6 +158,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
 
   async start({ key, pipelineId, agentIds = [] }: StartExecution): Promise<Execution> {
     // Todo lo sincrónico va ANTES del primer await: la task queda ocupada en este mismo tick.
+    const queuedAt = Date.now();
     this.waitingCount++;
     const previous = this.tails.get(key) ?? Promise.resolve();
     let release!: () => void;
@@ -166,7 +174,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
       this.waitingCount--;
     }
 
-    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, agentIds);
+    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, agentIds, queuedAt);
     this.byKey.set(key, execution);
     void execution.finished.then(() => {
       if (this.byKey.get(key) === execution) this.byKey.delete(key);

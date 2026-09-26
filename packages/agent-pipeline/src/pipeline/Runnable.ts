@@ -26,6 +26,8 @@ export interface PipelineExecutionContext {
  *  `id` para que no esperen a la corrida que los emitió. */
 export interface ExecutionHandle {
   readonly id: string;
+  /** Cuánto esperó para arrancar (queda en el span de la pipeline). */
+  readonly waitedMs?: number;
   enter(agentId: string): void;
   leave(): void;
   drain(): string[];
