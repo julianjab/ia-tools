@@ -563,7 +563,24 @@ describe('Agent', () => {
     const agent = new Agent({ id: 'implementer', provider: 'fake', prompt: 'p' }, registry);
     const inbox = ['comentario nuevo'];
 
-    await agent.run({ ...ctxFor(), execution: { drain: () => inbox.splice(0) } });
+    const active: Array<string | undefined> = [];
+    let current: string | undefined;
+    const execution = {
+      id: 'exec-1',
+      enter: (agentId: string) => {
+        current = agentId;
+      },
+      leave: () => {
+        current = undefined;
+      },
+      drain: () => {
+        active.push(current);
+        return inbox.splice(0);
+      },
+    };
+    await agent.run({ ...ctxFor(), execution });
+    expect(active).toEqual(['implementer']);
+    expect(current).toBeUndefined();
     await agent.run(ctxFor());
 
     expect(seen).toEqual([['comentario nuevo'], undefined]);

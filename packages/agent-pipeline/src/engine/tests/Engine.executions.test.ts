@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Agent } from '../../agent/Agent.js';
 import { ProviderRegistry, type ProviderRunContext } from '../../agent/Provider.js';
 import { type DomainEvent, createEvent } from '../../events/DomainEvent.js';
@@ -17,7 +17,7 @@ const event = (type: string, payload: Record<string, unknown> = {}, depth = 1): 
  * Un implementer que queda corriendo hasta que el test lo suelta (`release`), y que ANTES de
  * terminar lee su inbox — como el provider real, que lo vacía antes de cada vuelta.
  */
-function heldImplementer() {
+function heldImplementer(options: { drains?: boolean } = {}) {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -34,7 +34,7 @@ function heldImplementer() {
       runs.push(ctx.ctx.pipelineId);
       started();
       await gate;
-      inbox.push(ctx.inbox?.() ?? []);
+      if (options.drains !== false) inbox.push(ctx.inbox?.() ?? []);
       return { outcome: 'success' };
     },
   });
@@ -169,33 +169,114 @@ describe('Engine with executions', () => {
     expect(implementer.runs).toEqual(['build']);
   });
 
-  it('a deeper event, born inside the running execution, does not wait for it', async () => {
+  it('an event born inside the running execution runs without waiting for it', async () => {
     const implementer = heldImplementer();
     const ran: string[] = [];
-    const nested = new Pipeline({
-      id: 'nested',
-      on: ['derived'],
-      do: [
-        new Agent(
-          { id: 'helper', provider: 'fake-helper', prompt: 'p' },
-          new ProviderRegistry().register({
-            id: 'fake-helper',
-            run: async () => {
-              ran.push('helper');
-              return { outcome: 'success' };
-            },
-          }),
-        ),
-      ],
-    });
-    const { engine } = engineWith([rule('build', 'build', implementer.agent), nested]);
+    const helper = new Agent(
+      { id: 'helper', provider: 'fake-helper', prompt: 'p' },
+      new ProviderRegistry().register({
+        id: 'fake-helper',
+        run: async () => {
+          ran.push('helper');
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    const { engine, store } = engineWith([
+      rule('build', 'build', implementer.agent),
+      rule('nested', 'derived', helper),
+    ]);
+    const key = scopeExecutionKey(event('build')) as string;
 
     const build = engine.dispatch(event('build'));
     await implementer.running;
-    await engine.dispatch(event('derived', {}, 2));
+    const own = createEvent(
+      'derived',
+      {},
+      {
+        scope: TASK,
+        depth: 2,
+        executionId: store.current(key)?.id,
+      },
+    );
+    await engine.dispatch(own);
     expect(ran).toEqual(['helper']);
     implementer.release();
     await build;
+  });
+
+  it('a deeper event from ANOTHER execution still waits for the task', async () => {
+    const implementer = heldImplementer();
+    const ran: string[] = [];
+    const helper = new Agent(
+      { id: 'helper', provider: 'fake-helper', prompt: 'p' },
+      new ProviderRegistry().register({
+        id: 'fake-helper',
+        run: async () => {
+          ran.push('helper');
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    const { engine } = engineWith([
+      rule('build', 'build', implementer.agent),
+      rule('nested', 'derived', helper),
+    ]);
+
+    const build = engine.dispatch(event('build'));
+    await implementer.running;
+    const foreign = engine.dispatch(
+      createEvent('derived', {}, { scope: TASK, depth: 5, executionId: 'exec-otra' }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ran).toEqual([]);
+    implementer.release();
+    await Promise.all([build, foreign]);
+    expect(ran).toEqual(['helper']);
+  });
+
+  it('skip also drops the event while the task is waiting for its turn', async () => {
+    const implementer = heldImplementer();
+    const other = heldImplementer();
+    const store = new InMemoryExecutionStore({ maxConcurrent: 1 });
+    const { engine } = engineWith(
+      [
+        rule('other-task', 'other', other.agent),
+        rule('build', 'build', implementer.agent),
+        rule('noise', 'label', implementer.agent, 'skip'),
+      ],
+      store,
+    );
+
+    // Otra task ocupa el único lugar: el build de ESTA task queda esperando turno.
+    const blocker = engine.dispatch(
+      createEvent('other', {}, { scope: { issue: 'otra' }, depth: 1 }),
+    );
+    await other.running;
+    const build = engine.dispatch(event('build'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(await engine.dispatch(event('label'))).toBe('skipped');
+    other.release();
+    implementer.release();
+    await Promise.all([blocker, build]);
+    expect(implementer.runs).toEqual(['build']);
+  });
+
+  it('re-dispatches what arrived after the agent last read its inbox, once the run closes', async () => {
+    const implementer = heldImplementer({ drains: false });
+    const { engine } = engineWith([
+      rule('build', 'build', implementer.agent),
+      rule('comment-build', 'issue_comment', implementer.agent, 'inject'),
+    ]);
+
+    const build = engine.dispatch(event('build'));
+    await implementer.running;
+    expect(await engine.dispatch(event('issue_comment', { body: 'tarde' }))).toBe('injected');
+    implementer.release();
+    await build;
+
+    await vi.waitFor(() => expect(implementer.runs).toEqual(['build', 'comment-build']));
   });
 
   it('leaves pipelines without agents and events without a task untouched', async () => {
@@ -237,7 +318,7 @@ describe('Engine with executions', () => {
 
     await expect(engine.dispatch(event('build'))).rejects.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(store.running(scopeExecutionKey(event('build')) as string)).toBeUndefined();
+    expect(store.current(scopeExecutionKey(event('build')) as string)).toBeUndefined();
     expect(store.stats).toEqual({ running: 0, waiting: 0 });
   });
 });
