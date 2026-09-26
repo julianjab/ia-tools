@@ -215,17 +215,22 @@ export class Agent extends Runnable {
     const tools = [...(def.tools ?? []), ...actionTools, ...submitTools];
     this.assertUniqueToolNames(tools);
 
-    const output = await provider.run({
-      agentId: def.id,
-      prompt: interpolate(def.prompt, root),
-      systemPrompts: resolveSystemPrompts(def.systemPrompts ?? []),
-      variables,
-      providerConfig: def.providerConfig ?? {},
-      mcpServers: def.mcpServers ?? [],
-      tools,
-      ctx,
-      ...(ctx.execution ? { inbox: () => ctx.execution?.drain() ?? [] } : {}),
-    });
+    // Mientras el provider corre, este agente es el que recibe lo inyectado (`ifRunning: inject`).
+    const execution = ctx.execution;
+    execution?.enter(def.id);
+    const output = await provider
+      .run({
+        agentId: def.id,
+        prompt: interpolate(def.prompt, root),
+        systemPrompts: resolveSystemPrompts(def.systemPrompts ?? []),
+        variables,
+        providerConfig: def.providerConfig ?? {},
+        mcpServers: def.mcpServers ?? [],
+        tools,
+        ctx,
+        ...(execution ? { inbox: () => execution.drain() } : {}),
+      })
+      .finally(() => execution?.leave());
 
     if (NO_TRANSITION_OUTCOMES.has(output.outcome)) return { output };
     if (failure !== undefined) {

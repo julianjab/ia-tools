@@ -33,7 +33,11 @@ export { Action, AllowedAction, BoundAction } from './pipeline/actions/Action.js
 export type { HttpActionProps } from './pipeline/actions/HttpAction.js';
 export { HttpAction } from './pipeline/actions/HttpAction.js';
 
-export type { PipelineExecutionContext, RunnableProps } from './pipeline/Runnable.js';
+export type {
+  ExecutionHandle,
+  PipelineExecutionContext,
+  RunnableProps,
+} from './pipeline/Runnable.js';
 export { Runnable } from './pipeline/Runnable.js';
 
 export type { IfRunning, PipelineProps } from './pipeline/Pipeline.js';

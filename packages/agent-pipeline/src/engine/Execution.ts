@@ -1,18 +1,29 @@
+import type { DomainEvent } from '../events/DomainEvent.js';
+
 /**
  * Una ejecución: UNA corrida de una pipeline con agentes sobre UNA task (la `key`, que el `Engine`
  * saca del evento). Es lo que le permite al engine contestar "¿ya hay algo corriendo para esta
  * task?" y, si lo hay, entregarle un evento en vez de arrancar otra corrida (`ifRunning`).
  *
- * El inbox es lo que llega mientras corre: el agente lo vacía antes de cada vuelta del modelo
- * (`ProviderRunContext.inbox`), así que un mensaje entra a la conversación en la vuelta
- * siguiente, sin reiniciar nada.
+ * El inbox es lo que llega mientras un agente está en su loop con el modelo: lo vacía antes de
+ * cada vuelta (`ProviderRunContext.inbox`), así que un mensaje entra a la conversación en la vuelta
+ * siguiente, sin reiniciar nada. Lo que llegó y ningún agente alcanzó a leer (llegó después de su
+ * última vuelta) queda en `unread()`: el engine lo vuelve a despachar al cerrar la ejecución, así
+ * que nunca se pierde.
  */
 export type ExecutionStatus = 'running' | 'done' | 'failed';
+
+interface Delivered {
+  message: string;
+  event: DomainEvent<any>;
+  read: boolean;
+}
 
 export class Execution {
   readonly startedAt = new Date().toISOString();
   status: ExecutionStatus = 'running';
-  private readonly inbox: string[] = [];
+  private readonly delivered: Delivered[] = [];
+  private agent: string | undefined;
   private settle!: () => void;
   /** Resuelve cuando la ejecución termina, bien o mal — nunca rechaza. */
   readonly finished = new Promise<void>((resolve) => {
@@ -23,25 +34,47 @@ export class Execution {
     readonly id: string,
     readonly key: string,
     readonly pipelineId: string,
-    /** La profundidad del evento que la abrió: uno más profundo nació ADENTRO de ella. */
-    readonly depth: number,
-    /** Los agentes de su pipeline: `inject` sólo le entrega eventos de reglas que comparten uno. */
+    /** Los agentes de su pipeline. */
     readonly agentIds: readonly string[] = [],
   ) {}
 
-  /** Deja un mensaje para la próxima vuelta del agente que está corriendo. */
-  deliver(message: string): void {
-    this.inbox.push(message);
+  /** El agente que está AHORA en su loop con el modelo — el único que puede leer el inbox. Entre
+   *  pasos, o antes/después de un agente, no hay ninguno. */
+  get activeAgent(): string | undefined {
+    return this.agent;
   }
 
-  /** Lo que llegó desde la última vez, en orden — y lo saca del inbox. */
+  /** Lo llama el agente al entrar y salir de su loop con el provider. */
+  enter(agentId: string): void {
+    this.agent = agentId;
+  }
+
+  leave(): void {
+    this.agent = undefined;
+  }
+
+  /** Deja un mensaje para la próxima vuelta del agente activo; `event` es el evento que lo trajo,
+   *  por si nadie llega a leerlo. */
+  deliver(message: string, event: DomainEvent<any>): void {
+    this.delivered.push({ message, event, read: false });
+  }
+
+  /** Lo que llegó desde la última vez, en orden — y lo marca leído. */
   drain(): string[] {
-    return this.inbox.splice(0);
+    const fresh = this.delivered.filter((entry) => !entry.read);
+    for (const entry of fresh) entry.read = true;
+    return fresh.map((entry) => entry.message);
+  }
+
+  /** Los eventos entregados que ningún agente leyó. */
+  unread(): DomainEvent<any>[] {
+    return this.delivered.filter((entry) => !entry.read).map((entry) => entry.event);
   }
 
   /** @internal lo llama el store al cerrarla. */
   close(status: Exclude<ExecutionStatus, 'running'>): void {
     this.status = status;
+    this.agent = undefined;
     this.settle();
   }
 }
@@ -49,7 +82,6 @@ export class Execution {
 export interface StartExecution {
   key: string;
   pipelineId: string;
-  depth: number;
   agentIds?: readonly string[];
 }
 
@@ -60,9 +92,12 @@ export interface StartExecution {
  */
 export interface ExecutionStore {
   /** La que está corriendo para esta task, si hay. */
-  running(key: string): Execution | undefined;
-  /** Abre una ejecución: espera a que termine la que esté corriendo para la misma task (una
-   *  task nunca corre dos a la vez) y a que haya lugar bajo el tope global. */
+  current(key: string): Execution | undefined;
+  /** Si la task tiene una ejecución corriendo O esperando turno. Se marca en el mismo tick del
+   *  `start`, así que no hay ventana en la que una task ocupada parezca libre. */
+  busy(key: string): boolean;
+  /** Abre una ejecución: espera a que termine la que esté corriendo para la misma task (una task
+   *  nunca corre dos a la vez) y a que haya lugar bajo el tope global. */
   start(input: StartExecution): Promise<Execution>;
   finish(execution: Execution, status: Exclude<ExecutionStatus, 'running'>): void;
   readonly stats: { running: number; waiting: number };
@@ -96,18 +131,22 @@ export class InMemoryExecutionStore implements ExecutionStore {
     this.maxConcurrent = max;
   }
 
-  running(key: string): Execution | undefined {
+  current(key: string): Execution | undefined {
     return this.byKey.get(key);
   }
 
-  async start({ key, pipelineId, depth, agentIds = [] }: StartExecution): Promise<Execution> {
+  busy(key: string): boolean {
+    return this.tails.has(key);
+  }
+
+  async start({ key, pipelineId, agentIds = [] }: StartExecution): Promise<Execution> {
+    // Todo lo sincrónico va ANTES del primer await: la task queda ocupada en este mismo tick.
     this.waitingCount++;
     const previous = this.tails.get(key) ?? Promise.resolve();
     let release!: () => void;
     const mine = new Promise<void>((resolve) => {
       release = resolve;
     });
-    // La cola de la task: el próximo espera a que ESTA ejecución termine.
     const tail = previous.then(() => mine);
     this.tails.set(key, tail);
     try {
@@ -117,7 +156,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
       this.waitingCount--;
     }
 
-    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, depth, agentIds);
+    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, agentIds);
     this.byKey.set(key, execution);
     void execution.finished.then(() => {
       if (this.byKey.get(key) === execution) this.byKey.delete(key);

@@ -215,15 +215,21 @@ ejecuciones en paralelo, y qué hacer con un evento para una task ocupada (`Pipe
 recibe por `ProviderRunContext.inbox` en su próxima vuelta — y no arranca nada) o `skip`.
 Reglas que no son obvias al leer el código:
 
-- **`inject` sólo le habla a un agente de la misma regla.** Si lo que corre en la task es otro
-  agente (un reviewer, y el comentario era para triage → implementer), la regla espera como
-  `wait`: inyectárselo al reviewer perdería el pedido.
-
+- **`inject` sólo le habla a un agente de la regla que esté EN SU LOOP con el modelo.** La
+  ejecución sabe cuál es (`Agent` marca `enter`/`leave` alrededor del provider). Entre pasos,
+  antes/después de un agente, o si corre otro agente (un reviewer, y el comentario era para
+  triage → implementer), no hay quién lo lea: la regla espera como `wait`.
+- **Nada inyectado se pierde.** Lo que llegó después de la última vuelta del agente queda sin leer
+  (`Execution.unread()`); al cerrar la ejecución el engine lo vuelve a despachar y, ya sin nada
+  corriendo, su regla arranca normal.
+- **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
+  la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
+  `busy`; `inject` mira el agente activo de `current`.
 - **Sin `executions`, nada cambia.** Todo lo que matchea corre en paralelo, como siempre. Lo mismo
   para pipelines sin agentes y eventos sin task (sin scope): no son ejecuciones.
-- **Un evento más profundo que el que abrió la ejecución en curso nació adentro de ella** (un
-  `EmitAction` de esa corrida): no espera ni se inyecta, corre sin más. Esperarla sería esperarse
-  a sí misma. `DomainEvent` no guarda de qué evento viene; `depth` alcanza para esto.
+- **Un evento que nació ADENTRO de la ejecución en curso no la espera** (sería esperarse a sí
+  misma). Lo sabe por `DomainEvent.executionId`, que pone el `EmitAction` de esa corrida y
+  `deriveEvent` hereda. Uno de otra ejecución, aunque sea más profundo, espera su turno.
 - **`ExecutionStore` es la costura para persistir.** `InMemoryExecutionStore` alcanza para un
   proceso; pausas y recuperación tras un reinicio implementan la misma interfaz en otro paquete.
 - **El formato del mensaje inyectado es de la app** (`formatMessage`): el engine no sabe qué es un

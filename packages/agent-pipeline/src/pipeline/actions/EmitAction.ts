@@ -55,7 +55,11 @@ export class EmitAction extends Runnable {
         ? this.payload(ctx, parsed)
         : (this.payload ?? parsed ?? {});
     const scope = typeof this.scope === 'function' ? this.scope(ctx, parsed) : this.scope;
-    const event = deriveEvent(ctx.event, this.type, payload, scope ? { scope } : {});
+    const event = deriveEvent(ctx.event, this.type, payload, {
+      ...(scope ? { scope } : {}),
+      // Nace adentro de esta ejecución: el engine no la hace esperar por ella misma.
+      ...(ctx.execution ? { executionId: ctx.execution.id } : {}),
+    });
     await ctx.bus.publish(event);
     return event;
   }

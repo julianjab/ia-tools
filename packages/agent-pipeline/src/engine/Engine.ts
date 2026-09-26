@@ -2,6 +2,7 @@ import { createLogger, tagged, traced } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
+import type { ExecutionHandle } from '../pipeline/Runnable.js';
 import type { ExecutionStore } from './Execution.js';
 import type { PipelineSource } from './PipelineSource.js';
 import { dispatchTrace, planTag } from './tracing.js';
@@ -141,61 +142,81 @@ export class Engine {
 
   /**
    * Qué hacer con una pipeline que matcheó: correrla (la corrida a lanzar), o nada porque el
-   * evento se le entregó a la ejecución en curso de su task (`injected`) o se descartó (`null`).
+   * evento se le entregó al agente que corre en su task (`injected`) o se descartó (`null`).
    *
    * Sólo las pipelines con agentes, en un engine con `executions` y un evento con task, pasan
-   * por acá — el resto corre como siempre. Un evento MÁS profundo que el que abrió la ejecución
-   * en curso nació adentro de ella: esperarla sería esperarse a sí misma, así que corre sin más.
+   * por acá — el resto corre como siempre. Un evento que nació ADENTRO de la ejecución en curso
+   * (un `EmitAction` suyo) corre sin esperarla: sería esperarse a sí misma.
    */
   private resolveRunning(
     candidate: Candidate,
     event: DomainEvent<any>,
   ): (() => Promise<unknown>) | 'injected' | null {
     const { pipeline } = candidate;
-    const key = this.executions && pipeline.runsAgents ? this.executionKey(event) : undefined;
-    if (!this.executions || key === undefined) return () => this.execute(candidate, event);
+    const executions = this.executions;
+    const key = executions && pipeline.runsAgents ? this.executionKey(event) : undefined;
+    if (!executions || key === undefined) return () => this.execute(candidate, event);
 
-    const running = this.executions.running(key);
-    if (running && event.depth > running.depth) return () => this.execute(candidate, event);
-    const ownAgent = running?.agentIds.some((id) => pipeline.agentIds.includes(id)) ?? false;
-    if (running?.status === 'running' && pipeline.ifRunning === 'inject' && ownAgent) {
-      running.deliver(this.formatMessage(event));
-      this.log.info(`evento "${event.type}" inyectado en ${running.id} (${running.pipelineId})`, {
-        'ia.execution.id': running.id,
+    const current = executions.current(key);
+    if (current && event.executionId === current.id) return () => this.execute(candidate, event);
+
+    // `inject` sólo le habla a un agente de ESTA regla que esté en su loop con el modelo: entre
+    // pasos, o si corre otro agente, no hay quién lo lea — espera como `wait`.
+    const active = current?.activeAgent;
+    if (pipeline.ifRunning === 'inject' && active && pipeline.agentIds.includes(active)) {
+      current.deliver(this.formatMessage(event), event);
+      this.log.info(`evento "${event.type}" inyectado a ${active} (${current.id})`, {
+        'ia.execution.id': current.id,
         'ia.pipeline.id': pipeline.id,
       });
       return 'injected';
     }
-    if (running?.status === 'running' && pipeline.ifRunning === 'skip') {
-      this.log.info(`evento "${event.type}" descartado: ${running.id} sigue corriendo`, {
-        'ia.execution.id': running.id,
+    if (pipeline.ifRunning === 'skip' && executions.busy(key)) {
+      this.log.info(`evento "${event.type}" descartado: la task está ocupada`, {
         'ia.pipeline.id': pipeline.id,
       });
       return null;
     }
-    const executions = this.executions;
     return async () => {
       const execution = await executions.start({
         key,
         pipelineId: pipeline.id,
-        depth: event.depth,
         agentIds: pipeline.agentIds,
       });
+      let status: 'done' | 'failed' = 'done';
       try {
-        const result = await this.execute(candidate, event, execution);
-        executions.finish(execution, 'done');
-        return result;
+        return await this.execute(candidate, event, execution);
       } catch (err) {
-        executions.finish(execution, 'failed');
+        status = 'failed';
         throw err;
+      } finally {
+        const unread = execution.unread();
+        executions.finish(execution, status);
+        this.redispatch(unread, execution.id);
       }
     };
+  }
+
+  /**
+   * Lo que se le entregó a una ejecución y ningún agente llegó a leer (llegó después de su última
+   * vuelta) vuelve a despacharse al cerrarla: ya sin nada corriendo, su regla arranca normal. Así
+   * un `inject` nunca pierde un evento.
+   */
+  private redispatch(events: DomainEvent<any>[], executionId: string): void {
+    for (const event of events) {
+      this.log.info(`evento "${event.type}" sin leer en ${executionId}: se vuelve a despachar`);
+      this.dispatch(event).catch((err: unknown) => {
+        this.log.error(
+          `re-despacho de "${event.type}" falló: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }
   }
 
   private execute(
     { pipeline, source }: Candidate,
     event: DomainEvent<any>,
-    execution?: { drain(): string[] },
+    execution?: ExecutionHandle,
   ): Promise<Record<string, unknown>> {
     return pipeline.execute({
       event,
