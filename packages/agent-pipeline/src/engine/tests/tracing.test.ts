@@ -304,7 +304,8 @@ describe('Engine tracing — executions', () => {
       expect.arrayContaining([
         'evento "issue_comment" inyectado a implementer (exec-1)',
         'agente implementer leyó 1 mensaje(s) inyectado(s)',
-        'exec-1 abre: build',
+        // Con la máquina cargada puede sumar "(esperó 1 ms)".
+        expect.stringMatching(/^exec-1 abre: build/),
         'exec-1 cierra: done',
       ]),
     );

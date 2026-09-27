@@ -14,7 +14,7 @@ describe('InMemoryExecutionStore', () => {
     expect(store.busy('task-1')).toBe(true);
     expect(store.stats).toEqual({ running: 1, waiting: 0 });
 
-    store.finish(execution, 'done');
+    execution.close('done');
     await tick();
     expect(execution.status).toBe('done');
     expect(store.current('task-1')).toBeUndefined();
@@ -42,7 +42,7 @@ describe('InMemoryExecutionStore', () => {
     expect(secondStarted).toBe(false);
     expect(store.stats.waiting).toBe(1);
 
-    store.finish(first, 'failed');
+    first.close('failed');
     const started = await second;
     expect(started.pipelineId).toBe('ci-red');
     expect(store.current('task-1')).toBe(started);
@@ -60,7 +60,7 @@ describe('InMemoryExecutionStore', () => {
     await tick();
     expect(bStarted).toBe(false);
     expect(store.busy('task-b')).toBe(true);
-    store.finish(a, 'done');
+    a.close('done');
     expect((await b).key).toBe('task-b');
     expect(store.stats.running).toBe(1);
   });
@@ -69,28 +69,53 @@ describe('InMemoryExecutionStore', () => {
     const store = new InMemoryExecutionStore();
     const execution = await store.start({ key: 'task-1', pipelineId: 'build' });
     const comment = createEvent('issue_comment', {});
+    const rule = { id: 'comment-build', agentIds: ['implementer'] };
 
     expect(execution.activeAgent).toBeUndefined();
+    // Sin agente en su loop no hay quién lo lea.
+    expect(execution.inject('antes', comment, rule)).toBe(false);
     execution.enter('implementer');
     expect(execution.activeAgent).toBe('implementer');
+    // Tampoco si el agente activo no es de la regla.
+    expect(execution.inject('otro', comment, { id: 'x', agentIds: ['reviewer'] })).toBe(false);
 
-    execution.deliver('primero', comment, 'comment-build');
-    execution.deliver('segundo', comment, 'comment-build');
+    expect(execution.inject('primero', comment, rule)).toBe(true);
+    expect(execution.inject('segundo', comment, rule)).toBe(true);
     expect(execution.drain()).toEqual(['primero', 'segundo']);
     expect(execution.drain()).toEqual([]);
     expect(execution.unread()).toEqual([]);
 
-    execution.deliver('tarde', comment, 'comment-build');
+    expect(execution.inject('tarde', comment, rule)).toBe(true);
     execution.leave();
     expect(execution.activeAgent).toBeUndefined();
     expect(execution.unread()).toEqual([{ event: comment, pipelineId: 'comment-build' }]);
   });
 
-  it('ignores a second finish and rejects a cap below one', async () => {
+  it('knows the events born inside it', async () => {
+    const execution = await new InMemoryExecutionStore().start({ key: 't', pipelineId: 'p' });
+    expect(execution.owns(createEvent('x', {}, { executionId: execution.id }))).toBe(true);
+    expect(execution.owns(createEvent('x', {}, { executionId: 'exec-otra' }))).toBe(false);
+    expect(execution.owns(createEvent('x', {}))).toBe(false);
+  });
+
+  it('runs work as the execution: done on success, failed on a throw — and frees the task', async () => {
+    const store = new InMemoryExecutionStore();
+    const ok = await store.start({ key: 'task-1', pipelineId: 'build' });
+    expect(await ok.run(async () => 'listo')).toBe('listo');
+    expect(ok.status).toBe('done');
+
+    const bad = await store.start({ key: 'task-1', pipelineId: 'build' });
+    await expect(bad.run(async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
+    expect(bad.status).toBe('failed');
+    await tick();
+    expect(store.busy('task-1')).toBe(false);
+  });
+
+  it('ignores a second close and rejects a cap below one', async () => {
     const store = new InMemoryExecutionStore();
     const execution = await store.start({ key: 'task-1', pipelineId: 'build' });
-    store.finish(execution, 'done');
-    store.finish(execution, 'failed');
+    execution.close('done');
+    execution.close('failed');
     expect(execution.status).toBe('done');
     expect(() => new InMemoryExecutionStore({ maxConcurrent: 0 })).toThrow(/maxConcurrent/);
   });
