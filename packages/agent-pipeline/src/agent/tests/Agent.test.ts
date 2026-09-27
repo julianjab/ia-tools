@@ -567,8 +567,8 @@ describe('Agent', () => {
     let current: string | undefined;
     const execution = {
       id: 'exec-1',
-      enter: (agentId: string) => {
-        current = agentId;
+      enter: (step: { id?: string }) => {
+        current = step.id;
       },
       leave: () => {
         current = undefined;

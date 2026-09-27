@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Agent } from '../../agent/Agent.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { InMemoryExecutionStore } from '../Execution.js';
 
@@ -65,30 +66,39 @@ describe('InMemoryExecutionStore', () => {
     expect(store.stats.running).toBe(1);
   });
 
-  it('knows which agent is in its loop, and hands out each message once', async () => {
+  it('offers an event to its active step, and hands out each accepted message once', async () => {
     const store = new InMemoryExecutionStore();
     const execution = await store.start({ key: 'task-1', pipelineId: 'build' });
     const comment = createEvent('issue_comment', {});
-    const rule = { id: 'comment-build', agentIds: ['implementer'] };
+    const implementer = new Agent({
+      id: 'implementer',
+      provider: 'fake',
+      prompt: 'p',
+      injects: [{ on: ['issue_comment'] }],
+    });
+    const reviewer = new Agent({ id: 'reviewer', provider: 'fake', prompt: 'p' });
 
-    expect(execution.activeAgent).toBeUndefined();
-    // Sin agente en su loop no hay quién lo lea.
-    expect(execution.inject('antes', comment, rule)).toBe(false);
-    execution.enter('implementer');
-    expect(execution.activeAgent).toBe('implementer');
-    // Tampoco si el agente activo no es de la regla.
-    expect(execution.inject('otro', comment, { id: 'x', agentIds: ['reviewer'] })).toBe(false);
+    expect(execution.active).toBeUndefined();
+    // Sin paso en su loop no hay quién lo lea.
+    expect(execution.inject('antes', comment)).toBe(false);
+    // Un paso que no acepta ese evento tampoco.
+    execution.enter(reviewer);
+    expect(execution.inject('otro', comment)).toBe(false);
+    execution.leave();
 
-    expect(execution.inject('primero', comment, rule)).toBe(true);
-    expect(execution.inject('segundo', comment, rule)).toBe(true);
+    execution.enter(implementer);
+    expect(execution.active).toBe(implementer);
+    expect(execution.inject('otro tipo', createEvent('label', {}))).toBe(false);
+    expect(execution.inject('primero', comment)).toBe(true);
+    expect(execution.inject('segundo', comment)).toBe(true);
     expect(execution.drain()).toEqual(['primero', 'segundo']);
     expect(execution.drain()).toEqual([]);
     expect(execution.unread()).toEqual([]);
 
-    expect(execution.inject('tarde', comment, rule)).toBe(true);
+    expect(execution.inject('tarde', comment)).toBe(true);
     execution.leave();
-    expect(execution.activeAgent).toBeUndefined();
-    expect(execution.unread()).toEqual([{ event: comment, pipelineId: 'comment-build' }]);
+    expect(execution.active).toBeUndefined();
+    expect(execution.unread()).toEqual([comment]);
   });
 
   it('knows the events born inside it', async () => {

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Agent } from '../../agent/Agent.js';
 import { ProviderRegistry, type ProviderRunContext } from '../../agent/Provider.js';
+import { Condition } from '../../condition/Condition.js';
+import type { EventFilterProps } from '../../condition/EventFilter.js';
 import { type DomainEvent, createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import { type IfRunning, Pipeline } from '../../pipeline/Pipeline.js';
@@ -16,9 +18,10 @@ const event = (type: string, payload: Record<string, unknown> = {}, depth = 1): 
 
 /**
  * Un implementer que queda corriendo hasta que el test lo suelta (`release`), y que ANTES de
- * terminar lee su inbox — como el provider real, que lo vacía antes de cada vuelta.
+ * terminar lee su inbox — como el provider real, que lo vacía antes de cada vuelta. Acepta que
+ * le inyecten comentarios (`injects`), salvo que el test diga otra cosa.
  */
-function heldImplementer(options: { drains?: boolean } = {}) {
+function heldImplementer(options: { drains?: boolean; injects?: EventFilterProps[] } = {}) {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -39,7 +42,15 @@ function heldImplementer(options: { drains?: boolean } = {}) {
       return { outcome: 'success' };
     },
   });
-  const agent = new Agent({ id: 'implementer', provider: 'fake', prompt: 'p' }, registry);
+  const agent = new Agent(
+    {
+      id: 'implementer',
+      provider: 'fake',
+      prompt: 'p',
+      injects: options.injects ?? [{ on: ['issue_comment'] }],
+    },
+    registry,
+  );
   return { agent, release, running, inbox, runs };
 }
 
@@ -59,11 +70,11 @@ const rule = (id: string, on: string, agent: Agent, ifRunning?: IfRunning) =>
   new Pipeline({ id, on: [on], do: [agent], ...(ifRunning ? { ifRunning } : {}) });
 
 describe('Engine with executions', () => {
-  it('injects an event into the running execution of its task instead of starting another', async () => {
+  it('injects an event its running step accepts, instead of starting another run', async () => {
     const implementer = heldImplementer();
     const { engine } = engineWith([
       rule('build', 'build', implementer.agent),
-      rule('comment-build', 'issue_comment', implementer.agent, 'inject'),
+      rule('comment-build', 'issue_comment', implementer.agent),
     ]);
 
     const build = engine.dispatch(event('build'));
@@ -77,7 +88,7 @@ describe('Engine with executions', () => {
     expect(implementer.inbox).toEqual([['issue_comment: usá el enum']]);
   });
 
-  it('inject only talks to its own agents: with another agent running, it waits', async () => {
+  it('a running step that does not accept the event lets it wait for the task', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -112,7 +123,7 @@ describe('Engine with executions', () => {
     );
     const { engine } = engineWith([
       rule('review', 'review', reviewer),
-      rule('comment-review', 'issue_comment', implementer, 'inject'),
+      rule('comment-review', 'issue_comment', implementer),
     ]);
 
     const review = engine.dispatch(event('review'));
@@ -126,11 +137,33 @@ describe('Engine with executions', () => {
     expect(implementerRuns).toEqual(['comment-review']);
   });
 
-  it('with no execution running, the same rule starts one', async () => {
-    const implementer = heldImplementer();
+  it('the step decides with its own when: a comment it filters out waits', async () => {
+    const implementer = heldImplementer({
+      injects: [
+        {
+          on: ['issue_comment'],
+          when: [new Condition({ field: 'body', op: 'neq', value: 'del bot' })],
+        },
+      ],
+    });
     const { engine } = engineWith([
-      rule('comment-build', 'issue_comment', implementer.agent, 'inject'),
+      rule('build', 'build', implementer.agent),
+      rule('comment-build', 'issue_comment', implementer.agent),
     ]);
+
+    const build = engine.dispatch(event('build'));
+    await implementer.running;
+    const comment = engine.dispatch(event('issue_comment', { body: 'del bot' }));
+    implementer.release();
+    expect(await comment).toBe('dispatched');
+    await build;
+    expect(implementer.inbox[0]).toEqual([]);
+    expect(implementer.runs).toEqual(['build', 'comment-build']);
+  });
+
+  it('with no execution running, the rule starts one', async () => {
+    const implementer = heldImplementer();
+    const { engine } = engineWith([rule('comment-build', 'issue_comment', implementer.agent)]);
     implementer.release();
 
     expect(await engine.dispatch(event('issue_comment', { body: 'x' }))).toBe('dispatched');
@@ -298,12 +331,12 @@ describe('Engine with executions', () => {
     expect(implementer.runs).toEqual(['build']);
   });
 
-  it('re-dispatches what arrived after the agent last read its inbox — only to the rule that injected it', async () => {
+  it('re-dispatches what the agent never read to the agent rules — reactions ran once already', async () => {
     const implementer = heldImplementer({ drains: false });
     const plain: string[] = [];
     const { engine } = engineWith([
       rule('build', 'build', implementer.agent),
-      rule('comment-build', 'issue_comment', implementer.agent, 'inject'),
+      rule('comment-build', 'issue_comment', implementer.agent),
       new Pipeline({
         id: 'react',
         on: ['issue_comment'],
@@ -313,12 +346,15 @@ describe('Engine with executions', () => {
 
     const build = engine.dispatch(event('build'));
     await implementer.running;
-    await engine.dispatch(event('issue_comment', { body: 'tarde' }));
+    expect(await engine.dispatch(event('issue_comment', { body: 'tarde' }))).toBe('dispatched');
+    // Inyectado, pero la reacción sin agentes corre igual.
+    expect(plain).toEqual(['react']);
+    expect(implementer.runs).toEqual(['build']);
     implementer.release();
     await build;
 
     await vi.waitFor(() => expect(implementer.runs).toEqual(['build', 'comment-build']));
-    // La pipeline sin agentes ya corrió con ese comentario: el re-despacho no la repite.
+    // El re-despacho no la repite.
     expect(plain).toEqual(['react']);
   });
 

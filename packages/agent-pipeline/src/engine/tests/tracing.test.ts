@@ -232,7 +232,7 @@ describe('Engine tracing — executions', () => {
     createEvent(type, body ? { body } : {}, { scope: TASK });
 
   /** Un implementer que queda en su loop hasta `release`; al salir lee su inbox si `drains`. */
-  function setup({ drains = true, ifRunning = 'inject' as const } = {}) {
+  function setup({ drains = true, injects = true } = {}) {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -250,12 +250,20 @@ describe('Engine tracing — executions', () => {
         return { outcome: 'success' };
       },
     });
-    const implementer = new Agent({ id: 'implementer', provider: 'held', prompt: 'p' }, registry);
+    const implementer = new Agent(
+      {
+        id: 'implementer',
+        provider: 'held',
+        prompt: 'p',
+        ...(injects ? { injects: [{ on: ['issue_comment'] }] } : {}),
+      },
+      registry,
+    );
     const engine = new Engine({
       bus: new EventBus(),
       pipelines: new StaticPipelineSource([
         new Pipeline({ id: 'build', on: ['build'], do: [implementer] }),
-        new Pipeline({ id: 'comment-build', on: ['issue_comment'], ifRunning, do: [implementer] }),
+        new Pipeline({ id: 'comment-build', on: ['issue_comment'], do: [implementer] }),
       ]),
       executions: new InMemoryExecutionStore(),
     });
@@ -278,6 +286,9 @@ describe('Engine tracing — executions', () => {
 
     const [comment] = eventSpans('issue_comment');
     expect(comment?.attributes['ia.dispatch.outcome']).toBe('injected');
+    expect(
+      comment?.events.filter((e) => e.name === 'execution.inject').map((e) => e.attributes),
+    ).toEqual([{ 'ia.execution.id': 'exec-1', 'ia.agent.id': 'implementer' }]);
     expect(ifRunningOf(comment as ReadableSpan)).toEqual([
       {
         'ia.pipeline.id': 'comment-build',
@@ -312,7 +323,7 @@ describe('Engine tracing — executions', () => {
   });
 
   it('an event that waits for a busy task says behind which execution', async () => {
-    const { engine, running, release } = setup({ ifRunning: 'wait' as never });
+    const { engine, running, release } = setup({ injects: false });
     const build = engine.dispatch(task('build'));
     await running;
     const comment = engine.dispatch(task('issue_comment', 'hola'));
@@ -350,7 +361,6 @@ describe('Engine tracing — executions', () => {
     ]);
     expect(redelivered.attributes).toMatchObject({
       'ia.dispatch.redelivered_from': 'exec-1',
-      'ia.dispatch.pipeline': 'comment-build',
       'ia.dispatch.outcome': 'dispatched',
       'ia.issue': 7,
     });
