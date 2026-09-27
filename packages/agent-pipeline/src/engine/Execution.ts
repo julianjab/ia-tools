@@ -1,3 +1,4 @@
+import { createLogger } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
 
 /**
@@ -10,6 +11,10 @@ import type { DomainEvent } from '../events/DomainEvent.js';
  * siguiente, sin reiniciar nada. Lo que llegó y ningún agente alcanzó a leer (llegó después de su
  * última vuelta) queda en `unread()`: el engine lo vuelve a despachar al cerrar la ejecución, así
  * que nunca se pierde.
+ *
+ * Lo que es de UNA ejecución vive acá: su inbox, qué agente lo puede leer, si un evento nació en
+ * ella, correr y cerrarse. Lo que es del conjunto (una por task, el tope global) es del store; qué
+ * hacer si la task está ocupada lo declara cada regla (`Pipeline.ifRunning`).
  */
 export type ExecutionStatus = 'running' | 'done' | 'failed';
 
@@ -21,6 +26,12 @@ interface Delivered {
   read: boolean;
 }
 
+/** La regla que quiere inyectar un evento: su id y los agentes que la atienden. */
+export interface InjectingRule {
+  readonly id: string;
+  readonly agentIds: readonly string[];
+}
+
 /** Un evento entregado que ningún agente leyó, con la regla que lo había inyectado. */
 export interface UnreadDelivery {
   event: DomainEvent<any>;
@@ -28,6 +39,7 @@ export interface UnreadDelivery {
 }
 
 export class Execution {
+  readonly log = createLogger('agent-pipeline.execution');
   private readonly startedMs = Date.now();
   readonly startedAt = new Date(this.startedMs).toISOString();
   /** Cuánto esperó turno (su task ocupada) o lugar bajo el tope antes de arrancar. */
@@ -68,10 +80,23 @@ export class Execution {
     this.agent = undefined;
   }
 
-  /** Deja un mensaje para la próxima vuelta del agente activo. `event` y `pipelineId` (la regla
-   *  que lo inyectó) son para volver a despacharlo si nadie llega a leerlo. */
-  deliver(message: string, event: DomainEvent<any>, pipelineId: string): void {
-    this.delivered.push({ message, event, pipelineId, read: false });
+  /** Si `event` nació adentro de esta ejecución (lo emitió un paso suyo): no tiene que esperarla,
+   *  sería esperarse a sí misma. */
+  owns(event: DomainEvent<any>): boolean {
+    return event.executionId === this.id;
+  }
+
+  /**
+   * Le entrega `message` al agente activo para su próxima vuelta — SÓLO si ese agente es de la
+   * regla: entre pasos, o si corre otro agente, no hay quién lo lea y devuelve `false` (la regla
+   * espera). `event` y la regla quedan para volver a despacharlo si nadie llega a leerlo.
+   */
+  inject(message: string, event: DomainEvent<any>, rule: InjectingRule): boolean {
+    if (this.status !== 'running' || !this.agent || !rule.agentIds.includes(this.agent)) {
+      return false;
+    }
+    this.delivered.push({ message, event, pipelineId: rule.id, read: false });
+    return true;
   }
 
   /** Lo que llegó desde la última vez, en orden — y lo marca leído. */
@@ -88,10 +113,31 @@ export class Execution {
       .map(({ event, pipelineId }) => ({ event, pipelineId }));
   }
 
-  /** @internal lo llama el store al cerrarla. */
+  /** Corre `work` como esta ejecución: queda `done` o `failed` según termine, y se cierra. */
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    this.log.info(
+      `${this.id} abre: ${this.pipelineId}${this.waitedMs > 0 ? ` (esperó ${this.waitedMs} ms)` : ''}`,
+      { 'ia.execution.id': this.id, 'ia.execution.wait_ms': this.waitedMs },
+    );
+    try {
+      const result = await work();
+      this.close('done');
+      return result;
+    } catch (err) {
+      this.close('failed');
+      throw err;
+    }
+  }
+
+  /** La cierra (una sola vez): libera su task y su lugar en el store (vía `finished`). */
   close(status: Exclude<ExecutionStatus, 'running'>): void {
+    if (this.status !== 'running') return;
     this.status = status;
     this.agent = undefined;
+    this.log[status === 'failed' ? 'warn' : 'info'](`${this.id} cierra: ${status}`, {
+      'ia.execution.id': this.id,
+      'ia.execution.duration_ms': Date.now() - this.startedMs,
+    });
     this.settle();
   }
 }
@@ -114,9 +160,9 @@ export interface ExecutionStore {
    *  `start`, así que no hay ventana en la que una task ocupada parezca libre. */
   busy(key: string): boolean;
   /** Abre una ejecución: espera a que termine la que esté corriendo para la misma task (una task
-   *  nunca corre dos a la vez) y a que haya lugar bajo el tope global. */
+   *  nunca corre dos a la vez) y a que haya lugar bajo el tope global. La libera cuando la
+   *  ejecución se cierra (`Execution.finished`). */
   start(input: StartExecution): Promise<Execution>;
-  finish(execution: Execution, status: Exclude<ExecutionStatus, 'running'>): void;
   readonly stats: { running: number; waiting: number };
 }
 
@@ -183,11 +229,6 @@ export class InMemoryExecutionStore implements ExecutionStore {
       if (this.tails.get(key) === tail) this.tails.delete(key);
     });
     return execution;
-  }
-
-  finish(execution: Execution, status: Exclude<ExecutionStatus, 'running'>): void {
-    if (execution.status !== 'running') return;
-    execution.close(status);
   }
 
   get stats(): { running: number; waiting: number } {

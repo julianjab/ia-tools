@@ -220,18 +220,15 @@ export class Engine {
 
     const current = executions.current(key);
     const executionId = current?.id;
-    if (current && event.executionId === current.id) {
-      return { decision: 'nested', run: direct, executionId };
-    }
+    if (current?.owns(event)) return { decision: 'nested', run: direct, executionId };
 
-    // `inject` sólo le habla a un agente de ESTA regla que esté en su loop con el modelo: entre
-    // pasos, o si corre otro agente, no hay quién lo lea — espera como `wait`.
-    const active = current?.activeAgent;
-    if (pipeline.ifRunning === 'inject' && active && pipeline.agentIds.includes(active)) {
-      current.deliver(this.formatMessage(event), event, pipeline.id);
+    if (
+      pipeline.ifRunning === 'inject' &&
+      current?.inject(this.formatMessage(event), event, pipeline)
+    ) {
       const origin = captureSpanLink();
       if (origin) this.origins.set(event, origin);
-      return { decision: 'injected', executionId, agentId: active };
+      return { decision: 'injected', executionId, agentId: current.activeAgent };
     }
     const busy = executions.busy(key);
     if (pipeline.ifRunning === 'skip' && busy) return { decision: 'skipped', executionId };
@@ -242,24 +239,10 @@ export class Engine {
         pipelineId: pipeline.id,
         agentIds: pipeline.agentIds,
       });
-      this.log.info(
-        `${execution.id} abre: ${pipeline.id}${execution.waitedMs > 0 ? ` (esperó ${execution.waitedMs} ms)` : ''}`,
-        { 'ia.execution.id': execution.id, 'ia.execution.wait_ms': execution.waitedMs },
-      );
-      let status: 'done' | 'failed' = 'done';
       try {
-        return await this.execute(candidate, event, execution);
-      } catch (err) {
-        status = 'failed';
-        throw err;
+        return await execution.run(() => this.execute(candidate, event, execution));
       } finally {
-        const unread = execution.unread();
-        executions.finish(execution, status);
-        this.log[status === 'failed' ? 'warn' : 'info'](`${execution.id} cierra: ${status}`, {
-          'ia.execution.id': execution.id,
-          'ia.execution.duration_ms': Date.now() - Date.parse(execution.startedAt),
-        });
-        this.redispatch(unread, execution.id);
+        this.redispatch(execution.unread(), execution.id);
       }
     };
     return {

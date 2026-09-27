@@ -215,6 +215,11 @@ ejecuciones en paralelo, y qué hacer con un evento para una task ocupada (`Pipe
 recibe por `ProviderRunContext.inbox` en su próxima vuelta — y no arranca nada) o `skip`.
 Reglas que no son obvias al leer el código:
 
+- **Cada comportamiento vive en quien lo tiene.** Lo de UNA ejecución está en `Execution`: su
+  inbox, `inject` (sólo si el agente activo es de la regla), `owns(event)` (nació en ella),
+  `run`/`close` (queda `done`/`failed` y loguea abre/cierra). Lo del conjunto —una por task, el
+  tope global— es del `ExecutionStore`. Qué hacer si la task está ocupada lo declara la regla
+  (`Pipeline.ifRunning`) y el `Engine` sólo combina las dos cosas en `resolveRunning`.
 - **`inject` sólo le habla a un agente de la regla que esté EN SU LOOP con el modelo.** La
   ejecución sabe cuál es (`Agent` marca `enter`/`leave` alrededor del provider). Entre pasos,
   antes/después de un agente, o si corre otro agente (un reviewer, y el comentario era para
