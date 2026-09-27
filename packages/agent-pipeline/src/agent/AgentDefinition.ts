@@ -1,3 +1,4 @@
+import type { ConditionalProps } from '../condition/Conditional.js';
 /**
  * Config declarativa de un agente respaldado por un LLM. Nació espejando `AgentDefinitionProps`
  * de ia-flow (`v2-platform/packages/engine-v2/src/engine/Agent.ts`); la parte de SALIDAS ya no:
@@ -22,7 +23,7 @@
  * uno): worktrees, capacidad y verificación del engine son conceptos del engine real de ia-flow
  * que este paquete no modela.
  */
-import type { ConditionalProps } from '../condition/Conditional.js';
+import type { EventFilterProps } from '../condition/EventFilter.js';
 import type { Runnable } from '../pipeline/Runnable.js';
 import type { Action, AllowedAction } from '../pipeline/actions/Action.js';
 import type { ExitRoutes } from '../routing/ExitRoutes.js';
@@ -80,6 +81,15 @@ export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
    *  o preparar lo que el modelo no debería decidir (vincular la rama de la task al issue). Una
    *  lista corre en orden; si un paso tira, el agente no arranca. */
   onStart?: Runnable | Runnable[];
+  /**
+   * Qué eventos le pueden inyectar mientras corre: si llega uno que pasa algún filtro, lo lee
+   * en su próxima vuelta (`ProviderRunContext.inbox`) y el evento no arranca otra corrida sobre
+   * la task. Sin esto no acepta ninguno: lo que llega espera a que termine. El filtro es del
+   * agente porque es él quien lo lee — y es TODO el filtro: las reglas no se evalúan para un
+   * evento inyectado, así que acá va también lo que las reglas excluyen (ej. comentarios del
+   * propio engine).
+   */
+  injects?: EventFilterProps[];
   providerConfig?: Record<string, unknown>;
   mcpServers?: McpServerRef[];
   /** Si el paso tira y no hay `onError` en la cascada, seguir con el siguiente `Runnable` de la

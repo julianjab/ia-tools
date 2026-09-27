@@ -1,10 +1,11 @@
 import { createLogger } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
+import type { Runnable } from '../pipeline/Runnable.js';
 
 /**
  * Una ejecución: UNA corrida de una pipeline con agentes sobre UNA task (la `key`, que el `Engine`
  * saca del evento). Es lo que le permite al engine contestar "¿ya hay algo corriendo para esta
- * task?" y, si lo hay, entregarle un evento en vez de arrancar otra corrida (`ifRunning`).
+ * task?" y, si lo hay, ofrecerle el evento a su paso activo antes de arrancar otra corrida.
  *
  * El inbox es lo que llega mientras un agente está en su loop con el modelo: lo vacía antes de
  * cada vuelta (`ProviderRunContext.inbox`), así que un mensaje entra a la conversación en la vuelta
@@ -12,30 +13,17 @@ import type { DomainEvent } from '../events/DomainEvent.js';
  * última vuelta) queda en `unread()`: el engine lo vuelve a despachar al cerrar la ejecución, así
  * que nunca se pierde.
  *
- * Lo que es de UNA ejecución vive acá: su inbox, qué agente lo puede leer, si un evento nació en
- * ella, correr y cerrarse. Lo que es del conjunto (una por task, el tope global) es del store; qué
- * hacer si la task está ocupada lo declara cada regla (`Pipeline.ifRunning`).
+ * Lo que es de UNA ejecución vive acá: su paso activo, su inbox, si un evento nació en ella,
+ * correr y cerrarse. Qué eventos acepta el paso lo decide el paso (`Runnable.accepts`); lo que es
+ * del conjunto (una por task, el tope global) es del store; qué hace una regla si la task está
+ * ocupada lo declara la regla (`Pipeline.ifRunning`).
  */
 export type ExecutionStatus = 'running' | 'done' | 'failed';
 
 interface Delivered {
   message: string;
   event: DomainEvent<any>;
-  /** La regla que lo inyectó: si nadie lo lee, se vuelve a despachar SÓLO contra ella. */
-  pipelineId: string;
   read: boolean;
-}
-
-/** La regla que quiere inyectar un evento: su id y los agentes que la atienden. */
-export interface InjectingRule {
-  readonly id: string;
-  readonly agentIds: readonly string[];
-}
-
-/** Un evento entregado que ningún agente leyó, con la regla que lo había inyectado. */
-export interface UnreadDelivery {
-  event: DomainEvent<any>;
-  pipelineId: string;
 }
 
 export class Execution {
@@ -46,7 +34,7 @@ export class Execution {
   readonly waitedMs: number;
   status: ExecutionStatus = 'running';
   private readonly delivered: Delivered[] = [];
-  private agent: string | undefined;
+  private step: Runnable | undefined;
   private settle!: () => void;
   /** Resuelve cuando la ejecución termina, bien o mal — nunca rechaza. */
   readonly finished = new Promise<void>((resolve) => {
@@ -57,27 +45,25 @@ export class Execution {
     readonly id: string,
     readonly key: string,
     readonly pipelineId: string,
-    /** Los agentes de su pipeline. */
-    readonly agentIds: readonly string[] = [],
     /** Cuándo se pidió (`Date.now()` del `start`); default: ahora, sin espera. */
     queuedAt: number = Date.now(),
   ) {
     this.waitedMs = Math.max(0, this.startedMs - queuedAt);
   }
 
-  /** El agente que está AHORA en su loop con el modelo — el único que puede leer el inbox. Entre
+  /** El paso que está AHORA en su loop con el modelo — el único que puede leer el inbox. Entre
    *  pasos, o antes/después de un agente, no hay ninguno. */
-  get activeAgent(): string | undefined {
-    return this.agent;
+  get active(): Runnable | undefined {
+    return this.step;
   }
 
   /** Lo llama el agente al entrar y salir de su loop con el provider. */
-  enter(agentId: string): void {
-    this.agent = agentId;
+  enter(step: Runnable): void {
+    this.step = step;
   }
 
   leave(): void {
-    this.agent = undefined;
+    this.step = undefined;
   }
 
   /** Si `event` nació adentro de esta ejecución (lo emitió un paso suyo): no tiene que esperarla,
@@ -87,15 +73,13 @@ export class Execution {
   }
 
   /**
-   * Le entrega `message` al agente activo para su próxima vuelta — SÓLO si ese agente es de la
-   * regla: entre pasos, o si corre otro agente, no hay quién lo lea y devuelve `false` (la regla
-   * espera). `event` y la regla quedan para volver a despacharlo si nadie llega a leerlo.
+   * Le ofrece `event` al paso activo: si lo acepta (`Runnable.accepts`), `message` le llega en su
+   * próxima vuelta y devuelve `true`. Si no hay paso activo o no lo acepta, `false` — el evento
+   * sigue su camino por las reglas. `event` queda para volver a despacharlo si nadie lo lee.
    */
-  inject(message: string, event: DomainEvent<any>, rule: InjectingRule): boolean {
-    if (this.status !== 'running' || !this.agent || !rule.agentIds.includes(this.agent)) {
-      return false;
-    }
-    this.delivered.push({ message, event, pipelineId: rule.id, read: false });
+  inject(message: string, event: DomainEvent<any>): boolean {
+    if (this.status !== 'running' || !this.step?.accepts(event)) return false;
+    this.delivered.push({ message, event, read: false });
     return true;
   }
 
@@ -106,11 +90,9 @@ export class Execution {
     return fresh.map((entry) => entry.message);
   }
 
-  /** Los eventos entregados que ningún agente leyó. */
-  unread(): UnreadDelivery[] {
-    return this.delivered
-      .filter((entry) => !entry.read)
-      .map(({ event, pipelineId }) => ({ event, pipelineId }));
+  /** Los eventos inyectados que ningún agente leyó. */
+  unread(): DomainEvent<any>[] {
+    return this.delivered.filter((entry) => !entry.read).map((entry) => entry.event);
   }
 
   /** Corre `work` como esta ejecución: queda `done` o `failed` según termine, y se cierra. */
@@ -133,7 +115,7 @@ export class Execution {
   close(status: Exclude<ExecutionStatus, 'running'>): void {
     if (this.status !== 'running') return;
     this.status = status;
-    this.agent = undefined;
+    this.step = undefined;
     this.log[status === 'failed' ? 'warn' : 'info'](`${this.id} cierra: ${status}`, {
       'ia.execution.id': this.id,
       'ia.execution.duration_ms': Date.now() - this.startedMs,
@@ -145,7 +127,6 @@ export class Execution {
 export interface StartExecution {
   key: string;
   pipelineId: string;
-  agentIds?: readonly string[];
 }
 
 /**
@@ -202,7 +183,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return this.tails.has(key);
   }
 
-  async start({ key, pipelineId, agentIds = [] }: StartExecution): Promise<Execution> {
+  async start({ key, pipelineId }: StartExecution): Promise<Execution> {
     // Todo lo sincrónico va ANTES del primer await: la task queda ocupada en este mismo tick.
     const queuedAt = Date.now();
     this.waitingCount++;
@@ -220,7 +201,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
       this.waitingCount--;
     }
 
-    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, agentIds, queuedAt);
+    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, queuedAt);
     this.byKey.set(key, execution);
     void execution.finished.then(() => {
       if (this.byKey.get(key) === execution) this.byKey.delete(key);

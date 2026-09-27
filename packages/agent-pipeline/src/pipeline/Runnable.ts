@@ -22,13 +22,14 @@ export interface PipelineExecutionContext {
 }
 
 /** Lo que un paso ve de su ejecución (`engine/Execution.ts`): un agente marca cuándo está en su
- *  loop con el modelo y le pasa el inbox a su provider; un `EmitAction` marca sus eventos con el
- *  `id` para que no esperen a la corrida que los emitió. */
+ *  loop con el modelo (el paso activo, al que se le ofrece lo que llega) y le pasa el inbox a su
+ *  provider; un `EmitAction` marca sus eventos con el `id` para que no esperen a la corrida que
+ *  los emitió. */
 export interface ExecutionHandle {
   readonly id: string;
   /** Cuánto esperó para arrancar (queda en el span de la pipeline). */
   readonly waitedMs?: number;
-  enter(agentId: string): void;
+  enter(step: Runnable): void;
   leave(): void;
   drain(): string[];
 }
@@ -94,6 +95,15 @@ export abstract class Runnable extends Conditional {
    */
   acceptsInput(): ToolInputSchema | undefined {
     return undefined;
+  }
+
+  /**
+   * Si este paso, mientras es el activo de su ejecución, acepta que le inyecten `event` (lo lee
+   * en su próxima vuelta en vez de que el evento espere a que termine). Default: no — sólo un
+   * `Agent` en su loop con el modelo tiene quién lo lea.
+   */
+  accepts(_event: DomainEvent<any>): boolean {
+    return false;
   }
 
   /** Valida `input` contra `schema` (o `{}` si no llegó) — el helper que usan los pasos que

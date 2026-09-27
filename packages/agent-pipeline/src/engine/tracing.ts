@@ -10,7 +10,14 @@ import {
   scopeAttributes,
 } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
-import type { Candidate, DispatchOutcome, DispatchPlan, Engine, Resolution } from './Engine.js';
+import type {
+  Candidate,
+  DispatchOutcome,
+  DispatchPlan,
+  Engine,
+  Injection,
+  Resolution,
+} from './Engine.js';
 
 /** Instrumentation scope de los spans de este paquete. */
 export const SCOPE = '@ia-tools/agent-pipeline';
@@ -74,6 +81,27 @@ export const planTag: TagOptions<Engine, [DomainEvent<any>], DispatchPlan> = {
 };
 
 /**
+ * Si el evento se le entregó al paso activo de la ejecución en curso de su task: un span event
+ * `execution.inject` en el despacho y un log. El agente deja `inbox.delivered` cuando lo lee.
+ */
+export const injectTag: TagOptions<Engine, [DomainEvent<any>], Injection | undefined> = {
+  onResult(span, injection, event) {
+    if (!injection) return;
+    const { executionId, stepId } = injection;
+    span.addEvent('execution.inject', {
+      'ia.execution.id': executionId,
+      ...(stepId ? { 'ia.agent.id': stepId } : {}),
+    });
+    this.log.info(
+      `evento "${event.type}" inyectado a ${stepId ?? 'la ejecución'} (${executionId})`,
+      {
+        'ia.execution.id': executionId,
+      },
+    );
+  },
+};
+
+/**
  * Qué pasó con cada pipeline frente a la ejecución de su task — lo que `pipeline.match` no puede
  * decir (se registra al planear, antes de mirar las ejecuciones): un span event
  * `pipeline.if_running` con la decisión (`Resolution`) y la ejecución con la que chocó, más un
@@ -95,9 +123,7 @@ export const ifRunningTag: TagOptions<Engine, [Candidate, DomainEvent<any>], Res
       'ia.pipeline.id': pipeline.id,
       ...(executionId ? { 'ia.execution.id': executionId } : {}),
     };
-    if (decision === 'injected') {
-      this.log.info(`evento "${event.type}" inyectado a ${agentId}${on}`, attributes);
-    } else if (decision === 'skipped') {
+    if (decision === 'skipped') {
       this.log.info(
         `evento "${event.type}" descartado para ${pipeline.id}: la task está ocupada${on}`,
         attributes,
@@ -117,7 +143,7 @@ export const ifRunningTag: TagOptions<Engine, [Candidate, DomainEvent<any>], Res
  */
 export const redeliverTrace: TraceOptions<
   Engine,
-  [DomainEvent<any>, string, string, SpanLink | undefined],
+  [DomainEvent<any>, string, SpanLink | undefined],
   DispatchOutcome
 > = {
   name: (event) => `event ${event.type}`,
@@ -125,15 +151,14 @@ export const redeliverTrace: TraceOptions<
   scope: SCOPE,
   inherit: dispatchTrace.inherit as TraceOptions<
     Engine,
-    [DomainEvent<any>, string, string, SpanLink | undefined],
+    [DomainEvent<any>, string, SpanLink | undefined],
     DispatchOutcome
   >['inherit'],
-  attributes: (event, pipelineId, executionId) => ({
+  attributes: (event, executionId) => ({
     'ia.event.occurred_at': event.occurredAt,
     'ia.dispatch.redelivered_from': executionId,
-    'ia.dispatch.pipeline': pipelineId,
   }),
-  links: (_event, _pipelineId, _executionId, origin) => (origin ? [origin] : []),
+  links: (_event, _executionId, origin) => (origin ? [origin] : []),
   onResult(span, outcome) {
     span.setAttribute('ia.dispatch.outcome', outcome);
   },

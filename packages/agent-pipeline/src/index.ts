@@ -18,6 +18,8 @@ export type { ConditionOp, ConditionRow } from './condition/Condition.js';
 export { Condition } from './condition/Condition.js';
 export type { ConditionalProps } from './condition/Conditional.js';
 export { Conditional } from './condition/Conditional.js';
+export type { EventFilterProps } from './condition/EventFilter.js';
+export { EventFilter } from './condition/EventFilter.js';
 
 export type { CreateEventOptions, DomainEvent } from './events/DomainEvent.js';
 export { createEvent, deriveEvent } from './events/DomainEvent.js';
@@ -50,7 +52,6 @@ export type {
   ExecutionStore,
   InMemoryExecutionStoreOptions,
   StartExecution,
-  UnreadDelivery,
 } from './engine/Execution.js';
 export { Execution, InMemoryExecutionStore } from './engine/Execution.js';
 export type { PipelineSource } from './engine/PipelineSource.js';

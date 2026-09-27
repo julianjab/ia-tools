@@ -209,28 +209,39 @@ proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`rep
 
 Con `EngineOptions.executions`, cada corrida de una pipeline CON agentes sobre una task (la
 `executionKey` del evento; default, su `scope`) es una `Execution`. Eso le da al engine el control
-que antes tenía la cola de cada app: una task nunca corre dos a la vez, un tope global de
-ejecuciones en paralelo, y qué hacer con un evento para una task ocupada (`Pipeline.ifRunning`):
-`wait` (default, espera y corre después), `inject` (se lo entrega a la que corre — el agente lo
-recibe por `ProviderRunContext.inbox` en su próxima vuelta — y no arranca nada) o `skip`.
+que antes tenía la cola de cada app: una task nunca corre dos a la vez y hay un tope global de
+ejecuciones en paralelo. Un evento para una task con una ejecución en curso sigue este orden:
+
+1. **Se le ofrece al paso activo de la ejecución** (`Execution.inject` → `Runnable.accepts`). Un
+   `Agent` acepta lo que pasa alguno de sus `injects` (`{ on, when }`, un `EventFilter`); lo lee
+   en su próxima vuelta por `ProviderRunContext.inbox`. Si lo acepta, ninguna regla con agentes
+   arranca otra corrida sobre la task.
+2. **Si no lo acepta** (no hay paso en su loop, o no es un evento suyo), sigue la cascada normal
+   y cada regla que matchea decide con su `ifRunning`: `wait` (default, corre después) o `skip`.
+
 Reglas que no son obvias al leer el código:
 
-- **Cada comportamiento vive en quien lo tiene.** Lo de UNA ejecución está en `Execution`: su
-  inbox, `inject` (sólo si el agente activo es de la regla), `owns(event)` (nació en ella),
-  `run`/`close` (queda `done`/`failed` y loguea abre/cierra). Lo del conjunto —una por task, el
-  tope global— es del `ExecutionStore`. Qué hacer si la task está ocupada lo declara la regla
-  (`Pipeline.ifRunning`) y el `Engine` sólo combina las dos cosas en `resolveRunning`.
-- **`inject` sólo le habla a un agente de la regla que esté EN SU LOOP con el modelo.** La
-  ejecución sabe cuál es (`Agent` marca `enter`/`leave` alrededor del provider). Entre pasos,
-  antes/después de un agente, o si corre otro agente (un reviewer, y el comentario era para
-  triage → implementer), no hay quién lo lea: la regla espera como `wait`.
+- **Cada comportamiento vive en quien lo tiene.** Qué eventos acepta un paso lo declara el paso
+  (`AgentDefinitionProps.injects`, porque es él quien lo lee). Lo de UNA ejecución está en
+  `Execution`: su paso activo, su inbox, `inject`, `owns(event)` (nació en ella), `run`/`close`
+  (queda `done`/`failed` y loguea abre/cierra). Lo del conjunto —una por task, el tope global—
+  es del `ExecutionStore`. Qué hace una regla si la task está ocupada lo declara la regla
+  (`Pipeline.ifRunning`). El `Engine` sólo ordena: primero la ejecución, después la cascada.
+- **Los `injects` del agente son TODO el filtro.** Un evento inyectado no pasa por el `when` de
+  ninguna regla con agentes: lo que las reglas excluyen (ej. los comentarios que publica el propio
+  engine) tiene que estar también en el `when` del `injects`.
+- **Las reacciones sin agentes corren igual.** Inyectar sólo reemplaza a las reglas CON agentes de
+  esa task; una pipeline sin agentes que matchea el evento (poner un label) corre como siempre.
+- **Sólo el paso EN SU LOOP con el modelo puede aceptar.** `Agent` marca `enter`/`leave` alrededor
+  del provider. Entre pasos, o antes/después de un agente, no hay quién lo lea: el evento sigue
+  por las reglas.
 - **Nada inyectado se pierde.** Lo que llegó después de la última vuelta del agente queda sin leer
-  (`Execution.unread()`); al cerrar la ejecución el engine lo vuelve a despachar SÓLO contra la
-  regla que lo inyectó (las demás que matchean ya lo corrieron la primera vez) y, ya sin nada
-  corriendo, arranca normal.
+  (`Execution.unread()`); al cerrar la ejecución el engine lo vuelve a despachar contra las reglas
+  CON agentes (las reacciones ya corrieron la primera vez) y, ya sin nada corriendo, arranca
+  normal.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
-  `busy`; `inject` mira el agente activo de `current`.
+  `busy`; inyectar mira el paso activo de `current`.
 - **Sin `executions`, nada cambia.** Todo lo que matchea corre en paralelo, como siempre. Lo mismo
   para pipelines sin agentes y eventos sin task (sin scope): no son ejecuciones.
 - **Un evento que nació ADENTRO de la ejecución en curso no la espera** (sería esperarse a sí
@@ -268,9 +279,10 @@ Reglas que no son obvias al leer el código:
   evento que no dispara nada igual abre su span.
 - **Un error manejado igual se ve.** Un paso que falla y lo cubre un `onError` queda en ERROR con
   `ia.step.error_handled`; el `onError` corre como hijo con `ia.step.via: onError`.
-- **Lo que pasó con un evento frente a una ejecución.** `pipeline.match` se registra al planear,
-  antes de mirar las ejecuciones: para las pipelines que pasan por ellas, `resolveRunning` deja
-  además un span event `pipeline.if_running` (`starts`, `waits`, `injected`, `skipped`, `nested`)
+- **Lo que pasó con un evento frente a una ejecución.** Si el paso activo lo aceptó, el despacho
+  deja un span event `execution.inject` (`ia.execution.id`, `ia.agent.id`). `pipeline.match` se
+  registra al planear, antes de mirar las ejecuciones: para las pipelines que pasan por ellas,
+  `resolveRunning` deja además un span event `pipeline.if_running` (`starts`, `waits`, `injected`, `skipped`, `nested`)
   con la `ia.execution.id` con la que chocó (e `ia.agent.id` si se inyectó). `pipeline <id>`
   hereda `ia.execution.id` a toda la corrida y lleva `ia.execution.wait_ms`; el agente deja
   `inbox.delivered` cuando lee lo inyectado. Un inyectado sin leer se re-despacha en una traza

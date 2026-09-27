@@ -1,5 +1,7 @@
 import { createLogger, taggedSync } from '@ia-tools/telemetry';
 import { z } from 'zod';
+import { EventFilter } from '../condition/EventFilter.js';
+import type { DomainEvent } from '../events/DomainEvent.js';
 import { Runnable } from '../pipeline/Runnable.js';
 import type { ExecutionHandle, PipelineExecutionContext } from '../pipeline/Runnable.js';
 import { AllowedAction } from '../pipeline/actions/Action.js';
@@ -137,6 +139,7 @@ export class Agent extends Runnable {
   readonly log = createLogger('agent-pipeline.agent');
   readonly definition: AgentDefinitionProps;
   private readonly registry: ProviderRegistry;
+  private readonly injects: EventFilter[];
 
   constructor(
     definition: AgentDefinitionProps,
@@ -149,6 +152,7 @@ export class Agent extends Runnable {
     });
     this.definition = definition;
     this.registry = registry;
+    this.injects = (definition.injects ?? []).map((filter) => new EventFilter(filter));
     this.assertBaseRoutesTargetActions();
     this.assertWriteActionsAllowed();
   }
@@ -161,6 +165,11 @@ export class Agent extends Runnable {
 
   override acceptsInput(): ToolInputSchema | undefined {
     return this.definition.input;
+  }
+
+  /** Si `event` pasa alguno de sus `injects`. */
+  override accepts(event: DomainEvent<any>): boolean {
+    return this.injects.some((filter) => filter.matches(event));
   }
 
   async run(ctx: PipelineExecutionContext, input?: unknown): Promise<AgentRunResult> {
@@ -220,7 +229,7 @@ export class Agent extends Runnable {
 
     // Mientras el provider corre, este agente es el que recibe lo inyectado (`ifRunning: inject`).
     const execution = ctx.execution;
-    execution?.enter(def.id);
+    execution?.enter(this);
     const output = await provider
       .run({
         agentId: def.id,
