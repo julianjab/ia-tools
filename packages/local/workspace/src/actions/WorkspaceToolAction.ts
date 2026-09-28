@@ -6,7 +6,7 @@ import {
   type ToolInputSchema,
 } from '@ia-tools/agent-pipeline';
 import { FsToolRegistry } from '@ia-tools/fs-tools';
-import { type BashPolicy, BashRunTool } from '@ia-tools/shell-tools';
+import { type BashPolicy, BashRunTool, timeoutNote } from '@ia-tools/shell-tools';
 import type { WorkspaceSession } from './WorkspaceSession.js';
 
 /**
@@ -54,6 +54,10 @@ export interface WorkspaceActionOptions {
   /** La credencial que `bash_run` le pasa a los `git` de red (ver `BashRunToolOptions`). Sin
    *  esto, el agente no puede publicar su branch: el worktree no tiene credenciales. */
   gitCredential?: () => Promise<string | undefined>;
+  /** Cuánto corre un comando de `bash_run` si el agente no pide otra cosa (default 60 s). */
+  timeoutMs?: number;
+  /** Lo máximo que el agente puede pedir por comando. Sin esto no puede estirarlo. */
+  maxTimeoutMs?: number;
 }
 
 /** La Action de `name` sobre el worktree de cada corrida. `policy` y `options` sólo aplican a
@@ -65,13 +69,17 @@ export function workspaceAction(
   options: WorkspaceActionOptions = {},
 ): WorkspaceToolAction<ToolInputSchema> {
   if (name === 'bash_run') {
-    const { gitCredential } = options;
+    const { gitCredential, timeoutMs, maxTimeoutMs } = options;
+    const limits = {
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(maxTimeoutMs !== undefined ? { maxTimeoutMs } : {}),
+    };
     return new WorkspaceToolAction(
       session,
-      new BashRunTool({ baseDir: '.', policy }),
-      (dir) => new BashRunTool({ baseDir: dir, policy, gitCredential }),
+      new BashRunTool({ baseDir: '.', policy, ...limits }),
+      (dir) => new BashRunTool({ baseDir: dir, policy, gitCredential, ...limits }),
       'write',
-      'Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) en el worktree de la task — usa comillas para args con espacios.',
+      `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) en el worktree de la task — usa comillas para args con espacios. ${timeoutNote(limits)}`,
     ) as unknown as WorkspaceToolAction<ToolInputSchema>;
   }
   if (!WORKSPACE_TOOLS.has(name)) throw new Error(`workspace: "${name}" no es una tool de disco`);
