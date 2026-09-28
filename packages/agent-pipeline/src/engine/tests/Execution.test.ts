@@ -93,12 +93,14 @@ describe('InMemoryExecutionStore', () => {
     expect(execution.inject('segundo', comment)).toBe(true);
     expect(execution.drain()).toEqual(['primero', 'segundo']);
     expect(execution.drain()).toEqual([]);
-    expect(execution.unread()).toEqual([]);
+    expect(execution.takeUnread()).toEqual([]);
 
     expect(execution.inject('tarde', comment)).toBe(true);
     execution.leave();
     expect(execution.active).toBeUndefined();
-    expect(execution.unread()).toEqual([comment]);
+    expect(execution.takeUnread()).toEqual([comment]);
+    // Se toman una sola vez.
+    expect(execution.takeUnread()).toEqual([]);
   });
 
   it('knows the events born inside it', async () => {
