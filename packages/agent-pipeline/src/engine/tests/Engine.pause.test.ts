@@ -289,6 +289,112 @@ describe('Engine with pauses', () => {
     expect(ran).toEqual(['implementer:start', 'before:start', 'branch:go', 'after:go']);
   });
 
+  it('a pipeline without agents that can pause is an execution too', async () => {
+    const ran: string[] = [];
+    const store = new InMemoryExecutionStore();
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: new StaticPipelineSource([
+        new Pipeline({
+          id: 'plain',
+          on: ['start'],
+          do: [
+            action('before', ran),
+            new PauseAction({ id: 'wait', branches: { go: { on: ['go'] } } }),
+            action('after', ran),
+          ],
+        }),
+      ]),
+      executions: store,
+    });
+
+    await engine.dispatch(event('start'));
+    expect(store.current(KEY)?.status).toBe('paused');
+    expect(await engine.dispatch(event('go'))).toBe('resumed');
+    expect(ran).toEqual(['before:start', 'after:go']);
+  });
+
+  it('a pipeline nested in another execution cannot pause: it fails saying why', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const running = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Agent(
+      { id: 'held', provider: 'held', prompt: 'p' },
+      new ProviderRegistry().register({
+        id: 'held',
+        run: async () => {
+          entered();
+          await gate;
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    const store = new InMemoryExecutionStore();
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: new StaticPipelineSource([
+        new Pipeline({ id: 'build', on: ['build'], do: [held] }),
+        new Pipeline({
+          id: 'nested',
+          on: ['derived'],
+          do: [new PauseAction({ id: 'wait', branches: { go: { on: ['go'] } } })],
+        }),
+      ]),
+      executions: store,
+    });
+
+    const build = engine.dispatch(event('build'));
+    await running;
+    const own = createEvent('derived', {}, { scope: TASK, executionId: store.current(KEY)?.id });
+    await expect(engine.dispatch(own)).rejects.toThrow();
+    release();
+    await build;
+  });
+
+  it('a pipeline that changed while paused does not resume at the wrong step', async () => {
+    const ran: string[] = [];
+    const pipelines = [
+      new Pipeline({
+        id: 'plain',
+        on: ['start'],
+        do: [
+          action('one', ran),
+          new PauseAction({ id: 'wait', branches: { go: { on: ['go'] } } }),
+          action('two', ran),
+        ],
+      }),
+    ];
+    const store = new InMemoryExecutionStore();
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: { list: () => pipelines },
+      executions: store,
+    });
+
+    await engine.dispatch(event('start'));
+    const paused = store.current(KEY);
+    // Mientras espera, alguien agrega un paso antes de la pausa.
+    pipelines[0] = new Pipeline({
+      id: 'plain',
+      on: ['start'],
+      do: [
+        action('zero', ran),
+        action('one', ran),
+        new PauseAction({ id: 'wait', branches: { go: { on: ['go'] } } }),
+        action('two', ran),
+      ],
+    });
+
+    await expect(engine.dispatch(event('go'))).rejects.toThrow();
+    expect(paused?.status).toBe('failed');
+    expect(ran).toEqual(['one:start']);
+  });
+
   it('a pause needs executions: without them the pipeline fails loudly', async () => {
     const ran: string[] = [];
     const engine = new Engine({
