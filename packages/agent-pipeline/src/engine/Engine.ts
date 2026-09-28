@@ -81,8 +81,9 @@ export type Offer =
       kind: 'resumed';
       executionId: string;
       branch: string;
-      run: () => Promise<unknown>;
-      detach: boolean;
+      /** La corrida que la reanuda — ausente si ya la lanzó otro (ver `wakeLate`). */
+      run?: () => Promise<unknown>;
+      detach?: boolean;
     };
 
 /**
@@ -129,6 +130,12 @@ export class Engine {
   /** El span del despacho que inyectó cada evento: si nadie lo lee, su re-despacho abre una
    *  traza nueva que lo cita (`redeliverTrace`). */
   private readonly origins = new WeakMap<DomainEvent<any>, SpanLink>();
+  /** Los eventos que ya despertaron una pausa desde `wakeLate` — mientras su propio `dispatch`
+   *  todavía leía las reglas: cuando termina, el evento ya está usado y no las corre. */
+  private readonly wokeLate = new WeakMap<
+    DomainEvent<any>,
+    { executionId: string; branch: string }
+  >();
 
   constructor(opts: EngineOptions) {
     this.bus = opts.bus;
@@ -172,7 +179,8 @@ export class Engine {
     // Si está pausada y el evento la despierta, se reanuda — recién acá, pegado a lanzar la
     // corrida: despertarla antes de `decide` dejaría una ejecución despierta sin quién la corra
     // si `decide` falla.
-    const offer = injected ?? this.wake(event);
+    const late = this.wokeLate.get(event);
+    const offer = injected ?? (late ? { kind: 'resumed' as const, ...late } : this.wake(event));
     return this.runCandidates(toRun, event, offer);
   }
 
@@ -237,7 +245,7 @@ export class Engine {
     execution: Execution,
     wake: Wake,
     event: DomainEvent<any>,
-  ): Extract<Offer, { kind: 'resumed' }> {
+  ): Required<Extract<Offer, { kind: 'resumed' }>> {
     const admitted = (this.executions as ExecutionStore).resume(execution);
     const run = async () => {
       await admitted;
@@ -306,7 +314,7 @@ export class Engine {
       if (detach) this.runDetached(run, event);
       else runs.push(run);
     };
-    if (offer?.kind === 'resumed') launch(offer.run, offer.detach);
+    if (offer?.kind === 'resumed' && offer.run) launch(offer.run, offer.detach ?? false);
     let others = false;
     for (const candidate of toRun) {
       const { run, detach } = this.resolveRunning(candidate, event, offer);
@@ -429,7 +437,9 @@ export class Engine {
     const event = execution.takeMissedWake();
     if (!event) return;
     const offer = this.wake(event);
-    if (offer?.kind === 'resumed') this.runDetached(offer.run, event);
+    if (offer?.kind !== 'resumed' || !offer.run) return;
+    this.wokeLate.set(event, { executionId: offer.executionId, branch: offer.branch });
+    this.runDetached(offer.run, event);
   }
 
   @traced(redeliverTrace)
