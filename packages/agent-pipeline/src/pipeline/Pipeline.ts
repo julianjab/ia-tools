@@ -203,6 +203,11 @@ export class Pipeline {
       routesFor: (step) =>
         step.exitRoutes !== undefined ? this.graph.resolve(step, ctx.defaults) : undefined,
     };
+    runCtx.runStep = async (step, via) => {
+      if (await this.runner.run(step, undefined, runCtx, via, false)) {
+        throw new Error(`Pipeline(${this.id}): "${via}" no puede pausar la ejecución`);
+      }
+    };
     let resumeAt = 0;
     if (from) {
       // Reanudar: primero la rama que la despertó (con el evento que la despertó en

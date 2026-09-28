@@ -28,6 +28,10 @@ export interface PipelineExecutionContext {
   routesFor?: (step: Runnable) => ResolvedRoutes | undefined;
   /** La ejecución de esta corrida, si el `Engine` lleva ejecuciones (ver `ExecutionHandle`). */
   execution?: ExecutionHandle;
+  /** Corre `step` como un paso más de esta pipeline (su `when`, su span), sin aplicarle ningún
+   *  `onError`: si tira, el error sube a quien lo pidió — ej. el `onStart` de un agente. Lo pone
+   *  `Pipeline.execute`; un paso que corre suelto no lo tiene. */
+  runStep?: (step: Runnable, via: string) => Promise<void>;
 }
 
 /** `agent`: un paso respaldado por un modelo (su span es `agent <id>`). El resto, `action`. */

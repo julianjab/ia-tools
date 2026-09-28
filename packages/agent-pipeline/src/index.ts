@@ -6,7 +6,14 @@ export type {
   Tool,
 } from './agent/AgentDefinition.js';
 export type { AgentRunResult } from './agent/Agent.js';
-export { Agent, FAIL_TOOL_NAME, NO_TRANSITION_OUTCOMES } from './agent/Agent.js';
+export { Agent } from './agent/Agent.js';
+export { FAIL_TOOL_NAME, FailTool } from './agent/FailTool.js';
+export type { RenderedPrompt, SystemPromptCatalog } from './agent/PromptRenderer.js';
+export { PromptRenderer } from './agent/PromptRenderer.js';
+export type { Submission } from './agent/SubmitTool.js';
+export { SubmitTool } from './agent/SubmitTool.js';
+export { Toolset } from './agent/Toolset.js';
+export { NO_TRANSITION_OUTCOMES, TurnProtocol } from './agent/TurnProtocol.js';
 export type { Provider, ProviderRunContext, ProviderRunOutput } from './agent/Provider.js';
 export { ProviderRegistry, providerRegistry } from './agent/Provider.js';
 export type { ToolInputSchema } from './agent/SchemaTool.js';

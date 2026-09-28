@@ -8,22 +8,16 @@ import { SCOPE } from '../engine/tracing.js';
 import { type Pipeline, type StepRun, type StepVia, isAgent } from './Pipeline.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
 import type { StepRunner } from './StepRunner.js';
-import { AllowedAction } from './actions/Action.js';
 
 type StepArgs = [Runnable, unknown, PipelineExecutionContext, StepVia, boolean?];
 
 const stepName = (step: Runnable) => step.id ?? step.constructor.name;
 
 /** Con qué corre un agente: provider, tools configuradas (sin las `submit_*`) y MCP servers. */
-function agentAttributes({ definition: def }: Agent): Attributes {
+function agentAttributes({ definition: def, toolset }: Agent): Attributes {
   return {
     'ia.agent.provider': def.provider,
-    'ia.agent.tools': [
-      ...(def.tools ?? []).map((tool) => tool.name),
-      ...(def.actions ?? []).map(
-        (entry) => (entry instanceof AllowedAction ? entry.action : entry).id,
-      ),
-    ],
+    'ia.agent.tools': toolset.names,
     'ia.agent.mcp_servers': (def.mcpServers ?? []).map((server) => server.id),
   };
 }
