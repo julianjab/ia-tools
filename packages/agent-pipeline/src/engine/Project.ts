@@ -57,6 +57,11 @@ export class Project extends Conditional implements PipelineSource {
     return this.pipelines;
   }
 
+  /** Las de entrada (`intake`): las que ven el evento antes del `when` del proyecto. */
+  intakePipelines(): Pipeline[] {
+    return [...this.intake];
+  }
+
   /** Por qué el evento no pasa el `when` del proyecto — se evalúa contra el payload, igual que
    *  el de una pipeline. Una pipeline de entrada no lo cumple nunca: pasa siempre. */
   explainMismatch(event: DomainEvent<any>, pipeline?: Pipeline): string | undefined {

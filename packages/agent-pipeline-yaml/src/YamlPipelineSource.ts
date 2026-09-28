@@ -64,6 +64,11 @@ export class YamlPipelineSource implements PipelineSource {
     return this.refresh().list();
   }
 
+  /** Las pipelines de `intake/`, como están ahora. */
+  intakePipelines(): Pipeline[] {
+    return this.refresh().intakePipelines();
+  }
+
   explainMismatch(event: DomainEvent<any>, pipeline: Pipeline): string | undefined {
     return this.refresh().explainMismatch(event, pipeline);
   }
