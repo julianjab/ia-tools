@@ -1,6 +1,6 @@
 /**
- * Qué deja `Engine` en la traza — lo usan los decorators de `Engine.ts`, así el despacho no
- * mezcla spans con la lógica.
+ * Qué deja el despacho en la traza — lo usan los decorators de `Engine`, `DispatchPlanner`,
+ * `ExecutionCoordinator` y `Redelivery`, así el despacho no mezcla spans con la lógica.
  */
 import {
   SpanKind,
@@ -10,15 +10,12 @@ import {
   scopeAttributes,
 } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
-import type {
-  Candidate,
-  DispatchOutcome,
-  DispatchPlan,
-  Engine,
-  Offer,
-  Resolution,
-} from './Engine.js';
+import type { Candidate, DispatchPlan, DispatchPlanner } from './DispatchPlanner.js';
+import type { Engine } from './Engine.js';
 import type { Execution } from './Execution.js';
+import type { ExecutionCoordinator, Offer, Resolution } from './ExecutionCoordinator.js';
+import type { Redelivery } from './Redelivery.js';
+import type { DispatchOutcome } from './RunLauncher.js';
 
 /** Instrumentation scope de los spans de este paquete. */
 export const SCOPE = '@ia-tools/agent-pipeline';
@@ -53,7 +50,7 @@ export const dispatchTrace: TraceOptions<Engine, [DomainEvent<any>], DispatchOut
  * escucha este tipo de evento (las que escuchan otros tipos serían ruido), y un log con el
  * resumen. Es lo primero que se mira cuando "no pasó nada".
  */
-export const planTag: TagOptions<Engine, [DomainEvent<any>], DispatchPlan> = {
+export const planTag: TagOptions<DispatchPlanner, [DomainEvent<any>], DispatchPlan> = {
   onResult(span, plan, event) {
     const skipped: string[] = [];
     const running = new Set(plan.toRun.map(({ pipeline }) => pipeline));
@@ -86,7 +83,7 @@ export const planTag: TagOptions<Engine, [DomainEvent<any>], DispatchPlan> = {
  * paso activo (el agente deja `inbox.delivered` cuando lo lee), `execution.resume` si despertó su
  * pausa. Un span event en el despacho y un log.
  */
-export const offerTag: TagOptions<Engine, [DomainEvent<any>], Offer | undefined> = {
+export const offerTag: TagOptions<ExecutionCoordinator, [DomainEvent<any>], Offer | undefined> = {
   onResult(span, offer, event) {
     if (!offer) return;
     if (offer.kind === 'injected') {
@@ -112,7 +109,7 @@ export const offerTag: TagOptions<Engine, [DomainEvent<any>], Offer | undefined>
 };
 
 /** `execution.expired`: una pausa que venció y se reanuda por su rama `timeout` — traza propia. */
-export const expireTrace: TraceOptions<Engine, [Execution], DispatchOutcome> = {
+export const expireTrace: TraceOptions<ExecutionCoordinator, [Execution], DispatchOutcome> = {
   name: 'execution.expired',
   kind: SpanKind.INTERNAL,
   scope: SCOPE,
@@ -129,7 +126,11 @@ export const expireTrace: TraceOptions<Engine, [Execution], DispatchOutcome> = {
  * `pipeline.if_running` con la decisión (`Resolution`) y la ejecución con la que chocó, más un
  * log cuando no arranca de una. Las que no pasan por ejecuciones no dejan nada.
  */
-export const ifRunningTag: TagOptions<Engine, [Candidate, DomainEvent<any>], Resolution> = {
+export const ifRunningTag: TagOptions<
+  ExecutionCoordinator,
+  [Candidate, DomainEvent<any>],
+  Resolution
+> = {
   onResult(span, resolution, { pipeline }, event) {
     const { decision, executionId, agentId, detach } = resolution;
     if (decision === 'direct') return;
@@ -164,7 +165,7 @@ export const ifRunningTag: TagOptions<Engine, [Candidate, DomainEvent<any>], Res
  * ejecución: una traza NUEVA (corre en `inFreshContext`), enlazada al despacho que lo inyectó.
  */
 export const redeliverTrace: TraceOptions<
-  Engine,
+  Redelivery,
   [DomainEvent<any>, string, SpanLink | undefined],
   DispatchOutcome
 > = {
@@ -172,7 +173,7 @@ export const redeliverTrace: TraceOptions<
   kind: SpanKind.CONSUMER,
   scope: SCOPE,
   inherit: dispatchTrace.inherit as TraceOptions<
-    Engine,
+    Redelivery,
     [DomainEvent<any>, string, SpanLink | undefined],
     DispatchOutcome
   >['inherit'],

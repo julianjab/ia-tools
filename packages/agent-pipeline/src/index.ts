@@ -53,8 +53,10 @@ export type {
 } from './pipeline/Pipeline.js';
 export { Pipeline, isAgent } from './pipeline/Pipeline.js';
 
-export type { DispatchOutcome, EngineOptions, Offer } from './engine/Engine.js';
+export type { EngineOptions } from './engine/Engine.js';
 export { DEFAULT_MAX_EVENT_DEPTH, Engine, scopeExecutionKey } from './engine/Engine.js';
+export type { DispatchOutcome } from './engine/RunLauncher.js';
+export type { Offer } from './engine/ExecutionCoordinator.js';
 export type {
   ClosedStatus,
   ExecutionStatus,
