@@ -366,6 +366,49 @@ describe('AnthropicProvider.run', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves a function MCP token on every request, so an expiring token is never stale', async () => {
+    let issued = 0;
+    const seen: string[] = [];
+    let round = 0;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      seen.push(body.mcp_servers[0].authorization_token);
+      round++;
+      return round === 1
+        ? jsonResponse({
+            content: [{ type: 'tool_use', id: 't1', name: 'echo', input: {} }],
+            stop_reason: 'tool_use',
+          })
+        : jsonResponse({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' });
+    });
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await provider.run(
+      ctxFor({
+        tools: [
+          { name: 'echo', description: 'e', inputSchema: { type: 'object' }, handler: () => 'x' },
+        ],
+        mcpServers: [
+          {
+            id: 'gh',
+            config: {
+              url: 'https://mcp.example/gh',
+              authorizationToken: async () => `tok-${++issued}`,
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(seen).toEqual(['tok-1', 'tok-2']);
+  });
+
   it('builds mcp_servers from McpServerRef config and defers its tools by default', async () => {
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
