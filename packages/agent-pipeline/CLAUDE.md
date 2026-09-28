@@ -248,6 +248,15 @@ Reglas que no son obvias al leer el código:
   que la despertó queda en `steps.<pausa>`). Si no, sigue la cascada normal, y si una regla con
   agentes arranca una corrida sobre la task, la pausa queda `superseded` — esa corrida lee el
   estado nuevo. Una pausa no bloquea su task.
+- **Una regla puede NO reemplazar la pausa: `ifPaused: 'wait'`.** Espera a que la pausa termine
+  (despierte o venza) y corre después — también si llegó mientras la corrida anterior todavía
+  corría y le toca justo cuando esa corrida se pausa. Es para reglas que pueden no hacer nada (un
+  triage de comentarios): con el default (`supersede`), un `not_actionable` se llevaba puesta la
+  espera del CI y nadie seguía desde ahí (subscriptions#1625, la tarjeta nunca pasó a Review).
+  Mientras espera NO ocupa la task ni un lugar bajo el tope (`start` los devuelve y espera
+  `finished`): si los retuviera, la pausa no podría despertar ni vencer. Si otra regla reemplaza
+  la pausa en el medio, corre después de esa. Una pausa sin `timeout` que nunca despierta la deja
+  esperando para siempre.
 - **Las pausas vencen con `engine.tick()`**, que la app llama cada tanto (el engine no tiene
   reloj): la reanuda por su rama `timeout` con un evento `execution.expired`. Sin `timeout`, una
   pausa espera hasta que llegue una rama o la reemplacen.

@@ -1,6 +1,6 @@
 import { createLogger } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
-import type { Checkpoint } from '../pipeline/Pipeline.js';
+import type { Checkpoint, IfPaused } from '../pipeline/Pipeline.js';
 import type { Runnable } from '../pipeline/Runnable.js';
 import { type Pause, TIMEOUT_BRANCH } from '../pipeline/actions/PauseAction.js';
 
@@ -232,6 +232,9 @@ export class Execution {
 export interface StartExecution {
   key: string;
   pipelineId: string;
+  /** Si la task tiene una ejecución pausada cuando le toca: reemplazarla (default) o esperar a
+   *  que termine (`Pipeline.ifPaused`). */
+  ifPaused?: IfPaused;
 }
 
 /**
@@ -248,7 +251,8 @@ export interface ExecutionStore {
   busy(key: string): boolean;
   /** Abre una ejecución: espera a que termine la que esté corriendo para la misma task (una task
    *  nunca corre dos a la vez) y a que haya lugar bajo el tope global. Si la task tenía una
-   *  pausada, la reemplaza (`superseded`). */
+   *  pausada, la reemplaza (`superseded`) — o, con `ifPaused: 'wait'`, espera a que termine SIN
+   *  ocupar la task ni un lugar, así la pausa puede despertar o vencer. */
   start(input: StartExecution): Promise<Execution>;
   /** Vuelve a admitir una ejecución que despertó (`Execution.wake`): espera su turno en la task
    *  y lugar bajo el tope, igual que `start`. La parte que ocupa la task corre en el mismo tick. */
@@ -268,6 +272,7 @@ export interface InMemoryExecutionStoreOptions {
  * paralelo. Un reinicio pierde todo — también las pausas.
  */
 export class InMemoryExecutionStore implements ExecutionStore {
+  readonly log = createLogger('agent-pipeline.execution');
   private readonly byKey = new Map<string, Execution>();
   /** La cola de cada task: la promesa que el próximo `start` de esa `key` tiene que esperar. */
   private readonly tails = new Map<string, Promise<void>>();
@@ -293,15 +298,28 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return this.tails.has(key);
   }
 
-  async start({ key, pipelineId }: StartExecution): Promise<Execution> {
+  async start({ key, pipelineId, ifPaused = 'supersede' }: StartExecution): Promise<Execution> {
     const queuedAt = Date.now();
-    const { ready, release } = this.enqueue(key);
-    await ready;
-    const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, queuedAt);
-    const previous = this.byKey.get(key);
-    if (previous?.status === 'paused') previous.close('superseded');
-    this.admit(execution, release);
-    return execution;
+    for (;;) {
+      const { ready, release } = this.enqueue(key);
+      await ready;
+      const previous = this.byKey.get(key);
+      if (previous?.status === 'paused' && ifPaused === 'wait') {
+        // Devuelve la task y el lugar mientras espera: reteniéndolos, la pausa no podría despertar
+        // ni vencer (`wake` y `tick` no tocan una task ocupada) y se esperarían entre sí.
+        release();
+        this.log.info(`${pipelineId} espera a que ${previous.id} termine su pausa`, {
+          'ia.execution.id': previous.id,
+          'ia.pipeline.id': pipelineId,
+        });
+        await previous.finished;
+        continue;
+      }
+      const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, queuedAt);
+      if (previous?.status === 'paused') previous.close('superseded');
+      this.admit(execution, release);
+      return execution;
+    }
   }
 
   async resume(execution: Execution): Promise<void> {

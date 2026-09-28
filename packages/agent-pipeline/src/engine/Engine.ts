@@ -391,7 +391,11 @@ export class Engine {
     if (pipeline.ifRunning === 'skip' && busy) return { decision: 'skipped', executionId };
 
     const run = async () => {
-      const execution = await executions.start({ key, pipelineId: pipeline.id });
+      const execution = await executions.start({
+        key,
+        pipelineId: pipeline.id,
+        ifPaused: pipeline.ifPaused,
+      });
       try {
         return await execution.run(() => this.execute(candidate, event, execution));
       } finally {

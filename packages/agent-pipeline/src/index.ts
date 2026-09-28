@@ -44,7 +44,13 @@ export type {
 } from './pipeline/Runnable.js';
 export { Runnable } from './pipeline/Runnable.js';
 
-export type { Checkpoint, IfRunning, PipelineProps, Resumption } from './pipeline/Pipeline.js';
+export type {
+  Checkpoint,
+  IfPaused,
+  IfRunning,
+  PipelineProps,
+  Resumption,
+} from './pipeline/Pipeline.js';
 export { Pipeline, isAgent } from './pipeline/Pipeline.js';
 
 export type { DispatchOutcome, EngineOptions, Offer } from './engine/Engine.js';

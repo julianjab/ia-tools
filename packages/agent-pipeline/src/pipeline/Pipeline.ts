@@ -55,6 +55,7 @@ export type StepRun =
   | { error: Error; handledBy: 'onError' | 'continueOnError' };
 
 export type IfRunning = 'wait' | 'skip';
+export type IfPaused = 'supersede' | 'wait';
 
 export interface PipelineProps extends ConditionalProps, ExitDefaults {
   id: string;
@@ -78,6 +79,16 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
    * - `skip`: lo descarta.
    */
   ifRunning?: IfRunning;
+  /**
+   * Qué hacer si, cuando le toca correr, la task tiene una ejecución PAUSADA (esperando el CI, un
+   * review…). Sólo aplica a pipelines con agentes y a un `Engine` con `executions`:
+   * - `supersede` (default): corre ya y la pausa queda reemplazada — esta corrida lee el estado
+   *   nuevo. Para reglas que traen trabajo nuevo (un CI rojo, la tarjeta vuelta a Build).
+   * - `wait`: espera a que la pausa termine (despierte o venza) y corre después. Para reglas que
+   *   pueden no hacer nada (un triage de comentarios): reemplazarla se llevaría puesta la espera
+   *   aunque no haya nada que hacer, y nadie seguiría desde ahí.
+   */
+  ifPaused?: IfPaused;
   do: Runnable[];
   /**
    * Overrides de rutas por agente (clave: el `id` del agente) — el nivel "paso" de la cascada.
@@ -107,6 +118,7 @@ export class Pipeline extends Conditional {
   readonly position: number;
   readonly exclusive: boolean;
   readonly ifRunning: IfRunning;
+  readonly ifPaused: IfPaused;
   readonly do: Runnable[];
   readonly defaults: ExitDefaults;
   private readonly stepRoutes: Record<string, ExitRoutes>;
@@ -121,6 +133,7 @@ export class Pipeline extends Conditional {
     this.position = props.position ?? 0;
     this.exclusive = props.exclusive ?? false;
     this.ifRunning = props.ifRunning ?? 'wait';
+    this.ifPaused = props.ifPaused ?? 'supersede';
     this.do = props.do;
     this.defaults = { onError: props.onError, report: props.report };
     this.stepRoutes = props.routes ?? {};
