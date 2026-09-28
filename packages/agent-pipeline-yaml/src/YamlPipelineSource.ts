@@ -69,8 +69,10 @@ export class YamlPipelineSource implements PipelineSource {
     return this.refresh().intakePipelines();
   }
 
+  /** Contra la versión que devolvió el último `list()` (el engine lo llama justo antes, por evento):
+   *  sin volver a mirar los archivos por cada pipeline, y sin mezclar dos versiones en un evento. */
   explainMismatch(event: DomainEvent<any>, pipeline: Pipeline): string | undefined {
-    return this.refresh().explainMismatch(event, pipeline);
+    return this.current.explainMismatch(event, pipeline);
   }
 
   private refresh(): Project {

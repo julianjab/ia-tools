@@ -36,7 +36,9 @@ export class Project extends Conditional implements PipelineSource {
   readonly id: string;
   readonly defaults: ExitDefaults;
   private readonly pipelines: Pipeline[];
-  private readonly intake: Set<Pipeline>;
+  private readonly intake: Pipeline[];
+  /** Por id y no por instancia: una fuente que se recarga arma instancias nuevas. */
+  private readonly intakeIds: Set<string>;
 
   constructor(props: ProjectProps) {
     super(props);
@@ -48,7 +50,8 @@ export class Project extends Conditional implements PipelineSource {
       seen.add(pipeline.id);
     }
     this.id = props.id;
-    this.intake = new Set(props.intake);
+    this.intake = props.intake ?? [];
+    this.intakeIds = new Set(this.intake.map((pipeline) => pipeline.id));
     this.pipelines = [...this.intake, ...props.pipelines];
     this.defaults = { onError: props.onError, report: props.report };
   }
@@ -65,7 +68,7 @@ export class Project extends Conditional implements PipelineSource {
   /** Por qué el evento no pasa el `when` del proyecto — se evalúa contra el payload, igual que
    *  el de una pipeline. Una pipeline de entrada no lo cumple nunca: pasa siempre. */
   explainMismatch(event: DomainEvent<any>, pipeline?: Pipeline): string | undefined {
-    if (pipeline && this.intake.has(pipeline)) return undefined;
+    if (pipeline && this.intakeIds.has(pipeline.id)) return undefined;
     const reason = this.explainConditions(event.payload);
     return reason && `proyecto ${this.id}: ${reason}`;
   }

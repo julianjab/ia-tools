@@ -1,7 +1,7 @@
 import { Condition, type PipelineExecutionContext } from '@ia-tools/agent-pipeline';
 import { z } from 'zod';
 import type { StepBuildContext, StepFactory } from '../StepFactory.js';
-import { hasTemplate, render, templateRoot } from '../Template.js';
+import { hasTemplate, render, renderText, templateRoot } from '../Template.js';
 import { type HttpConnection, lookup } from '../YamlCatalogs.js';
 import { CommonStepShape } from '../schema.js';
 import { HttpStep } from '../steps/HttpStep.js';
@@ -74,20 +74,9 @@ export class HttpStepFactory implements StepFactory<Node> {
 
 function url(node: Node, connection: HttpConnection | undefined, ctx: PipelineExecutionContext) {
   const root = templateRoot(ctx);
-  const path = String(render(node.http, root));
-  let target: URL;
-  if (connection) {
-    if (!path.startsWith('/') || path.startsWith('//')) {
-      throw new Error(`http: con \`connection\` va un path que empieza con "/" (llegó "${path}")`);
-    }
-    const base = new URL(connection.baseUrl);
-    target = new URL(`${base.href.replace(/\/$/, '')}${path}`);
-    if (target.origin !== base.origin) {
-      throw new Error(`http: "${path}" sale de ${base.origin}`);
-    }
-  } else {
-    target = new URL(path);
-  }
+  const target = connection
+    ? connectionUrl(node.http, connection, root)
+    : new URL(String(render(node.http, root)));
   for (const [key, value] of Object.entries(node.query ?? {})) {
     const rendered = render(value, root);
     if (rendered !== undefined && rendered !== null && rendered !== '') {
@@ -95,4 +84,38 @@ function url(node: Node, connection: HttpConnection | undefined, ctx: PipelineEx
     }
   }
   return target.href;
+}
+
+/**
+ * La URL de un paso con `connection`: su host y el path del YAML. Lo que viene del evento no puede
+ * llevar la credencial a otro endpoint: cada valor que se inserta en el path va codificado (no
+ * agrega segmentos, ni una query, ni un fragmento), un `.`/`..` se rechaza, y el path final tiene
+ * que quedar tal cual se armó — si la URL lo normaliza (un `..`), falla.
+ */
+function connectionUrl(
+  template: string,
+  connection: HttpConnection,
+  root: Record<string, unknown>,
+) {
+  const dotSegment = (value: string) => /^(\.|%2e){1,2}$/i.test(value);
+  const whole = hasTemplate(template) && /^\{\{[^}]*\}\}$/.test(template.trim());
+  const path = whole
+    ? String(render(template, root))
+    : renderText(template, root, (value) => {
+        if (dotSegment(value)) throw new Error(`http: "${value}" no puede ir en un path`);
+        return encodeURIComponent(value);
+      });
+  if (!path.startsWith('/') || path.startsWith('//')) {
+    throw new Error(`http: con \`connection\` va un path que empieza con "/" (llegó "${path}")`);
+  }
+  if (/[?#]/.test(path) || path.split('/').some(dotSegment)) {
+    throw new Error(`http: "${path}" no es un path simple — la query va en \`query\``);
+  }
+  const base = new URL(connection.baseUrl);
+  const expected = `${base.pathname.replace(/\/$/, '')}${path}`;
+  const target = new URL(`${base.origin}${expected}`);
+  if (target.origin !== base.origin || target.pathname !== expected) {
+    throw new Error(`http: "${path}" sale de ${base.origin}${base.pathname}`);
+  }
+  return target;
 }

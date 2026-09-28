@@ -19,7 +19,7 @@ export function render(value: unknown, root: Record<string, unknown>): unknown {
   if (typeof value === 'string') {
     const whole = WHOLE.exec(value);
     if (whole) return getPath(root, whole[1] as string);
-    return value.replace(EMBEDDED, (_, path: string) => text(getPath(root, path)));
+    return renderText(value, root);
   }
   if (Array.isArray(value)) return value.map((entry) => render(entry, root));
   if (isPlainObject(value)) {
@@ -28,6 +28,16 @@ export function render(value: unknown, root: Record<string, unknown>): unknown {
     );
   }
   return value;
+}
+
+/** Un texto con sus `{{...}}` resueltos; `encode` se aplica a cada valor que se inserta (ej.
+ *  `encodeURIComponent` en un path, para que un valor no agregue segmentos ni una query). */
+export function renderText(
+  text: string,
+  root: Record<string, unknown>,
+  encode: (value: string) => string = (value) => value,
+): string {
+  return text.replace(EMBEDDED, (_, path: string) => encode(asText(getPath(root, path))));
 }
 
 /** Si `value` tiene algún `{{...}}` que resolver al correr. */
@@ -70,7 +80,7 @@ export function substituteVars<T>(doc: T, vars: Record<string, unknown>, where: 
       const whole = WHOLE.exec(value);
       if (whole?.[1]?.startsWith('vars.')) return lookup(whole[1].slice('vars.'.length));
       return value.replace(EMBEDDED, (match, path: string) =>
-        path.startsWith('vars.') ? text(lookup(path.slice('vars.'.length))) : match,
+        path.startsWith('vars.') ? asText(lookup(path.slice('vars.'.length))) : match,
       );
     }
     if (Array.isArray(value)) return value.map(walk);
@@ -82,7 +92,7 @@ export function substituteVars<T>(doc: T, vars: Record<string, unknown>, where: 
   return walk(doc) as T;
 }
 
-function text(value: unknown): string {
+function asText(value: unknown): string {
   if (value == null) return '';
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
