@@ -399,7 +399,7 @@ export class Engine {
 
   /**
    * Lo que se le inyectó a una ejecución y ningún agente llegó a leer (llegó después de su última
-   * vuelta) vuelve a despacharse al cerrarla — contra las reglas CON agentes: las reacciones sin
+   * vuelta) vuelve a despacharse al cerrarla o pausarla (si la despierta, reanuda su pausa) — contra las reglas CON agentes: las reacciones sin
    * agentes ya corrieron con él la primera vez. Ya sin nada corriendo, arranca normal. Así un
    * evento inyectado nunca se pierde.
    *
@@ -424,9 +424,12 @@ export class Engine {
     _origin: SpanLink | undefined,
   ): Promise<DispatchOutcome> {
     const { toRun } = await this.plan(event);
+    // Si la ejecución que lo dejó sin leer se pausó esperando justo este evento, lo recibe su
+    // pausa — igual que en `dispatch`.
     return this.runCandidates(
       toRun.filter((candidate) => candidate.pipeline.runsAgents),
       event,
+      this.wake(event),
     );
   }
 
