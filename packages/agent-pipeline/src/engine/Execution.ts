@@ -48,6 +48,9 @@ export class Execution {
   readonly waitedMs: number;
   status: ExecutionStatus = 'running';
   private readonly delivered: Delivered[] = [];
+  /** Lo que se le ofreció mientras corría y ningún paso aceptó: si después se pausa, puede ser
+   *  justo lo que la pausa espera (un CI que terminó antes de que llegara a pausarse). */
+  private missed: DomainEvent<any>[] = [];
   private step: Runnable | undefined;
   private paused: { pause: Pause; checkpoint: Checkpoint } | undefined;
   /** Devuelve su lugar y su task al store — lo pone el store cada vez que se los da. */
@@ -100,9 +103,22 @@ export class Execution {
    * sigue su camino por las reglas. `event` queda para volver a despacharlo si nadie lo lee.
    */
   inject(message: string, event: DomainEvent<any>): boolean {
-    if (this.status !== 'running' || !this.step?.accepts(event)) return false;
+    if (this.status !== 'running') return false;
+    if (!this.step?.accepts(event)) {
+      this.missed.push(event);
+      return false;
+    }
     this.delivered.push({ message, event, read: false });
     return true;
+  }
+
+  /** Si se pausó, el primer evento que llegó mientras corría (sin que ningún paso lo aceptara) y
+   *  despierta su pausa. Vacía lo recordado: se toma una sola vez. */
+  takeMissedWake(): DomainEvent<any> | undefined {
+    const missed = this.missed;
+    this.missed = [];
+    const pause = this.pausedOn;
+    return pause ? missed.find((event) => pause.match(event) !== undefined) : undefined;
   }
 
   /** Lo que llegó desde la última vez, en orden — y lo marca leído. */
@@ -160,6 +176,7 @@ export class Execution {
     const { checkpoint } = this.paused as { checkpoint: Checkpoint };
     this.status = 'running';
     this.paused = undefined;
+    this.missed = [];
     this.log.info(`${this.id} se reanuda por "${branch}"`, {
       'ia.execution.id': this.id,
       'ia.pause.branch': branch,
@@ -191,6 +208,7 @@ export class Execution {
     this.status = status;
     this.step = undefined;
     this.paused = undefined;
+    this.missed = [];
     this.log[status === 'done' ? 'info' : 'warn'](`${this.id} cierra: ${status}`, {
       'ia.execution.id': this.id,
       'ia.execution.duration_ms': Date.now() - this.startedMs,

@@ -245,6 +245,7 @@ export class Engine {
         return await execution.run(() => this.continue(execution, wake, event));
       } finally {
         this.redispatch(execution.takeUnread(), execution.id);
+        this.wakeLate(execution);
       }
     };
     return {
@@ -386,6 +387,7 @@ export class Engine {
         return await execution.run(() => this.execute(candidate, event, execution));
       } finally {
         this.redispatch(execution.takeUnread(), execution.id);
+        this.wakeLate(execution);
       }
     };
     return {
@@ -415,6 +417,18 @@ export class Engine {
       // El error ya lo logueó `@traced` adentro de su span; acá sólo no queda sin manejar.
       inFreshContext(() => this.redeliver(event, executionId, origin)).catch(() => {});
     }
+  }
+
+  /**
+   * Un evento que llegó mientras la ejecución corría —sin que ningún paso lo aceptara— y que la
+   * pausa en la que terminó está esperando: sin esto se perdería (llegó antes de que hubiera
+   * pausa que despertar). No vuelve a pasar por las reglas: ya pasó cuando llegó.
+   */
+  private wakeLate(execution: Execution): void {
+    const event = execution.takeMissedWake();
+    if (!event) return;
+    const offer = this.wake(event);
+    if (offer?.kind === 'resumed') this.runDetached(offer.run, event);
   }
 
   @traced(redeliverTrace)

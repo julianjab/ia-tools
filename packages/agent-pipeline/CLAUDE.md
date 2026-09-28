@@ -261,6 +261,11 @@ Reglas que no son obvias al leer el código:
   salidas) que no es el último destino de su lista, o que está en un `onError`, rompe al
   construir la pipeline — lo que viene después se perdería sin error. El `onError` del proyecto
   recién se conoce al correr: ahí falla al pausar.
+- **Un evento que llega antes de la pausa no se pierde.** Lo que se le ofrece a una ejecución que
+  corre y ningún paso acepta queda recordado (`Execution.inject`); si después se pausa, el engine
+  le ofrece esos eventos a la pausa (`takeMissedWake`) y el primero que pasa una rama la
+  despierta — un CI que terminó mientras el agente todavía trabajaba. No vuelven a pasar por las
+  reglas: ya pasaron cuando llegaron.
 - **Lo que puede pausar es una ejecución, tenga agentes o no** (`Pipeline.needsExecution`). Una
   pipeline anidada en otra ejecución (corre por un evento que emitió esa misma ejecución) no
   puede pausar: falla diciendo por qué, en vez de pisar el checkpoint de la que la contiene.
