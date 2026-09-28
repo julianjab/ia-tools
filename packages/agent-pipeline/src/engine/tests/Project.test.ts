@@ -129,6 +129,7 @@ describe('Project', () => {
 
     expect(ran).toEqual(['intake']);
     expect(project.list().map((pipeline) => pipeline.id)).toEqual(['intake', 'refine']);
+    expect(project.intakePipelines().map((pipeline) => pipeline.id)).toEqual(['intake']);
   });
 
   it('rejects an intake pipeline with the id of another pipeline', () => {

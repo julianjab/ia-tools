@@ -86,7 +86,7 @@ do:
 describe('intake/', () => {
   it('its pipelines see the raw event before the project when, and feed the ones that filter', async () => {
     const reached = vi.fn();
-    const { engine, emitted } = mount(
+    const { source, engine, emitted } = mount(
       {
         'project.yaml': `
 id: flow
@@ -112,6 +112,7 @@ do:
       { functions: { reached } },
     );
 
+    expect(source.intakePipelines().map((pipeline) => pipeline.id)).toEqual(['intake-issues']);
     await engine.dispatch(createEvent('github.issues', { issue: { number: 3, labels: [] } }));
     await engine.dispatch(
       createEvent('github.issues', { issue: { number: 4, labels: ['blocked'] } }),
