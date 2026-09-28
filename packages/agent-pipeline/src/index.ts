@@ -44,8 +44,13 @@ export { HttpAction } from './pipeline/actions/HttpAction.js';
 export type {
   ExecutionHandle,
   PipelineExecutionContext,
+  Resumable,
   RunnableProps,
+  StepKind,
+  StepOutcome,
 } from './pipeline/Runnable.js';
+export type { PipelineTriggerProps } from './pipeline/PipelineTrigger.js';
+export { PipelineTrigger } from './pipeline/PipelineTrigger.js';
 export { Runnable } from './pipeline/Runnable.js';
 
 export type {

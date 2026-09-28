@@ -3,7 +3,12 @@ import type { ToolInputSchema } from '../agent/SchemaTool.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus } from '../events/EventBus.js';
-import type { ErrorRoute, ExitDefaults, ResolvedRoutes } from '../routing/ExitRoutes.js';
+import type {
+  ErrorRoute,
+  ExitDefaults,
+  ExitRoutes,
+  ResolvedRoutes,
+} from '../routing/ExitRoutes.js';
 import type { Checkpoint } from './Pipeline.js';
 import type { Pause } from './actions/PauseAction.js';
 
@@ -23,8 +28,28 @@ export interface PipelineExecutionContext {
   routesFor?: (step: Runnable) => ResolvedRoutes | undefined;
   /** La ejecución de esta corrida, si el `Engine` lleva ejecuciones (ver `ExecutionHandle`). */
   execution?: ExecutionHandle;
-  /** @internal La pausa que devolvió un paso (`PauseAction`): la `Pipeline` corta ahí. */
-  paused?: Pause;
+}
+
+/** `agent`: un paso respaldado por un modelo (su span es `agent <id>`). El resto, `action`. */
+export type StepKind = 'agent' | 'action';
+
+/** Cómo la `Pipeline` lee lo que devolvió un paso (`Runnable.outcome`). */
+export type StepOutcome =
+  | { kind: 'output'; output: unknown }
+  /** Eligió una salida: la pipeline corre su `report` y sus destinos con `payload`. */
+  | { kind: 'exit'; output: unknown; exit: string; payload: Record<string, unknown> }
+  /** Pidió pausar la ejecución: la pipeline corta ahí y guarda por dónde seguir. */
+  | { kind: 'pause'; pause: Pause };
+
+/** Un paso que pausa la ejecución y se reanuda por ramas (`PauseAction`). */
+export interface Resumable {
+  readonly id: string;
+  /** Las ramas por las que se puede reanudar. */
+  readonly branchNames: string[];
+  /** Lo que corre al reanudar por `branch`. */
+  targetsOf(branch: string): Runnable[];
+  /** Todo lo que puede correr al reanudar, por cualquier rama. */
+  readonly allTargets: Runnable[];
 }
 
 /** Lo que un paso ve de su ejecución (`engine/Execution.ts`): un agente marca cuándo está en su
@@ -104,6 +129,28 @@ export abstract class Runnable extends Conditional {
    */
   acceptsInput(): ToolInputSchema | undefined {
     return undefined;
+  }
+
+  get kind(): StepKind {
+    return 'action';
+  }
+
+  /**
+   * Las rutas BASE de un paso que termina eligiendo una salida (un `Agent`): la pipeline les aplica
+   * sus overrides y corre los destinos de la elegida. `undefined`: el paso no elige salidas.
+   */
+  get exitRoutes(): ExitRoutes | undefined {
+    return undefined;
+  }
+
+  /** El paso como pausa que se reanuda por ramas, si lo es (`PauseAction`). */
+  asResumable(): Resumable | undefined {
+    return undefined;
+  }
+
+  /** Cómo la pipeline lee lo que devolvió `run`: por default, un output a secas. */
+  outcome(output: unknown): StepOutcome {
+    return { kind: 'output', output };
   }
 
   /**

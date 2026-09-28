@@ -1,18 +1,18 @@
 /**
- * Qué deja `Pipeline` en la traza — lo usan los decorators de `Pipeline.ts`, así correr los pasos
- * no mezcla spans con la lógica.
+ * Qué deja una pipeline en la traza — lo usan los decorators de `Pipeline` y `StepRunner`, así
+ * correr los pasos no mezcla spans con la lógica.
  */
 import { type Attributes, type TraceOptions, markError, truncate } from '@ia-tools/telemetry';
-import { Agent, type AgentRunResult } from '../agent/Agent.js';
+import type { Agent, AgentRunResult } from '../agent/Agent.js';
 import { SCOPE } from '../engine/tracing.js';
-import type { Pipeline, StepRun, StepVia } from './Pipeline.js';
+import { type Pipeline, type StepRun, type StepVia, isAgent } from './Pipeline.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
+import type { StepRunner } from './StepRunner.js';
 import { AllowedAction } from './actions/Action.js';
 
 type StepArgs = [Runnable, unknown, PipelineExecutionContext, StepVia, boolean?];
 
 const stepName = (step: Runnable) => step.id ?? step.constructor.name;
-const stepKind = (step: Runnable) => (step instanceof Agent ? 'agent' : 'action');
 
 /** Con qué corre un agente: provider, tools configuradas (sin las `submit_*`) y MCP servers. */
 function agentAttributes({ definition: def }: Agent): Attributes {
@@ -55,19 +55,19 @@ export const pipelineTrace: TraceOptions<
  * modelo, una tool, los destinos de la salida elegida) heredan de qué paso —y de qué agente—
  * vienen. Un error cubierto por un `onError` o `continueOnError` igual deja el paso en ERROR.
  */
-export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
-  name: (step) => `${stepKind(step)} ${stepName(step)}`,
+export const stepTrace: TraceOptions<StepRunner, StepArgs, StepRun> = {
+  name: (step) => `${step.kind} ${stepName(step)}`,
   scope: SCOPE,
   inherit: (step) => ({
     'ia.step.id': stepName(step),
-    ...(step instanceof Agent ? { 'ia.agent.id': stepName(step) } : {}),
+    ...(isAgent(step) ? { 'ia.agent.id': stepName(step) } : {}),
   }),
   attributes: (step, input, _ctx, via) => ({
     'ia.step.id': stepName(step),
-    'ia.step.kind': stepKind(step),
+    'ia.step.kind': step.kind,
     'ia.step.via': via,
     ...(input === undefined ? {} : { 'ia.step.input': truncate(input) }),
-    ...(step instanceof Agent ? agentAttributes(step) : {}),
+    ...(isAgent(step) ? agentAttributes(step) : {}),
   }),
   onResult(span, run, step) {
     const name = stepName(step);
@@ -77,7 +77,7 @@ export const stepTrace: TraceOptions<Pipeline, StepArgs, StepRun> = {
       this.log.error(`paso "${name}" falló: ${run.error.message}`);
       return;
     }
-    if (!(step instanceof Agent)) {
+    if (!isAgent(step)) {
       if (run.output !== undefined) span.setAttribute('ia.step.output', truncate(run.output));
       return;
     }

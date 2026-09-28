@@ -1,20 +1,20 @@
 import { createLogger, traced } from '@ia-tools/telemetry';
-import { Agent, type AgentRunResult } from '../agent/Agent.js';
-import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
+import type { Agent } from '../agent/Agent.js';
+import type { ConditionalProps } from '../condition/Conditional.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
-import {
-  type ErrorRoute,
-  type ExitDefaults,
-  type ExitRoutes,
-  type ResolvedExit,
-  type ResolvedRoutes,
-  resolveRoutes,
-  routeTargets,
-  submitSchemaFor,
+import type {
+  ExitDefaults,
+  ExitRoutes,
+  ResolvedExit,
+  ResolvedRoutes,
 } from '../routing/ExitRoutes.js';
+import { Checkpoints } from './Checkpoints.js';
+import { PipelineGraph } from './PipelineGraph.js';
+import { PipelineTrigger } from './PipelineTrigger.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
-import { Pause, PauseAction } from './actions/PauseAction.js';
-import { pipelineTrace, stepTrace } from './tracing.js';
+import { StepRunner } from './StepRunner.js';
+import type { Pause } from './actions/PauseAction.js';
+import { pipelineTrace } from './tracing.js';
 
 /**
  * Por dónde sigue una pipeline pausada. Serializable a propósito (ids e índices, no objetos):
@@ -48,10 +48,15 @@ export interface Resumption {
  *  `report:<salida>`, `onError` u `onError.report`. */
 export type StepVia = string;
 
-/** Cómo terminó un paso que corrió: su salida (y la del agente, si eligió una), o el error que
- *  cubrió un `onError`/`continueOnError`. Un error sin cubrir no llega acá: se propaga. */
+/** Cómo terminó un paso que corrió: su salida (y la del agente, si eligió una, y la pausa si él o
+ *  un destino de su salida pausó), o el error que cubrió un `onError`/`continueOnError`. Un error
+ *  sin cubrir no llega acá: se propaga. */
 export type StepRun =
-  | { output: unknown; exit?: { exit: ResolvedExit; payload: Record<string, unknown> } }
+  | {
+      output: unknown;
+      exit?: { exit: ResolvedExit; payload: Record<string, unknown> };
+      paused?: Pause;
+    }
   | { error: Error; handledBy: 'onError' | 'continueOnError' };
 
 export type IfRunning = 'wait' | 'skip';
@@ -106,62 +111,64 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
  * salida corre primero su `report` (el cierre del turno) y después sus destinos en orden — el
  * orden importa: el siguiente agente tiene que ver ese comentario.
  *
- * Todo el cableado se valida al construir: salidas sin destino, overrides de salidas o agentes
- * que no existen, ciclos entre agentes, claves repetidas en un `submit_*`.
+ * Todo el cableado se valida al construir (`PipelineGraph`): salidas sin destino, overrides de
+ * salidas o agentes que no existen, ciclos entre agentes, claves repetidas en un `submit_*`. Qué
+ * eventos la arrancan es su `PipelineTrigger`; cada paso lo corre su `StepRunner`, y por dónde
+ * sigue una pausa lo guarda `Checkpoints`.
  */
-export class Pipeline extends Conditional {
+export class Pipeline {
   readonly log = createLogger('agent-pipeline.pipeline');
   readonly id: string;
-  readonly on: string[];
-  readonly scope?: Record<string, unknown>;
-  readonly enabled: boolean;
+  readonly trigger: PipelineTrigger;
   readonly position: number;
   readonly exclusive: boolean;
   readonly ifRunning: IfRunning;
   readonly ifPaused: IfPaused;
   readonly do: Runnable[];
   readonly defaults: ExitDefaults;
-  private readonly stepRoutes: Record<string, ExitRoutes>;
-  private readonly routedTargets: Set<Runnable>;
+  private readonly graph: PipelineGraph;
+  private readonly runner: StepRunner;
+  private readonly checkpoints: Checkpoints;
 
   constructor(props: PipelineProps) {
-    super(props);
     this.id = props.id;
-    this.on = props.on;
-    this.scope = props.scope;
-    this.enabled = props.enabled ?? true;
+    this.trigger = new PipelineTrigger({
+      on: props.on,
+      when: props.when,
+      scope: props.scope,
+      enabled: props.enabled,
+    });
     this.position = props.position ?? 0;
     this.exclusive = props.exclusive ?? false;
     this.ifRunning = props.ifRunning ?? 'wait';
     this.ifPaused = props.ifPaused ?? 'supersede';
     this.do = props.do;
     this.defaults = { onError: props.onError, report: props.report };
-    this.stepRoutes = props.routes ?? {};
-    this.routedTargets = this.validate();
+    this.graph = new PipelineGraph({
+      pipelineId: this.id,
+      do: this.do,
+      defaults: this.defaults,
+      stepRoutes: props.routes ?? {},
+    });
+    this.runner = new StepRunner(this.id, this.graph, this.defaults);
+    this.checkpoints = new Checkpoints(this.id, this.do, this.graph);
   }
 
-  /** Si algún paso (o destino de una salida) es un agente: sólo esas corridas son ejecuciones. */
-  get runsAgents(): boolean {
-    return this.reachableAgents().size > 0;
+  /** Tipos de DomainEvent que escucha. */
+  get on(): string[] {
+    return this.trigger.on;
   }
 
   /** Si cada corrida tiene que ser una ejecución: corre agentes, o puede pausarse (una pausa
    *  sólo existe dentro de una ejecución). */
   get needsExecution(): boolean {
-    return this.runsAgents || this.reachablePauses().size > 0;
-  }
-
-  /** La forma de `do[]` que guarda un `Checkpoint`. */
-  private get shape(): string {
-    return this.do.map((step) => step.id ?? step.constructor.name).join(' → ');
+    return this.graph.needsExecution;
   }
 
   /** Las rutas efectivas de un agente en esta pipeline, con el origen de cada una. Con
    *  `project`, incluye los defaults del proyecto — lo que efectivamente va a correr. */
   routesOf(agentId: string, project?: ExitDefaults): ResolvedRoutes {
-    const agent = this.reachableAgents().get(agentId);
-    if (!agent) throw new Error(`Pipeline(${this.id}): no corre ningún agente "${agentId}"`);
-    return this.resolve(agent, project);
+    return this.graph.routesOf(agentId, project);
   }
 
   // `DomainEvent<any>`, no el `DomainEvent` a secas (que resuelve a `DomainEvent<Record<string,
@@ -169,20 +176,13 @@ export class Pipeline extends Conditional {
   // de cada Agent tipado que lo consume — así que forzar el genérico por defecto acá rechazaría
   // cualquier evento creado con un payload propio (`createEvent<GithubIssuePayload>(...)`).
   matches(event: DomainEvent<any>): boolean {
-    return this.explainMismatch(event) === undefined;
+    return this.trigger.matches(event);
   }
 
   /** Por qué esta pipeline NO corre para `event`, o `undefined` si matchea — lo que queda en la
    *  traza del evento para cada regla que no corrió. */
   explainMismatch(event: DomainEvent<any>): string | undefined {
-    if (!this.enabled) return 'deshabilitada';
-    if (!this.on.includes(event.type)) return `no escucha "${event.type}"`;
-    for (const [key, value] of Object.entries(this.scope ?? {})) {
-      if (event.scope?.[key] !== value) {
-        return `scope.${key}: esperaba ${JSON.stringify(value)}, vino ${JSON.stringify(event.scope?.[key]) ?? 'nada'}`;
-      }
-    }
-    return this.explainConditions(event.payload);
+    return this.trigger.explainMismatch(event);
   }
 
   /**
@@ -200,332 +200,34 @@ export class Pipeline extends Conditional {
       ...ctx,
       ...(from ? { steps: { ...from.checkpoint.steps, ...ctx.steps } } : {}),
       pipelineId: this.id,
-      routesFor: (step) => (step instanceof Agent ? this.resolve(step, ctx.defaults) : undefined),
+      routesFor: (step) =>
+        step.exitRoutes !== undefined ? this.graph.resolve(step, ctx.defaults) : undefined,
     };
     let resumeAt = 0;
     if (from) {
       // Reanudar: primero la rama que la despertó (con el evento que la despertó en
       // `steps.<pausa>`), después el resto de `do[]` desde donde se había cortado.
+      const targets = this.checkpoints.resume(from);
       const { checkpoint, branch } = from;
-      if (checkpoint.shape !== this.shape) {
-        throw new Error(
-          `Pipeline(${this.id}): cambió mientras estaba pausada (era "${checkpoint.shape}", es "${this.shape}") — no se puede reanudar`,
-        );
-      }
       runCtx.steps[checkpoint.pauseId] = { branch, event: ctx.event.payload };
-      for (const target of this.findPause(checkpoint.pauseId).targetsOf(branch)) {
-        await this.runStep(target, undefined, runCtx, `resume:${branch}`);
-        if (runCtx.paused) return this.pauseAt(runCtx, checkpoint.resumeAt);
+      for (const target of targets) {
+        const paused = await this.runner.run(target, undefined, runCtx, `resume:${branch}`);
+        if (paused) return this.checkpoints.save(runCtx, paused, checkpoint.resumeAt);
       }
       resumeAt = checkpoint.resumeAt;
     }
     for (let index = resumeAt; index < this.do.length; index++) {
       const step = this.do[index] as Runnable;
-      if (this.routedTargets.has(step)) continue;
-      await this.runStep(step, undefined, runCtx, 'do');
-      if (runCtx.paused) return this.pauseAt(runCtx, index + 1);
+      if (this.graph.routed.has(step)) continue;
+      const paused = await this.runner.run(step, undefined, runCtx, 'do');
+      if (paused) return this.checkpoints.save(runCtx, paused, index + 1);
     }
     return runCtx.steps;
   }
-
-  /** Un paso devolvió una pausa: la pipeline se corta acá y la ejecución guarda por dónde seguir. */
-  private pauseAt(ctx: PipelineExecutionContext, resumeAt: number): Record<string, unknown> {
-    const pause = ctx.paused as Pause;
-    if (!ctx.execution) {
-      // Sin ejecución propia no hay qué pausar: un Engine sin `executions`, o una pipeline que
-      // corre anidada dentro de otra ejecución (un evento que emitió esa misma ejecución).
-      throw new Error(
-        `Pipeline(${this.id}): la pausa "${pause.pauseId}" necesita correr como su propia ejecución (Engine con \`executions\`, y no anidada en otra)`,
-      );
-    }
-    ctx.execution.pause(pause, {
-      pipelineId: this.id,
-      pauseId: pause.pauseId,
-      resumeAt,
-      steps: ctx.steps,
-      shape: this.shape,
-      ...(ctx.sourceId !== undefined ? { sourceId: ctx.sourceId } : {}),
-      ...(ctx.event.scope ? { scope: ctx.event.scope } : {}),
-    });
-    return ctx.steps;
-  }
-
-  /** La `PauseAction` con ese id, en `do[]` o como destino de alguna salida. */
-  private findPause(pauseId: string): PauseAction {
-    const pause = this.reachablePauses().get(pauseId);
-    if (!pause) throw new Error(`Pipeline(${this.id}): no hay una pausa "${pauseId}"`);
-    return pause;
-  }
-
-  /** Las `PauseAction` de `do[]` y de los destinos de las salidas (y de sus ramas), por id. */
-  private reachablePauses(): Map<string, PauseAction> {
-    const pauses = new Map<string, PauseAction>();
-    const seen = new Set<Runnable>();
-    const walk = (steps: Runnable[]) => {
-      for (const step of steps) {
-        if (seen.has(step)) continue;
-        seen.add(step);
-        if (step instanceof PauseAction) {
-          pauses.set(step.id, step);
-          walk(step.allTargets);
-        } else if (step instanceof Agent) {
-          walk(this.resolve(step).exits.flatMap((exit) => exit.targets));
-        }
-      }
-    };
-    walk([...this.do]);
-    return pauses;
-  }
-
-  /** `handleErrors: false` para los pasos que corren DENTRO de un `onError`: si fallara, por
-   *  ejemplo, el `+blocked` del proyecto, volver a aplicar ese mismo `onError` sería un loop. */
-  private async runStep(
-    step: Runnable,
-    input: unknown,
-    ctx: PipelineExecutionContext,
-    via: StepVia,
-    handleErrors = true,
-  ): Promise<void> {
-    if (step.shouldRun(ctx)) await this.runDueStep(step, input, ctx, via, handleErrors);
-  }
-
-  @traced(stepTrace)
-  private async runDueStep(
-    step: Runnable,
-    input: unknown,
-    ctx: PipelineExecutionContext,
-    _via: StepVia,
-    handleErrors = true,
-  ): Promise<StepRun> {
-    let out: unknown;
-    try {
-      out = await step.run(ctx, input);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      const handling = handleErrors ? this.errorHandling(step, ctx) : null;
-      if (!handling && !step.continueOnError) throw err;
-      if (!handling) return { error, handledBy: 'continueOnError' };
-      if (step.id) ctx.steps[step.id] = { error: error.message };
-      await this.runErrorRoute(handling.report, handling.route, error, ctx);
-      return { error, handledBy: 'onError' };
-    }
-    if (out instanceof Pause) {
-      ctx.paused = out;
-      return { output: out.describe() };
-    }
-    if (step.id) ctx.steps[step.id] = out;
-    if (!(step instanceof Agent)) return { output: out };
-
-    const result = out as AgentRunResult;
-    if (result.exit === undefined) return { output: out };
-    const exit = this.resolve(step, ctx.defaults).exits.find((e) => e.name === result.exit);
-    if (!exit) return { output: out };
-    const payload = result.payload ?? {};
-    if (exit.report) await this.runStep(exit.report, payload.report, ctx, `report:${exit.name}`);
-    for (const target of exit.targets) {
-      await this.runStep(
-        target,
-        target.id ? payload[target.id] : undefined,
-        ctx,
-        `exit:${exit.name}`,
-      );
-      if (ctx.paused) break;
-    }
-    return { output: out, exit: { exit, payload } };
-  }
-
-  /** El `onError` que aplica a un paso, y el `report` con el que se anuncia. Un agente usa su
-   *  cascada completa; cualquier otro paso: el suyo > el de la pipeline > el del proyecto. */
-  private errorHandling(
-    step: Runnable,
-    ctx: PipelineExecutionContext,
-  ): { route: ErrorRoute; report: Runnable | null } | null {
-    if (step instanceof Agent) {
-      const resolved = this.resolve(step, ctx.defaults);
-      return resolved.onError
-        ? { route: resolved.onError.route, report: resolved.report?.target ?? null }
-        : null;
-    }
-    const route = firstSet(step.onError, this.defaults.onError, ctx.defaults?.onError);
-    if (!route) return null;
-    return { route, report: firstSet(this.defaults.report, ctx.defaults?.report) ?? null };
-  }
-
-  private async runErrorRoute(
-    report: Runnable | null,
-    route: ErrorRoute,
-    error: Error,
-    ctx: PipelineExecutionContext,
-  ): Promise<void> {
-    if (report && route.report) {
-      await this.runStep(report, route.report(error), ctx, 'onError.report', false);
-    }
-    for (const target of routeTargets(route.to)) {
-      await this.runStep(target, route.input?.(error), ctx, 'onError', false);
-      // El `onError` del proyecto recién se conoce al correr: lo que `validate` no pudo ver.
-      if (ctx.paused) {
-        throw new Error(`Pipeline(${this.id}): un \`onError\` no puede pausar la ejecución`);
-      }
-    }
-  }
-
-  private resolve(agent: Agent, project?: ExitDefaults): ResolvedRoutes {
-    return resolveRoutes(agent.id as string, agent.exitRoutes, {
-      project,
-      pipeline: this.defaults,
-      step: this.stepRoutes[agent.id as string],
-    });
-  }
-
-  /** Los agentes de `do[]` más los que alcanzan las rutas, por id. */
-  private reachableAgents(): Map<string, Agent> {
-    const agents = new Map<string, Agent>();
-    const visit = (step: Runnable) => {
-      if (!(step instanceof Agent)) return;
-      const existing = agents.get(step.id as string);
-      if (existing === step) return;
-      if (existing) {
-        throw new Error(`Pipeline(${this.id}): dos agentes distintos con el id "${step.id}"`);
-      }
-      agents.set(step.id as string, step);
-      for (const route of Object.values(this.stepRoutes[step.id as string]?.routes ?? {})) {
-        for (const target of routeTargets(route?.to)) visit(target);
-      }
-    };
-    for (const step of this.do) visit(step);
-    return agents;
-  }
-
-  private validate(): Set<Runnable> {
-    const agents = this.reachableAgents();
-    for (const agentId of Object.keys(this.stepRoutes)) {
-      if (!agents.has(agentId)) {
-        throw new Error(
-          `Pipeline(${this.id}): routes.${agentId} sobrescribe un agente que la pipeline no corre`,
-        );
-      }
-    }
-
-    const routed = new Set<Runnable>();
-    const next = new Map<Agent, Agent[]>();
-    for (const agent of agents.values()) {
-      const resolved = this.resolve(agent);
-      const children: Agent[] = [];
-      for (const exit of resolved.exits) {
-        submitSchemaFor(agent.id as string, exit);
-        for (const target of exit.targets) {
-          routed.add(target);
-          if (target instanceof Agent) children.push(target);
-        }
-        if (exit.report) routed.add(exit.report);
-      }
-      for (const target of routeTargets(resolved.onError?.route.to)) routed.add(target);
-      next.set(agent, children);
-    }
-    for (const step of this.do) {
-      for (const target of routeTargets(step.onError?.to)) routed.add(target);
-    }
-    for (const target of routeTargets(this.defaults.onError?.to)) routed.add(target);
-    this.assertNoCycles(next);
-    this.assertPausesResumable(agents.values());
-    return routed;
-  }
-
-  /**
-   * Una pausa se reanuda desde su `Checkpoint`, que sabe seguir `do[]` pero no una lista de
-   * destinos a medias ni un `onError`. Por eso, al construir: lo que puede pausar (una
-   * `PauseAction`, o un agente que llega a una por sus salidas) va ÚLTIMO en su lista de
-   * destinos — si no, lo que viene después se perdería sin error —, y nunca en un `onError`.
-   */
-  private assertPausesResumable(agents: Iterable<Agent>): void {
-    const pauses = new Map<Runnable, boolean>();
-    const canPause = (step: Runnable): boolean => {
-      const known = pauses.get(step);
-      if (known !== undefined) return known;
-      pauses.set(step, false);
-      const result =
-        step instanceof PauseAction ||
-        (step instanceof Agent &&
-          this.resolve(step).exits.some((exit) => exit.targets.some(canPause)));
-      pauses.set(step, result);
-      return result;
-    };
-    const assertLast = (targets: Runnable[], where: string) => {
-      targets.forEach((target, index) => {
-        if (index < targets.length - 1 && canPause(target)) {
-          throw new Error(
-            `Pipeline(${this.id}): ${where}: "${target.id ?? target.constructor.name}" puede pausar y no es el último destino — lo que sigue no se reanudaría`,
-          );
-        }
-      });
-    };
-    const assertNoPause = (targets: Runnable[], where: string) => {
-      for (const target of targets) {
-        if (canPause(target)) {
-          throw new Error(
-            `Pipeline(${this.id}): ${where}: un \`onError\` no puede pausar ("${target.id ?? target.constructor.name}")`,
-          );
-        }
-      }
-    };
-
-    const checked = new Set<PauseAction>();
-    const checkPause = (pause: PauseAction) => {
-      if (checked.has(pause)) return;
-      checked.add(pause);
-      for (const target of pause.allTargets) if (target instanceof PauseAction) checkPause(target);
-    };
-    for (const agent of agents) {
-      const resolved = this.resolve(agent);
-      for (const exit of resolved.exits) {
-        assertLast(exit.targets, `${agent.id}.${exit.name}`);
-        for (const target of exit.targets) if (target instanceof PauseAction) checkPause(target);
-      }
-      assertNoPause(routeTargets(resolved.onError?.route.to), `${agent.id}.onError`);
-    }
-    for (const step of this.do) {
-      assertNoPause(routeTargets(step.onError?.to), `${step.id ?? 'paso'}.onError`);
-      if (step instanceof PauseAction) checkPause(step);
-    }
-    assertNoPause(routeTargets(this.defaults.onError?.to), 'onError');
-    for (const pause of checked) {
-      for (const branch of pause.branchNames) {
-        assertLast(pause.targetsOf(branch), `${pause.id}.${branch}`);
-      }
-    }
-  }
-
-  private assertNoCycles(next: Map<Agent, Agent[]>): void {
-    const done = new Set<Agent>();
-    const visiting: Agent[] = [];
-    const walk = (agent: Agent) => {
-      if (done.has(agent)) return;
-      const at = visiting.indexOf(agent);
-      if (at !== -1) {
-        const cycle = [...visiting.slice(at), agent].map((a) => a.id).join(' → ');
-        throw new Error(
-          `Pipeline(${this.id}): ciclo entre agentes (${cycle}) — un loop pasa por un evento, no por una ruta`,
-        );
-      }
-      visiting.push(agent);
-      for (const child of next.get(agent) ?? []) walk(child);
-      visiting.pop();
-      done.add(agent);
-    };
-    for (const agent of next.keys()) walk(agent);
-  }
-}
-
-/** El primer valor definido, del nivel más específico al más general. `null` corta: "ninguno". */
-function firstSet<T>(...values: Array<T | null | undefined>): T | null {
-  for (const value of values) {
-    if (value !== undefined) return value;
-  }
-  return null;
 }
 
 /** Type guard útil para quien construye pipelines dinámicamente desde config — distingue un
  *  paso respaldado por LLM de un `Runnable` genérico (Emit/Http/Function). */
 export function isAgent(step: Runnable): step is Agent {
-  return step instanceof Agent;
+  return step.kind === 'agent';
 }

@@ -2,7 +2,13 @@ import { Condition, type ConditionRow } from '../../condition/Condition.js';
 import { EventFilter, type EventFilterProps } from '../../condition/EventFilter.js';
 import type { DomainEvent } from '../../events/DomainEvent.js';
 import { type RouteTo, routeTargets } from '../../routing/ExitRoutes.js';
-import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
+import {
+  type PipelineExecutionContext,
+  type Resumable,
+  Runnable,
+  type RunnableProps,
+  type StepOutcome,
+} from '../Runnable.js';
 
 /** Una forma de reanudar: los eventos que la despiertan y qué corre al despertar. */
 export interface PauseBranchProps extends EventFilterProps {
@@ -86,7 +92,7 @@ export class Pause {
  * corriendo el `to` de esa rama. Va como destino de una salida (ej. después de abrir el PR,
  * esperar el CI) o en `do[]`. Sólo corre dentro de una ejecución (`EngineOptions.executions`).
  */
-export class PauseAction extends Runnable {
+export class PauseAction extends Runnable implements Resumable {
   declare readonly id: string;
   private readonly branches: Array<{ name: string; filter: EventFilter; to?: RouteTo }>;
   readonly timeout?: { afterMs: number; to?: RouteTo };
@@ -124,6 +130,14 @@ export class PauseAction extends Runnable {
       ...this.branches.flatMap((branch) => routeTargets(branch.to)),
       ...routeTargets(this.timeout?.to),
     ];
+  }
+
+  override asResumable(): Resumable {
+    return this;
+  }
+
+  override outcome(output: unknown): StepOutcome {
+    return { kind: 'pause', pause: output as Pause };
   }
 
   /** Devuelve la `Pause`: la `Pipeline` la ve, corta y le pide a la ejecución que se pause. */

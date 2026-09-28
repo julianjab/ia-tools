@@ -3,7 +3,12 @@ import { z } from 'zod';
 import { EventFilter } from '../condition/EventFilter.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import { Runnable } from '../pipeline/Runnable.js';
-import type { ExecutionHandle, PipelineExecutionContext } from '../pipeline/Runnable.js';
+import type {
+  ExecutionHandle,
+  PipelineExecutionContext,
+  StepKind,
+  StepOutcome,
+} from '../pipeline/Runnable.js';
 import { AllowedAction } from '../pipeline/actions/Action.js';
 import {
   type ExitRoutes,
@@ -157,14 +162,26 @@ export class Agent extends Runnable {
     this.assertWriteActionsAllowed();
   }
 
+  override get kind(): StepKind {
+    return 'agent';
+  }
+
   /** Las rutas BASE del agente — la pipeline las sobrescribe o elimina (ver `resolveRoutes`). */
-  get exitRoutes(): ExitRoutes {
+  override get exitRoutes(): ExitRoutes {
     const { routes, onError, report } = this.definition;
     return { routes, onError, report };
   }
 
   override acceptsInput(): ToolInputSchema | undefined {
     return this.definition.input;
+  }
+
+  /** Un agente que eligió una salida la entrega con su payload; uno cortado (`truncated`,
+   *  `cancelled`) es un output a secas. */
+  override outcome(output: unknown): StepOutcome {
+    const result = output as AgentRunResult;
+    if (result.exit === undefined) return { kind: 'output', output };
+    return { kind: 'exit', output, exit: result.exit, payload: result.payload ?? {} };
   }
 
   /** Si `event` pasa alguno de sus `injects`. */
