@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { Tool } from '../../agent/AgentDefinition.js';
-import { SchemaTool, type ToolInputSchema } from '../../agent/SchemaTool.js';
+import type { ToolInputSchema } from '../../agent/SchemaTool.js';
 import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
+import { ActionTool } from './ActionTool.js';
 
 /** `none`: sólo lee. `write`: cambia algo afuera (un issue, un POST, un archivo). */
 export type SideEffects = 'none' | 'write';
@@ -70,17 +71,7 @@ export abstract class Action<
 
   /** La acción como tool de un agente, con `ctx` capturado para cuando el modelo la llame. */
   asTool(ctx: PipelineExecutionContext): Tool {
-    const action = this;
-    return new (class extends SchemaTool<ToolInputSchema> {
-      readonly name = action.id;
-      readonly description = action.description;
-      readonly input = action.input;
-
-      protected async execute(input: Record<string, unknown>): Promise<string> {
-        const out = await action.run(ctx, input);
-        return typeof out === 'string' ? out : JSON.stringify(out ?? null);
-      }
-    })();
+    return new ActionTool(this, ctx);
   }
 
   /** Marca explícita de que un agente puede recibir esta acción como tool aunque escriba. */
@@ -95,7 +86,11 @@ export class AllowedAction {
   constructor(readonly action: Action) {}
 }
 
-/** Una `Action` con campos del input ya fijados — ver `Action.bind`. */
+/**
+ * Una `Action` con campos del input ya fijados — ver `Action.bind`. Vive en este archivo y no en
+ * uno propio a propósito: extiende `Action` y `Action.bind` la construye, y en ESM ese ciclo entre
+ * dos módulos rompe (TDZ) según cuál se cargue primero.
+ */
 export class BoundAction extends Action {
   readonly description: string;
   readonly input: ToolInputSchema;

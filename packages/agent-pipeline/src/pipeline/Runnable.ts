@@ -10,7 +10,7 @@ import type {
   ResolvedRoutes,
 } from '../routing/ExitRoutes.js';
 import type { Checkpoint } from './Pipeline.js';
-import type { Pause } from './actions/PauseAction.js';
+import type { Pause } from './actions/Pause.js';
 
 export interface PipelineExecutionContext {
   event: DomainEvent<any>;

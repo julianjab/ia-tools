@@ -2,7 +2,7 @@ import { createLogger } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { IfPaused } from '../pipeline/Pipeline.js';
 import { Execution } from './Execution.js';
-import { type ExecutionRepository, InMemoryExecutionRepository } from './ExecutionRepository.js';
+import type { ExecutionRepository } from './ExecutionRepository.js';
 import { ExecutionScheduler } from './ExecutionScheduler.js';
 
 export interface StartExecution {
@@ -159,17 +159,5 @@ export class ExecutionStore {
     void execution.finished.then(() => {
       if (this.byKey.get(execution.key) === execution) this.byKey.delete(execution.key);
     });
-  }
-}
-
-export interface InMemoryExecutionStoreOptions {
-  /** Cuántas ejecuciones corren a la vez, entre todas las tasks. Default: sin tope. */
-  maxConcurrent?: number;
-}
-
-/** Store en memoria: alcanza para un proceso. Un reinicio pierde todo — también las pausas. */
-export class InMemoryExecutionStore extends ExecutionStore {
-  constructor(options: InMemoryExecutionStoreOptions = {}) {
-    super({ ...options, repository: new InMemoryExecutionRepository() });
   }
 }

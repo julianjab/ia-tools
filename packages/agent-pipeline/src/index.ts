@@ -32,12 +32,10 @@ export type { FunctionActionProps } from './pipeline/actions/FunctionAction.js';
 export { FunctionAction } from './pipeline/actions/FunctionAction.js';
 export type { ActionProps, SideEffects } from './pipeline/actions/Action.js';
 export { Action, AllowedAction, BoundAction } from './pipeline/actions/Action.js';
-export type {
-  PauseActionProps,
-  PauseBranchProps,
-  PauseJSON,
-} from './pipeline/actions/PauseAction.js';
-export { Pause, PauseAction, TIMEOUT_BRANCH } from './pipeline/actions/PauseAction.js';
+export type { PauseJSON } from './pipeline/actions/Pause.js';
+export { Pause, TIMEOUT_BRANCH } from './pipeline/actions/Pause.js';
+export type { PauseActionProps, PauseBranchProps } from './pipeline/actions/PauseAction.js';
+export { PauseAction } from './pipeline/actions/PauseAction.js';
 export type { HttpActionProps } from './pipeline/actions/HttpAction.js';
 export { HttpAction } from './pipeline/actions/HttpAction.js';
 
@@ -76,14 +74,15 @@ export type {
 } from './engine/Execution.js';
 export { Execution } from './engine/Execution.js';
 export type { ExecutionRepository } from './engine/ExecutionRepository.js';
-export { InMemoryExecutionRepository } from './engine/ExecutionRepository.js';
+export { InMemoryExecutionRepository } from './engine/InMemoryExecutionRepository.js';
 export type {
   ExecutionStoreOptions,
-  InMemoryExecutionStoreOptions,
   OrphanedEvents,
   StartExecution,
 } from './engine/ExecutionStore.js';
-export { ExecutionStore, InMemoryExecutionStore } from './engine/ExecutionStore.js';
+export { ExecutionStore } from './engine/ExecutionStore.js';
+export type { InMemoryExecutionStoreOptions } from './engine/InMemoryExecutionStore.js';
+export { InMemoryExecutionStore } from './engine/InMemoryExecutionStore.js';
 export type { PipelineSource } from './engine/PipelineSource.js';
 export type { ProjectProps } from './engine/Project.js';
 export { Project } from './engine/Project.js';

@@ -1,7 +1,7 @@
 import type { Resumption } from './Pipeline.js';
 import type { PipelineGraph } from './PipelineGraph.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
-import type { Pause } from './actions/PauseAction.js';
+import type { Pause } from './actions/Pause.js';
 
 /**
  * Por dónde sigue una pipeline pausada: guardar el `Checkpoint` en la ejecución al pausarse, y al

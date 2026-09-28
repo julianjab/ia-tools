@@ -3,7 +3,7 @@ import { type ErrorRoute, type ExitDefaults, routeTargets } from '../routing/Exi
 import type { StepRun, StepVia } from './Pipeline.js';
 import type { PipelineGraph } from './PipelineGraph.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
-import type { Pause } from './actions/PauseAction.js';
+import type { Pause } from './actions/Pause.js';
 import { stepTrace } from './tracing.js';
 
 /**

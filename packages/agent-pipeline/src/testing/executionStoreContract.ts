@@ -10,7 +10,8 @@ import { EventBus } from '../events/EventBus.js';
 import type { Checkpoint } from '../pipeline/Pipeline.js';
 import { Pipeline } from '../pipeline/Pipeline.js';
 import { FunctionAction } from '../pipeline/actions/FunctionAction.js';
-import { Pause, PauseAction } from '../pipeline/actions/PauseAction.js';
+import { Pause } from '../pipeline/actions/Pause.js';
+import { PauseAction } from '../pipeline/actions/PauseAction.js';
 
 export interface ExecutionStoreFactoryOptions {
   maxConcurrent?: number;

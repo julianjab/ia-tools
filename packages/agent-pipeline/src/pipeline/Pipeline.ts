@@ -13,7 +13,7 @@ import { PipelineGraph } from './PipelineGraph.js';
 import { PipelineTrigger } from './PipelineTrigger.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
 import { StepRunner } from './StepRunner.js';
-import type { Pause } from './actions/PauseAction.js';
+import type { Pause } from './actions/Pause.js';
 import { pipelineTrace } from './tracing.js';
 
 /**

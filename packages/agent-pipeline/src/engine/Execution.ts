@@ -2,7 +2,7 @@ import { createLogger } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { Checkpoint } from '../pipeline/Pipeline.js';
 import type { Runnable } from '../pipeline/Runnable.js';
-import { Pause, type PauseJSON, TIMEOUT_BRANCH } from '../pipeline/actions/PauseAction.js';
+import { Pause, type PauseJSON, TIMEOUT_BRANCH } from '../pipeline/actions/Pause.js';
 import { Inbox } from './Inbox.js';
 
 /**
