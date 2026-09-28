@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "files": ["dist"],
@@ -32,5 +36,13 @@
   "dependencies": {
     "@ia-tools/telemetry": "workspace:*",
     "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "vitest": "^4.1.4"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   }
 }
