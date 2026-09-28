@@ -82,6 +82,11 @@ export class PauseAction extends Runnable {
     return routeTargets(this.branches.find((b) => b.name === branch)?.to);
   }
 
+  /** Las ramas por las que se puede reanudar, `timeout` incluida si la tiene. */
+  get branchNames(): string[] {
+    return [...this.branches.map((b) => b.name), ...(this.timeout ? [TIMEOUT_BRANCH] : [])];
+  }
+
   /** Todo lo que puede correr al reanudar, por cualquier rama. */
   get allTargets(): Runnable[] {
     return [

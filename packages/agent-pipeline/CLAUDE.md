@@ -256,6 +256,11 @@ Reglas que no son obvias al leer el código:
   Pasa DESPUÉS de `decide`, pegado a lanzar la corrida (si leer las reglas falla, la pausa sigue
   intacta), y nunca con la task `busy`: una corrida ya en cola sobre la task la va a reemplazar,
   y reanudarla después seguiría desde un checkpoint viejo. `tick` respeta lo mismo.
+- **Lo que puede pausar va último, y nunca en un `onError`.** El `Checkpoint` sabe seguir `do[]`,
+  no una lista de destinos a medias: una `PauseAction` (o un agente que llega a una por sus
+  salidas) que no es el último destino de su lista, o que está en un `onError`, rompe al
+  construir la pipeline — lo que viene después se perdería sin error. El `onError` del proyecto
+  recién se conoce al correr: ahí falla al pausar.
 - **Sólo entre pasos.** Pausar a mitad del loop de un agente (y retomar su conversación) no está.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira

@@ -320,7 +320,10 @@ export class Pipeline extends Conditional {
     }
     for (const target of routeTargets(route.to)) {
       await this.runStep(target, route.input?.(error), ctx, 'onError', false);
-      if (ctx.paused) break;
+      // El `onError` del proyecto recién se conoce al correr: lo que `validate` no pudo ver.
+      if (ctx.paused) {
+        throw new Error(`Pipeline(${this.id}): un \`onError\` no puede pausar la ejecución`);
+      }
     }
   }
 
@@ -382,7 +385,72 @@ export class Pipeline extends Conditional {
     }
     for (const target of routeTargets(this.defaults.onError?.to)) routed.add(target);
     this.assertNoCycles(next);
+    this.assertPausesResumable(agents.values());
     return routed;
+  }
+
+  /**
+   * Una pausa se reanuda desde su `Checkpoint`, que sabe seguir `do[]` pero no una lista de
+   * destinos a medias ni un `onError`. Por eso, al construir: lo que puede pausar (una
+   * `PauseAction`, o un agente que llega a una por sus salidas) va ÚLTIMO en su lista de
+   * destinos — si no, lo que viene después se perdería sin error —, y nunca en un `onError`.
+   */
+  private assertPausesResumable(agents: Iterable<Agent>): void {
+    const pauses = new Map<Runnable, boolean>();
+    const canPause = (step: Runnable): boolean => {
+      const known = pauses.get(step);
+      if (known !== undefined) return known;
+      pauses.set(step, false);
+      const result =
+        step instanceof PauseAction ||
+        (step instanceof Agent &&
+          this.resolve(step).exits.some((exit) => exit.targets.some(canPause)));
+      pauses.set(step, result);
+      return result;
+    };
+    const assertLast = (targets: Runnable[], where: string) => {
+      targets.forEach((target, index) => {
+        if (index < targets.length - 1 && canPause(target)) {
+          throw new Error(
+            `Pipeline(${this.id}): ${where}: "${target.id ?? target.constructor.name}" puede pausar y no es el último destino — lo que sigue no se reanudaría`,
+          );
+        }
+      });
+    };
+    const assertNoPause = (targets: Runnable[], where: string) => {
+      for (const target of targets) {
+        if (canPause(target)) {
+          throw new Error(
+            `Pipeline(${this.id}): ${where}: un \`onError\` no puede pausar ("${target.id ?? target.constructor.name}")`,
+          );
+        }
+      }
+    };
+
+    const checked = new Set<PauseAction>();
+    const checkPause = (pause: PauseAction) => {
+      if (checked.has(pause)) return;
+      checked.add(pause);
+      for (const target of pause.allTargets) if (target instanceof PauseAction) checkPause(target);
+    };
+    for (const agent of agents) {
+      const resolved = this.resolve(agent);
+      for (const exit of resolved.exits) {
+        assertLast(exit.targets, `${agent.id}.${exit.name}`);
+        for (const target of exit.targets) if (target instanceof PauseAction) checkPause(target);
+      }
+      assertNoPause(routeTargets(resolved.onError?.route.to), `${agent.id}.onError`);
+    }
+    for (const step of this.do) {
+      assertNoPause(routeTargets(step.onError?.to), `${step.id ?? 'paso'}.onError`);
+      if (step instanceof PauseAction) checkPause(step);
+    }
+    assertNoPause(routeTargets(this.defaults.onError?.to), 'onError');
+    for (const pause of checked) {
+      for (const branch of pause.branchNames) {
+        assertLast(pause.targetsOf(branch), `${pause.id}.${branch}`);
+      }
+    }
   }
 
   private assertNoCycles(next: Map<Agent, Agent[]>): void {
