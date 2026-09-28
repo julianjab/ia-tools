@@ -1,0 +1,33 @@
+{
+  "name": "@ia-tools/agent-pipeline-yaml",
+  "version": "0.1.0",
+  "description": "PipelineSource de @ia-tools/agent-pipeline que lee proyectos, agentes y pipelines de YAML (con recarga en caliente), y arma un Engine desde un engine.yaml",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ia-tools/agent-pipeline": "workspace:*",
+    "@ia-tools/telemetry": "workspace:*",
+    "yaml": "^2.6.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.4"
+  }
+}

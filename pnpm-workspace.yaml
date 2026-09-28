@@ -1,6 +1,8 @@
 packages:
   - plugins/slack-bridge
   - packages/agent-pipeline
+  - packages/agent-pipeline-sqlite
+  - packages/agent-pipeline-yaml
   - packages/provider-anthropic
   - packages/telemetry
   # auth/, webhook/, api/, tools/ — cuatro paquetes propios dentro de una sola carpeta github/,
