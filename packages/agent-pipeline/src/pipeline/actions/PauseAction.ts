@@ -1,3 +1,4 @@
+import { Condition, type ConditionRow } from '../../condition/Condition.js';
 import { EventFilter, type EventFilterProps } from '../../condition/EventFilter.js';
 import type { DomainEvent } from '../../events/DomainEvent.js';
 import { type RouteTo, routeTargets } from '../../routing/ExitRoutes.js';
@@ -22,11 +23,29 @@ export interface PauseActionProps extends RunnableProps {
 /** La rama con la que vence una pausa: se reanuda por ella, con un evento `execution.expired`. */
 export const TIMEOUT_BRANCH = 'timeout';
 
+/** Una `Pause` como datos: lo que guarda un store persistente para despertarla tras un reinicio. */
+export interface PauseJSON {
+  pauseId: string;
+  branches: Array<{ name: string; on: string[]; when: ConditionRow[] }>;
+  expiresAt?: number;
+}
+
 /**
  * Una pausa en curso: qué la despierta (`match`) y cuándo vence. Es un valor —lo arma
  * `PauseAction` al correr y lo guarda la `Execution`— sin nada de la pipeline adentro.
  */
 export class Pause {
+  static fromJSON(json: PauseJSON): Pause {
+    return new Pause(
+      json.pauseId,
+      json.branches.map(({ name, on, when }) => ({
+        name,
+        filter: new EventFilter({ on, when: Condition.fromRows(when) }),
+      })),
+      json.expiresAt,
+    );
+  }
+
   constructor(
     readonly pauseId: string,
     private readonly branches: ReadonlyArray<{ name: string; filter: EventFilter }>,
@@ -46,6 +65,18 @@ export class Pause {
   /** Para la traza y los logs: `green: check_suite; red: check_suite`. */
   describe(): string {
     return this.branches.map(({ name, filter }) => `${name}: ${filter.on.join('|')}`).join('; ');
+  }
+
+  toJSON(): PauseJSON {
+    return {
+      pauseId: this.pauseId,
+      branches: this.branches.map(({ name, filter }) => ({
+        name,
+        on: filter.on,
+        when: filter.when.map((condition) => condition.toRow()),
+      })),
+      ...(this.expiresAt !== undefined ? { expiresAt: this.expiresAt } : {}),
+    };
   }
 }
 

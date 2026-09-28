@@ -4,7 +4,8 @@ import type { EventBus } from '../events/EventBus.js';
 import type { Resumption } from '../pipeline/Pipeline.js';
 import type { ExecutionHandle } from '../pipeline/Runnable.js';
 import type { Candidate, DispatchPlanner } from './DispatchPlanner.js';
-import type { Execution, ExecutionStore, Wake } from './Execution.js';
+import type { Execution, Wake } from './Execution.js';
+import type { ExecutionStore } from './ExecutionStore.js';
 import type { DispatchOutcome, RunLauncher } from './RunLauncher.js';
 import { expireTrace, ifRunningTag, offerTag } from './tracing.js';
 

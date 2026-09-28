@@ -105,6 +105,17 @@ export class Condition {
     }
   }
 
+  /** La fila de la que sale — el inverso de `new Condition(row)`, para guardarla (ej. la pausa
+   *  de una ejecución persistida). */
+  toRow(): ConditionRow {
+    return {
+      field: this.field,
+      op: this.op,
+      ...(this.value !== undefined ? { value: this.value } : {}),
+      logic: this.logic,
+    };
+  }
+
   static fromRows(rows: ConditionRow[] | undefined): Condition[] {
     return (rows ?? []).map((row) => new Condition(row));
   }

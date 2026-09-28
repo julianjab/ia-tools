@@ -3,8 +3,8 @@ import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
 import { DispatchPlanner } from './DispatchPlanner.js';
-import type { ExecutionStore } from './Execution.js';
 import { ExecutionCoordinator } from './ExecutionCoordinator.js';
+import type { ExecutionStore } from './ExecutionStore.js';
 import type { PipelineSource } from './PipelineSource.js';
 import { Redelivery } from './Redelivery.js';
 import { type DispatchOutcome, RunLauncher } from './RunLauncher.js';
@@ -86,6 +86,11 @@ export class Engine {
       launcher: this.launcher,
       coordinator: this.coordinator,
     });
+    // Lo que las ejecuciones interrumpidas por un reinicio recibieron sin leer (un store
+    // persistente): se re-despacha igual que lo que deja una ejecución que cierra.
+    for (const { executionId, events } of opts.executions?.takeOrphaned() ?? []) {
+      this.redelivery.redispatch(events, executionId);
+    }
   }
 
   get executions(): ExecutionStore | undefined {

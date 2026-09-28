@@ -4,7 +4,7 @@ import { ProviderRegistry } from '../agent/Provider.js';
 import { Condition } from '../condition/Condition.js';
 import { EventFilter } from '../condition/EventFilter.js';
 import { Engine, scopeExecutionKey } from '../engine/Engine.js';
-import type { ExecutionStore } from '../engine/Execution.js';
+import type { ExecutionStore } from '../engine/ExecutionStore.js';
 import { type DomainEvent, createEvent } from '../events/DomainEvent.js';
 import { EventBus } from '../events/EventBus.js';
 import type { Checkpoint } from '../pipeline/Pipeline.js';
