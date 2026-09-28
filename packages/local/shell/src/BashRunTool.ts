@@ -6,6 +6,14 @@ import { tokenize } from './tokenize.js';
 
 export const BashRunInput = z.strictObject({
   command: z.string().min(1).describe('Comando + args separados por espacio, ej. "git status"'),
+  timeoutMs: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Cuánto dejarlo correr antes de cortarlo, en ms — para algo que sabés que tarda (una suite de tests entera, un build). Sin esto, el default de la tool; nunca más que el máximo que dice su descripción.',
+    ),
 });
 export type BashRunInput = z.infer<typeof BashRunInput>;
 
@@ -13,8 +21,11 @@ export interface BashRunToolOptions {
   /** Directorio donde corre el proceso — típicamente el worktree del agente. */
   baseDir: string;
   policy: BashPolicy;
-  /** Default 60s. */
+  /** Cuánto corre un comando si el agente no pide otra cosa. Default 60s. */
   timeoutMs?: number;
+  /** Lo máximo que el agente puede pedir por comando (`timeoutMs` del input). Default: igual a
+   *  `timeoutMs` — sin configurarlo, el agente no puede estirarlo. */
+  maxTimeoutMs?: number;
   /** Tope de stdout/stderr combinado antes de truncar Y matar el proceso. Default 64KB. */
   maxOutputBytes?: number;
   /** Env del proceso hijo. Default: un subset mínimo de `process.env` (ver
@@ -70,6 +81,24 @@ function gitCredentialRisk(argv: string[]): string | undefined {
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+type TimeoutOptions = Pick<BashRunToolOptions, 'timeoutMs' | 'maxTimeoutMs'>;
+
+function timeoutLimits(options: TimeoutOptions): { base: number; max: number } {
+  const base = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return { base, max: Math.max(base, options.maxTimeoutMs ?? base) };
+}
+
+const seconds = (ms: number) => `${Math.round(ms / 1000)} s`;
+
+/** Lo que el modelo lee sobre el tiempo: el default y, si puede estirarlo, hasta cuánto. Va al
+ *  final de la descripción de la tool (y de quien la envuelva, ej. `workspaceAction`). */
+export function timeoutNote(options: TimeoutOptions): string {
+  const { base, max } = timeoutLimits(options);
+  return max > base
+    ? `Un comando se corta a los ${seconds(base)}; para algo largo (una suite de tests entera) pedí más con \`timeoutMs\`, hasta ${seconds(max)}.`
+    : `Un comando se corta a los ${seconds(base)}.`;
+}
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024;
 
 /** Lo mínimo para que un binario común (git, node, un linter) arranque sin romperse — nunca
@@ -133,7 +162,13 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
 
   constructor(private readonly options: BashRunToolOptions) {
     super();
-    this.description = `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) dentro de ${options.baseDir} — usa comillas para args con espacios.`;
+    this.description = `Ejecuta un comando SIN shell (sin pipes, redirecciones ni expansión) dentro de ${options.baseDir} — usa comillas para args con espacios. ${timeoutNote(options)}`;
+  }
+
+  /** Cuánto dejar correr ESTE comando: lo que pidió el agente, sin pasar el máximo. */
+  private timeoutFor(requested: number | undefined): number {
+    const { base, max } = timeoutLimits(this.options);
+    return Math.min(requested ?? base, max);
   }
 
   /**
@@ -194,7 +229,8 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
     }
 
     const spawnArgv = await this.withGitCredential(argv, input.command);
-    const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutMs = this.timeoutFor(input.timeoutMs);
+    const { max: maxTimeoutMs } = timeoutLimits(this.options);
     const maxOutputBytes = this.options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
 
     return new Promise<string>((resolve, reject) => {
@@ -219,6 +255,7 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
       const stdout = new BoundedCollector();
       const stderr = new BoundedCollector();
       let settled = false;
+      let timedOut = false;
 
       const killGroup = () => {
         if (child.pid == null) return;
@@ -234,7 +271,10 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
         }
       };
 
-      const timeoutTimer = setTimeout(killGroup, timeoutMs);
+      const timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        killGroup();
+      }, timeoutMs);
 
       child.stdout.on('data', (chunk: Buffer) => {
         stdout.push(chunk, maxOutputBytes);
@@ -254,7 +294,13 @@ export class BashRunTool extends SchemaTool<typeof BashRunInput> {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutTimer);
-        const status = signal ? `señal ${signal}` : `exit ${code}`;
+        // Un corte por tiempo dice que fue por tiempo — sin esto el modelo sólo veía "señal
+        // SIGKILL" y no sabía si reintentar, achicar el comando o pedir más tiempo.
+        const status = timedOut
+          ? `timeout: se cortó a los ${seconds(timeoutMs)}${timeoutMs < maxTimeoutMs ? ` (podés pedir hasta ${seconds(maxTimeoutMs)} con timeoutMs)` : ' (es el máximo: corré una parte más chica)'}`
+          : signal
+            ? `señal ${signal}`
+            : `exit ${code}`;
         resolve(JSON.stringify({ status, stdout: stdout.toString(), stderr: stderr.toString() }));
       });
     });
