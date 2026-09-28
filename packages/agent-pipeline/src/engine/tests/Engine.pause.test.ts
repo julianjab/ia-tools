@@ -250,6 +250,94 @@ describe('Engine with pauses', () => {
     await vi.waitFor(() => expect(store.current(KEY)).toBeUndefined());
   });
 
+  it('an event that wakes the pause late does not also run the rules once its dispatch resumes', async () => {
+    const ran: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const running = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const green = new Condition({ field: 'conclusion', op: 'eq', value: 'success' });
+    const implementer = new Agent(
+      {
+        id: 'implementer',
+        provider: 'held',
+        prompt: 'p',
+        routes: {
+          done: {
+            to: new PauseAction({
+              id: 'wait-ci',
+              branches: {
+                green: { on: ['check_suite'], when: [green], to: action('review', ran) },
+              },
+            }),
+          },
+        },
+      },
+      new ProviderRegistry().register({
+        id: 'held',
+        run: async (ctx) => {
+          entered();
+          await gate;
+          await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({});
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    // Una regla con agentes que TAMBIÉN escucha el verde: no tiene que correr si la pausa lo usó.
+    const alsoGreen = new Pipeline({
+      id: 'also-green',
+      on: ['check_suite'],
+      when: [green],
+      do: [
+        new Agent(
+          { id: 'other', provider: 'noop', prompt: 'p' },
+          new ProviderRegistry().register({
+            id: 'noop',
+            run: async () => {
+              ran.push('other');
+              return { outcome: 'success' };
+            },
+          }),
+        ),
+      ],
+    });
+    // Leer las reglas cede el turno de verdad (y se puede frenar).
+    let slow: Promise<void> | undefined;
+    let unblock!: () => void;
+    const pipelines = [new Pipeline({ id: 'build', on: ['build'], do: [implementer] }), alsoGreen];
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: {
+        list: async () => {
+          await slow;
+          return pipelines;
+        },
+      },
+      executions: new InMemoryExecutionStore(),
+    });
+
+    const build = engine.dispatch(event('build'));
+    await running;
+    slow = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const green1 = engine.dispatch(ci('success'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Mientras ese despacho lee las reglas, el implementer termina y se pausa: la pausa lo usa.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    unblock();
+    slow = undefined;
+    await Promise.all([build, green1]);
+
+    await vi.waitFor(() => expect(ran).toEqual(['review:check_suite']));
+    expect(await green1).toBe('resumed');
+  });
+
   it('if the rules cannot be read, the pause is not woken and the task stays free', async () => {
     const { engine, store, broken } = ciGate();
     await engine.dispatch(event('build'));
