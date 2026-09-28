@@ -8,6 +8,10 @@ import type { PipelineSource } from './PipelineSource.js';
 export interface ProjectProps extends ConditionalProps {
   id: string;
   pipelines: Pipeline[];
+  /** Pipelines de ENTRADA: el `when` del proyecto no las filtra. Son las que convierten un evento
+   *  crudo (un webhook, que todavía no tiene lo que el `when` mira) en los que escuchan
+   *  `pipelines`. */
+  intake?: Pipeline[];
   /** Para todos los agentes del proyecto — ej. `+blocked`, hoy repetido en cada agente. */
   onError?: ErrorRoute | null;
   /** El cierre por defecto de cada turno — ej. `postComment.bind({ target: 'pr-else-issue' })`. */
@@ -18,7 +22,7 @@ export interface ProjectProps extends ConditionalProps {
  * El nivel más general de dos cascadas:
  *
  * - **`when`** (proyecto → pipeline → paso): el primer filtro. Un evento que no cumple el `when`
- *   del proyecto no llega a evaluar ninguna de sus pipelines — ej. `item.labels notContains
+ *   del proyecto no llega a evaluar ninguna de sus pipelines (salvo las de `intake`) — ej. `item.labels notContains
  *   blocked` una sola vez, en vez de repetirlo en cada regla.
  * - **rutas**: defaults de `onError` y `report` para todas sus pipelines.
  *
@@ -32,18 +36,20 @@ export class Project extends Conditional implements PipelineSource {
   readonly id: string;
   readonly defaults: ExitDefaults;
   private readonly pipelines: Pipeline[];
+  private readonly intake: Set<Pipeline>;
 
   constructor(props: ProjectProps) {
     super(props);
     const seen = new Set<string>();
-    for (const pipeline of props.pipelines) {
+    for (const pipeline of [...(props.intake ?? []), ...props.pipelines]) {
       if (seen.has(pipeline.id)) {
         throw new Error(`Project(${props.id}): dos pipelines con el id "${pipeline.id}"`);
       }
       seen.add(pipeline.id);
     }
     this.id = props.id;
-    this.pipelines = props.pipelines;
+    this.intake = new Set(props.intake);
+    this.pipelines = [...this.intake, ...props.pipelines];
     this.defaults = { onError: props.onError, report: props.report };
   }
 
@@ -52,8 +58,9 @@ export class Project extends Conditional implements PipelineSource {
   }
 
   /** Por qué el evento no pasa el `when` del proyecto — se evalúa contra el payload, igual que
-   *  el de una pipeline. */
-  explainMismatch(event: DomainEvent<any>): string | undefined {
+   *  el de una pipeline. Una pipeline de entrada no lo cumple nunca: pasa siempre. */
+  explainMismatch(event: DomainEvent<any>, pipeline?: Pipeline): string | undefined {
+    if (pipeline && this.intake.has(pipeline)) return undefined;
     const reason = this.explainConditions(event.payload);
     return reason && `proyecto ${this.id}: ${reason}`;
   }

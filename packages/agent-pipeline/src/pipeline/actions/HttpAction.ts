@@ -11,9 +11,13 @@ type JsonBody = string | number | boolean | null | Record<string, unknown> | unk
 export interface HttpActionProps extends RunnableProps {
   url: string | ((ctx: PipelineExecutionContext, input: StepInput) => string);
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** Una función puede ser async: una credencial que vence se pide en cada request. */
   headers?:
     | Record<string, string>
-    | ((ctx: PipelineExecutionContext, input: StepInput) => Record<string, string>);
+    | ((
+        ctx: PipelineExecutionContext,
+        input: StepInput,
+      ) => Record<string, string> | Promise<Record<string, string>>);
   /** Sin `body`, el input validado (si hay) ES el body. */
   body?: JsonBody | ((ctx: PipelineExecutionContext, input: StepInput) => unknown);
   /** Opcional: qué puede entregarle un agente a este paso como destino de una ruta. */
@@ -21,6 +25,8 @@ export interface HttpActionProps extends RunnableProps {
   /** Corta la request si no responde a tiempo — un host colgado, si no, bloquea el Pipeline
    *  para siempre. Default 30s. */
   timeoutMs?: number;
+  /** Default: el `fetch` global. */
+  fetch?: typeof fetch;
 }
 
 /**
@@ -38,6 +44,7 @@ export class HttpAction extends Runnable {
   readonly body?: HttpActionProps['body'];
   readonly timeoutMs: number;
   readonly input?: ToolInputSchema;
+  private readonly fetchImpl?: typeof fetch;
 
   constructor(props: HttpActionProps) {
     super(props);
@@ -47,6 +54,7 @@ export class HttpAction extends Runnable {
     this.body = props.body;
     this.timeoutMs = props.timeoutMs ?? 30_000;
     this.input = props.input;
+    this.fetchImpl = props.fetch;
   }
 
   override acceptsInput(): ToolInputSchema | undefined {
@@ -56,7 +64,8 @@ export class HttpAction extends Runnable {
   async run(ctx: PipelineExecutionContext, input?: unknown): Promise<unknown> {
     const parsed = this.parseInput(this.input, input);
     const url = typeof this.url === 'function' ? this.url(ctx, parsed) : this.url;
-    const headers = typeof this.headers === 'function' ? this.headers(ctx, parsed) : this.headers;
+    const headers =
+      typeof this.headers === 'function' ? await this.headers(ctx, parsed) : this.headers;
     const body = typeof this.body === 'function' ? this.body(ctx, parsed) : (this.body ?? parsed);
 
     // `fetch` tira TypeError si un método sin cuerpo (GET/DELETE) lleva `body` — así que acá
@@ -74,7 +83,7 @@ export class HttpAction extends Runnable {
       // `fetch` resuelve en cuanto llegan los headers. Un servidor que manda los headers
       // rápido pero el body nunca (o muy lento) dejaba la lectura del body sin ningún límite
       // de tiempo si el timeout se cancelaba antes, justo lo que `timeoutMs` dice que evita.
-      const response = await fetch(url, {
+      const response = await (this.fetchImpl ?? fetch)(url, {
         method: this.method,
         headers: { 'content-type': 'application/json', ...headers },
         body: requestBody,
