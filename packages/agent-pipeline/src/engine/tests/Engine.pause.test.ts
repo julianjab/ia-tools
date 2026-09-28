@@ -136,6 +136,59 @@ describe('Engine with pauses', () => {
     expect(ran.filter((step) => step.startsWith('review'))).toHaveLength(1);
   });
 
+  it('an injected event nobody read wakes the pause it was waiting for', async () => {
+    const ran: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const running = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const worker = new Agent(
+      {
+        id: 'worker',
+        provider: 'held',
+        prompt: 'p',
+        injects: [{ on: ['comment'] }],
+        routes: {
+          done: {
+            to: new PauseAction({
+              id: 'wait-answer',
+              branches: { answered: { on: ['comment'], to: action('answered', ran) } },
+            }),
+          },
+        },
+      },
+      new ProviderRegistry().register({
+        id: 'held',
+        // Nunca vacía su inbox: el comentario queda sin leer.
+        run: async (ctx) => {
+          entered();
+          await gate;
+          await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({});
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    const store = new InMemoryExecutionStore();
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: new StaticPipelineSource([new Pipeline({ id: 'ask', on: ['ask'], do: [worker] })]),
+      executions: store,
+    });
+
+    const ask = engine.dispatch(event('ask'));
+    await running;
+    expect(await engine.dispatch(event('comment'))).toBe('injected');
+    release();
+    await ask;
+
+    await vi.waitFor(() => expect(ran).toEqual(['answered:comment']));
+    await vi.waitFor(() => expect(store.current(KEY)).toBeUndefined());
+  });
+
   it('if the rules cannot be read, the pause is not woken and the task stays free', async () => {
     const { engine, store, broken } = ciGate();
     await engine.dispatch(event('build'));
