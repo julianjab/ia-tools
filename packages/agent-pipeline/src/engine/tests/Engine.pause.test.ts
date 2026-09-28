@@ -37,7 +37,7 @@ const action = (id: string, ran: string[]) =>
   new FunctionAction({ id, fn: (ctx) => ran.push(`${id}:${ctx.event.type}`) });
 
 /** El gate de CI: el implementer termina, se asegura el PR y espera el CI. Verde → Review. */
-function ciGate(options: { timeoutMs?: number } = {}) {
+function ciGate(options: { timeoutMs?: number; maxConcurrent?: number; extra?: Pipeline[] } = {}) {
   const ran: string[] = [];
   const review = action('review', ran);
   const expiredNote = action('expired-note', ran);
@@ -64,13 +64,23 @@ function ciGate(options: { timeoutMs?: number } = {}) {
     when: [new Condition({ field: 'conclusion', op: 'eq', value: 'failure' })],
     do: [implementer(ran)({ done: { to: action('pushed', ran) } })],
   });
-  const store = new InMemoryExecutionStore();
+  const store = new InMemoryExecutionStore(
+    options.maxConcurrent ? { maxConcurrent: options.maxConcurrent } : {},
+  );
+  // Una fuente que se puede romper a mitad del test (`broken.now = true`).
+  const broken = { now: false };
+  const pipelines = [build, ciRed, ...(options.extra ?? [])];
   const engine = new Engine({
     bus: new EventBus(),
-    pipelines: new StaticPipelineSource([build, ciRed]),
+    pipelines: {
+      list: () => {
+        if (broken.now) throw new Error('no pude leer el roster');
+        return pipelines;
+      },
+    },
     executions: store,
   });
-  return { engine, store, ran };
+  return { engine, store, ran, broken };
 }
 
 describe('Engine with pauses', () => {
@@ -124,6 +134,67 @@ describe('Engine with pauses', () => {
     ]);
     expect([first, second].sort()).toEqual(['resumed', 'skipped']);
     expect(ran.filter((step) => step.startsWith('review'))).toHaveLength(1);
+  });
+
+  it('if the rules cannot be read, the pause is not woken and the task stays free', async () => {
+    const { engine, store, broken } = ciGate();
+    await engine.dispatch(event('build'));
+    broken.now = true;
+
+    await expect(engine.dispatch(ci('success'))).rejects.toThrow('no pude leer el roster');
+    expect(store.current(KEY)?.status).toBe('paused');
+    expect(store.busy(KEY)).toBe(false);
+
+    broken.now = false;
+    expect(await engine.dispatch(ci('success'))).toBe('resumed');
+  });
+
+  it('a pause is not woken while a run for its task is queued: that run supersedes it', async () => {
+    // Otra task ocupa el único lugar; el `ci-red` de ESTA task queda en cola.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const blocker = new Pipeline({
+      id: 'blocker',
+      on: ['other'],
+      do: [
+        new Agent(
+          { id: 'other', provider: 'held', prompt: 'p' },
+          new ProviderRegistry().register({
+            id: 'held',
+            run: async () => {
+              started();
+              await held;
+              return { outcome: 'success' };
+            },
+          }),
+        ),
+      ],
+    });
+    const { engine, store, ran } = ciGate({ maxConcurrent: 1, extra: [blocker] });
+    await engine.dispatch(event('build'));
+    const paused = store.current(KEY);
+
+    const other = engine.dispatch(createEvent('other', {}, { scope: { issue: 'otra' } }));
+    await holding;
+    const red = engine.dispatch(ci('failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.busy(KEY)).toBe(true);
+
+    // El verde llega con el `ci-red` en cola: no la despierta.
+    expect(await engine.dispatch(ci('success'))).toBe('skipped');
+    engine.tick(Date.now() + 10 * 60 * 60_000);
+    release();
+    await Promise.all([other, red]);
+
+    expect(paused?.status).toBe('superseded');
+    expect(ran).not.toContain('review:check_suite');
+    expect(ran.at(-1)).toBe('pushed:check_suite');
   });
 
   it('an expired pause resumes through its timeout branch on the next tick', async () => {
