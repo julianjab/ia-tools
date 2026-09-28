@@ -253,6 +253,9 @@ Reglas que no son obvias al leer el código:
   pausa espera hasta que llegue una rama o la reemplacen.
 - **Despertar es sincrónico y de una sola vez.** `wake` la pasa a `running` en el acto y el store
   ocupa la task en el mismo tick: dos eventos que la despiertan a la vez la reanudan una vez.
+  Pasa DESPUÉS de `decide`, pegado a lanzar la corrida (si leer las reglas falla, la pausa sigue
+  intacta), y nunca con la task `busy`: una corrida ya en cola sobre la task la va a reemplazar,
+  y reanudarla después seguiría desde un checkpoint viejo. `tick` respeta lo mismo.
 - **Sólo entre pasos.** Pausar a mitad del loop de un agente (y retomar su conversación) no está.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira

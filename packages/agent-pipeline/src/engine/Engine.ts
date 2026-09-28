@@ -165,11 +165,14 @@ export class Engine {
   async dispatch(event: DomainEvent<any>): Promise<DispatchOutcome> {
     if (event.depth >= this.maxEventDepth) return 'skipped';
 
-    // Primero la ejecución de su task: si su paso activo lo acepta, ya lo recibió; si está
-    // pausada y el evento la despierta, la reanuda. Sincrónico, antes de ceder el turno: el paso
-    // no puede salir de su loop, ni otro evento despertar la pausa, en el medio.
-    const offer = this.offer(event);
+    // Primero la ejecución de su task. Si corre y su paso activo acepta el evento, ya lo
+    // recibió — antes de ceder el turno, así el paso no sale de su loop en el medio.
+    const injected = this.inject(event);
     const { toRun } = await this.decide(event);
+    // Si está pausada y el evento la despierta, se reanuda — recién acá, pegado a lanzar la
+    // corrida: despertarla antes de `decide` dejaría una ejecución despierta sin quién la corra
+    // si `decide` falla.
+    const offer = injected ?? this.wake(event);
     return this.runCandidates(toRun, event, offer);
   }
 
@@ -179,26 +182,22 @@ export class Engine {
    */
   tick(now = Date.now()): void {
     for (const execution of this.executions?.paused() ?? []) {
-      if (!execution.expired(now)) continue;
+      // Con una corrida ya en cola sobre la task, la pausa no vence: esa corrida la reemplaza.
+      if (!execution.expired(now) || this.executions?.busy(execution.key)) continue;
       // El error ya lo logueó `@traced` adentro de su span; acá sólo no queda sin manejar.
       inFreshContext(() => this.expire(execution)).catch(() => {});
     }
   }
 
   /**
-   * Le ofrece `event` a la ejecución de su task: si corre, a su paso activo (`Execution.inject`,
-   * que le pregunta al paso con `accepts`); si está pausada, a su pausa (`Execution.wake`). Un
-   * evento que nació en esa misma ejecución no se le ofrece: sería mandarse un mensaje a sí misma.
+   * Le ofrece `event` al paso activo de la ejecución en curso de su task (`Execution.inject`,
+   * que le pregunta al paso con `accepts`). Un evento que nació en esa misma ejecución no se le
+   * ofrece: sería mandarse un mensaje a sí misma.
    */
   @taggedSync(offerTag)
-  private offer(event: DomainEvent<any>): Offer | undefined {
-    const key = this.executions ? this.executionKey(event) : undefined;
-    const current = key === undefined ? undefined : this.executions?.current(key);
-    if (!current || current.owns(event)) return undefined;
-    if (current.status === 'paused') {
-      const wake = current.wake(event);
-      return wake ? this.resumption(current, wake, event) : undefined;
-    }
+  private inject(event: DomainEvent<any>): Offer | undefined {
+    const current = this.currentFor(event);
+    if (current?.status !== 'running') return undefined;
     if (!current.inject(this.formatMessage(event), event)) return undefined;
     const origin = captureSpanLink();
     if (origin) this.origins.set(event, origin);
@@ -207,6 +206,27 @@ export class Engine {
       executionId: current.id,
       ...(current.active?.id ? { stepId: current.active.id } : {}),
     };
+  }
+
+  /**
+   * Si la ejecución de la task está pausada y `event` pasa una de sus ramas, la despierta
+   * (`Execution.wake`) y devuelve la corrida que la reanuda. No la despierta si ya hay una corrida
+   * en cola sobre la task (`busy`): esa corrida la va a reemplazar, y reanudarla después sería
+   * seguir desde un checkpoint viejo.
+   */
+  @taggedSync(offerTag)
+  private wake(event: DomainEvent<any>): Offer | undefined {
+    const current = this.currentFor(event);
+    if (current?.status !== 'paused' || this.executions?.busy(current.key)) return undefined;
+    const wake = current.wake(event);
+    return wake ? this.resumption(current, wake, event) : undefined;
+  }
+
+  /** La ejecución de la task de `event`, salvo que el evento haya nacido en ella. */
+  private currentFor(event: DomainEvent<any>): Execution | undefined {
+    const key = this.executions ? this.executionKey(event) : undefined;
+    const current = key === undefined ? undefined : this.executions?.current(key);
+    return current && !current.owns(event) ? current : undefined;
   }
 
   /**
@@ -259,6 +279,7 @@ export class Engine {
 
   @traced(expireTrace)
   private async expire(execution: Execution): Promise<DispatchOutcome> {
+    if (this.executions?.busy(execution.key)) return 'skipped';
     const wake = execution.wakeOnTimeout();
     if (!wake) return 'skipped';
     const event = createEvent(
