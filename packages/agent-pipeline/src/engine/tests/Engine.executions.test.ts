@@ -398,7 +398,7 @@ describe('Engine with executions', () => {
     await expect(engine.dispatch(event('build'))).rejects.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(store.current(scopeExecutionKey(event('build')) as string)).toBeUndefined();
-    expect(store.stats).toEqual({ running: 0, waiting: 0 });
+    expect(store.stats).toEqual({ running: 0, waiting: 0, paused: 0 });
   });
 });
 

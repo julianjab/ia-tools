@@ -23,6 +23,7 @@ import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import { Pipeline } from '../../pipeline/Pipeline.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
+import { PauseAction } from '../../pipeline/actions/PauseAction.js';
 
 const spans = new InMemorySpanExporter();
 const logRecords = new InMemoryLogRecordExporter();
@@ -367,5 +368,57 @@ describe('Engine tracing — executions', () => {
     // Lo de la corrida de `build` no se cuela en la traza nueva.
     expect(redelivered.attributes['ia.pipeline.id']).toBeUndefined();
     expect(parentOf(byName('pipeline comment-build'))).toBe(redelivered.spanContext().spanId);
+  });
+});
+
+describe('Engine tracing — pauses', () => {
+  it('the waking event says which execution it resumed and by which branch; expiry has its own trace', async () => {
+    const scope = { projectId: 'p', issue: 9 };
+    const done = new FunctionAction({ id: 'done', fn: () => 'ok' });
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: new StaticPipelineSource([
+        new Pipeline({
+          id: 'gate',
+          on: ['start'],
+          do: [
+            new Agent(
+              { id: 'worker', provider: 'noop', prompt: 'p' },
+              new ProviderRegistry().register({
+                id: 'noop',
+                run: async () => ({ outcome: 'success' }),
+              }),
+            ),
+            new PauseAction({
+              id: 'wait',
+              branches: { green: { on: ['ci'], to: done } },
+              timeout: { afterMs: 1_000 },
+            }),
+          ],
+        }),
+      ]),
+      executions: new InMemoryExecutionStore(),
+    });
+
+    await engine.dispatch(createEvent('start', {}, { scope }));
+    expect(await engine.dispatch(createEvent('ci', {}, { scope }))).toBe('resumed');
+    const resumed = byName('event ci');
+    expect(resumed.attributes['ia.dispatch.outcome']).toBe('resumed');
+    expect(
+      resumed.events.filter((e) => e.name === 'execution.resume').map((e) => e.attributes),
+    ).toEqual([{ 'ia.execution.id': 'exec-1', 'ia.pause.branch': 'green' }]);
+    const bodies = logRecords.getFinishedLogRecords().map((record) => String(record.body));
+    expect(bodies).toContain('exec-1 se pausa en "wait" (green: ci)');
+    expect(bodies).toContain('evento "ci" reanuda exec-1 por "green"');
+
+    await engine.dispatch(createEvent('start', {}, { scope }));
+    engine.tick(Date.now() + 5_000);
+    await vi.waitFor(() => byName('execution.expired'));
+    const expired = byName('execution.expired');
+    expect(parentOf(expired)).toBeUndefined();
+    expect(expired.attributes).toMatchObject({
+      'ia.execution.id': 'exec-2',
+      'ia.dispatch.outcome': 'resumed',
+    });
   });
 });

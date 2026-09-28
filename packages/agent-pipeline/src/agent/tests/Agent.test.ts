@@ -577,6 +577,7 @@ describe('Agent', () => {
         active.push(current);
         return inbox.splice(0);
       },
+      pause: () => {},
     };
     await agent.run({ ...ctxFor(), execution });
     expect(active).toEqual(['implementer']);

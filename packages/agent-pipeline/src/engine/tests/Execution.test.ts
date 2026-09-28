@@ -13,14 +13,14 @@ describe('InMemoryExecutionStore', () => {
     expect(execution.status).toBe('running');
     expect(store.current('task-1')).toBe(execution);
     expect(store.busy('task-1')).toBe(true);
-    expect(store.stats).toEqual({ running: 1, waiting: 0 });
+    expect(store.stats).toEqual({ running: 1, waiting: 0, paused: 0 });
 
     execution.close('done');
     await tick();
     expect(execution.status).toBe('done');
     expect(store.current('task-1')).toBeUndefined();
     expect(store.busy('task-1')).toBe(false);
-    expect(store.stats).toEqual({ running: 0, waiting: 0 });
+    expect(store.stats).toEqual({ running: 0, waiting: 0, paused: 0 });
   });
 
   it('marks the task busy in the same tick start is called, before it gets its turn', () => {
