@@ -236,7 +236,7 @@ Reglas que no son obvias al leer el código:
   del provider. Entre pasos, o antes/después de un agente, no hay quién lo lea: el evento sigue
   por las reglas.
 - **Nada inyectado se pierde.** Lo que llegó después de la última vuelta del agente queda sin leer
-  (`Execution.unread()`); al cerrar la ejecución el engine lo vuelve a despachar contra las reglas
+  (`Execution.takeUnread()`, que los consume); al cerrar —o pausar— la ejecución el engine lo vuelve a despachar contra las reglas
   CON agentes (las reacciones ya corrieron la primera vez) y, ya sin nada corriendo, arranca
   normal.
 - **Una ejecución se puede pausar entre pasos** (`PauseAction`, como destino de una salida o en

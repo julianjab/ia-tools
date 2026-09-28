@@ -244,7 +244,7 @@ export class Engine {
       try {
         return await execution.run(() => this.continue(execution, wake, event));
       } finally {
-        this.redispatch(execution.unread(), execution.id);
+        this.redispatch(execution.takeUnread(), execution.id);
       }
     };
     return {
@@ -385,7 +385,7 @@ export class Engine {
       try {
         return await execution.run(() => this.execute(candidate, event, execution));
       } finally {
-        this.redispatch(execution.unread(), execution.id);
+        this.redispatch(execution.takeUnread(), execution.id);
       }
     };
     return {

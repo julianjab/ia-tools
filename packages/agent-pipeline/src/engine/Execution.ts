@@ -12,7 +12,7 @@ import { type Pause, TIMEOUT_BRANCH } from '../pipeline/actions/PauseAction.js';
  * El inbox es lo que llega mientras un agente está en su loop con el modelo: lo vacía antes de
  * cada vuelta (`ProviderRunContext.inbox`), así que un mensaje entra a la conversación en la vuelta
  * siguiente, sin reiniciar nada. Lo que llegó y ningún agente alcanzó a leer (llegó después de su
- * última vuelta) queda en `unread()`: el engine lo vuelve a despachar al cerrar la ejecución, así
+ * última vuelta) queda en `takeUnread()`: el engine lo vuelve a despachar al cerrar la ejecución, así
  * que nunca se pierde.
  *
  * Una ejecución también puede PAUSARSE (una `PauseAction` de su pipeline): libera su lugar y su
@@ -112,9 +112,12 @@ export class Execution {
     return fresh.map((entry) => entry.message);
   }
 
-  /** Los eventos inyectados que ningún agente leyó. */
-  unread(): DomainEvent<any>[] {
-    return this.delivered.filter((entry) => !entry.read).map((entry) => entry.event);
+  /** Los eventos inyectados que ningún agente leyó — y los consume: se toman una sola vez, así
+   *  que una ejecución que se pausa y después cierra no los devuelve dos veces. */
+  takeUnread(): DomainEvent<any>[] {
+    const unread = this.delivered.filter((entry) => !entry.read);
+    for (const entry of unread) entry.read = true;
+    return unread.map((entry) => entry.event);
   }
 
   /** Su pipeline se cortó en una pausa: queda `paused` hasta que la despierte un evento o venza.
