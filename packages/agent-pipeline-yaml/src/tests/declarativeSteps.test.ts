@@ -76,6 +76,25 @@ do:
     ]);
   });
 
+  it('are substituted before the schema: they fill non-string fields and a wrong type fails the load', async () => {
+    const pipeline = (id: string) => `
+id: ${id}
+on: '{{vars.events}}'
+position: '{{vars.position}}'
+do:
+  - { emit: b }
+`;
+    const vars = () => ({ events: ['a', 'c'], position: 5, board: { number: 119 } });
+    const { source } = mount({ 'pipelines/p.yaml': pipeline('p') }, { projectVars: vars });
+    const [loaded] = source.list();
+    expect(loaded?.on).toEqual(['a', 'c']);
+    expect(loaded?.position).toBe(5);
+
+    expect(() =>
+      mount({ 'pipelines/p.yaml': pipeline("'{{vars.board}}'") }, { projectVars: vars }),
+    ).toThrow(/pipelines\/p\.yaml: inválido/);
+  });
+
   it('a var nobody declares breaks the load', () => {
     expect(() => mount(files, { projectVars: () => ({ board: 1 }) })).toThrow(
       /pipelines\/p\.yaml: no hay una var "repos"/,
