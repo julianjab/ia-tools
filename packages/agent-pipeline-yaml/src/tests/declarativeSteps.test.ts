@@ -11,7 +11,7 @@ function mount(files: Record<string, string>, catalogs: YamlCatalogs = {}) {
   const bus = new EventBus();
   const engine = new Engine({ bus, pipelines: source });
   engine.start();
-  const emitted: DomainEvent<any>[] = [];
+  const emitted: DomainEvent<unknown>[] = [];
   bus.subscribe('*', (event) => void emitted.push(event));
   return { source, engine, bus, emitted };
 }
