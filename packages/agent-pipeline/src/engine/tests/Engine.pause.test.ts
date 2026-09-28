@@ -189,6 +189,66 @@ describe('Engine with pauses', () => {
     await vi.waitFor(() => expect(store.current(KEY)).toBeUndefined());
   });
 
+  it('an event that arrives before the pause exists still wakes it once it pauses', async () => {
+    const ran: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const running = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const implementer = new Agent(
+      {
+        id: 'implementer',
+        provider: 'held',
+        prompt: 'p',
+        routes: {
+          done: {
+            to: new PauseAction({
+              id: 'wait-ci',
+              branches: {
+                green: {
+                  on: ['check_suite'],
+                  when: [new Condition({ field: 'conclusion', op: 'eq', value: 'success' })],
+                  to: action('review', ran),
+                },
+              },
+            }),
+          },
+        },
+      },
+      new ProviderRegistry().register({
+        id: 'held',
+        run: async (ctx) => {
+          entered();
+          await gate;
+          await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({});
+          return { outcome: 'success' };
+        },
+      }),
+    );
+    const store = new InMemoryExecutionStore();
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: new StaticPipelineSource([
+        new Pipeline({ id: 'build', on: ['build'], do: [implementer] }),
+      ]),
+      executions: store,
+    });
+
+    const build = engine.dispatch(event('build'));
+    await running;
+    // El CI termina antes de que el implementer elija su salida: todavía no hay pausa.
+    expect(await engine.dispatch(ci('success'))).toBe('skipped');
+    release();
+    await build;
+
+    await vi.waitFor(() => expect(ran).toEqual(['review:check_suite']));
+    await vi.waitFor(() => expect(store.current(KEY)).toBeUndefined());
+  });
+
   it('if the rules cannot be read, the pause is not woken and the task stays free', async () => {
     const { engine, store, broken } = ciGate();
     await engine.dispatch(event('build'));

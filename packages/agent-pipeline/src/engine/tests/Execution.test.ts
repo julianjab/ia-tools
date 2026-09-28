@@ -99,6 +99,8 @@ describe('InMemoryExecutionStore', () => {
     execution.leave();
     expect(execution.active).toBeUndefined();
     expect(execution.takeUnread()).toEqual([comment]);
+    // Lo que ningún paso aceptó queda recordado para una pausa posterior — sin pausa, nada.
+    expect(execution.takeMissedWake()).toBeUndefined();
     // Se toman una sola vez.
     expect(execution.takeUnread()).toEqual([]);
   });
