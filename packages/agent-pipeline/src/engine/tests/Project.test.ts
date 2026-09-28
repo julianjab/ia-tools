@@ -132,6 +132,18 @@ describe('Project', () => {
     expect(project.intakePipelines().map((pipeline) => pipeline.id)).toEqual(['intake']);
   });
 
+  it('recognizes an intake pipeline by id, not by instance (a reloaded source builds new ones)', () => {
+    const project = new Project({
+      id: 'prod',
+      when: Condition.fromRows([{ field: 'ready', op: 'eq', value: true }]),
+      intake: [new Pipeline({ id: 'intake', on: ['a'], do: [] })],
+      pipelines: [],
+    });
+    const reloaded = new Pipeline({ id: 'intake', on: ['a'], do: [] });
+
+    expect(project.explainMismatch(createEvent('a', {}), reloaded)).toBeUndefined();
+  });
+
   it('rejects an intake pipeline with the id of another pipeline', () => {
     const intake = new Pipeline({ id: 'p', on: ['a'], do: [] });
     const pipeline = new Pipeline({ id: 'p', on: ['b'], do: [] });

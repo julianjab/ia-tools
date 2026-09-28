@@ -231,6 +231,42 @@ do:
     }
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('a value from the event cannot reach another endpoint of the same host', async () => {
+    const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => json({}));
+    const { engine } = mount(
+      {
+        'pipelines/p.yaml': `
+id: p
+on: [a]
+do:
+  - { http: '/repos/{{owner}}/{{repo}}/issues/{{number}}', connection: github }
+  - { http: '{{path}}', connection: github, when: [{ field: path, op: exists }] }
+`,
+      },
+      { connections: connection(fetch) },
+    );
+
+    // Codificado: no agrega segmentos, ni una query, ni un fragmento.
+    await engine.dispatch(
+      createEvent('a', { owner: 'la-haus', repo: 'x/../../orgs?q', number: 1 }),
+    );
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      'https://api.github.com/repos/la-haus/x%2F..%2F..%2Forgs%3Fq/issues/1',
+    );
+    for (const payload of [
+      { owner: 'la-haus', repo: '..', number: 1 },
+      { owner: '%2e%2E', repo: 'x', number: 1 },
+      { owner: 'o', repo: 'r', number: 1, path: '/repos/o/../../orgs/x/members' },
+      { owner: 'o', repo: 'r', number: 1, path: '/repos/o/r?per_page=1' },
+    ]) {
+      expect(await failure(engine.dispatch(createEvent('a', payload)))).toMatch(
+        /no puede ir en un path|no es un path simple/,
+      );
+    }
+    // La primera, y el paso fijo de las dos últimas: ningún request con un path armado por el evento.
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('emit', () => {
