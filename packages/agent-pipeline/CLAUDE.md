@@ -28,34 +28,56 @@ preguntate: ¿esto compila sin tocar la red ni el filesystem? Si la respuesta es
 ```
 src/
 ├── agent/
-│   ├── Agent.ts             clase concreta — un Runnable respaldado por un LLM
+│   ├── Agent.ts             un Runnable respaldado por un LLM: provider + render + tools + turno
 │   ├── AgentDefinition.ts   AgentDefinitionProps + tipos (SystemPromptRef, Tool, McpServerRef, ...)
+│   ├── TurnProtocol.ts      cómo termina un turno: submit_*/fail_turn → AgentRunResult
+│   ├── SubmitTool.ts, FailTool.ts   las tools con las que el modelo cierra su turno
+│   ├── PromptRenderer.ts    {{path}} + system prompts (SystemPromptCatalog, puerto)
+│   ├── Toolset.ts           tools + acciones (guarda de escritura) + nombres únicos
 │   ├── Provider.ts          Provider (interfaz) + ProviderRegistry + providerRegistry (singleton)
 │   ├── ToolRegistry.ts      base genérica de registry de Tool con AUTO-REGISTRO por clase
 │   ├── SchemaTool.ts        base de Tool con input declarado como z.strictObject (valida + JSON Schema)
-│   └── tests/               Agent.test.ts, Provider.test.ts, ToolRegistry.test.ts, SchemaTool.test.ts
+│   └── tests/
 ├── condition/
-│   ├── Condition.ts, Conditional.ts
+│   ├── Condition.ts, Conditional.ts, EventFilter.ts
 │   └── tests/
 ├── events/
 │   ├── DomainEvent.ts, EventBus.ts
 │   └── tests/
 ├── pipeline/
-│   ├── Pipeline.ts
-│   ├── Runnable.ts          base de todo lo que vive en Pipeline.do[]
+│   ├── Pipeline.ts          fachada: props, execute; compone las cuatro de abajo
+│   ├── PipelineTrigger.ts   qué eventos la arrancan (EventFilter + scope + enabled)
+│   ├── PipelineGraph.ts     el grafo, analizado una vez: agentes, pausas, destinos, validación
+│   ├── StepRunner.ts        corre un paso, su salida (report + destinos) y su onError
+│   ├── Checkpoints.ts       guardar/retomar por dónde sigue una pausa
+│   ├── Runnable.ts          base de todo lo que vive en Pipeline.do[] (+ StepOutcome, Resumable)
 │   ├── tracing.ts           qué deja la Pipeline en la traza (opciones de @traced)
 │   ├── tests/
 │   └── actions/
 │       ├── Action.ts         Action (input tipado) + BoundAction (bind) + AllowedAction (allowWrite)
-│       ├── EmitAction.ts, HttpAction.ts, FunctionAction.ts
+│       ├── ActionTool.ts     una Action como tool de un agente
+│       ├── Pause.ts          la pausa en curso (valor, serializable: toJSON/fromJSON)
+│       ├── PauseAction.ts, EmitAction.ts, HttpAction.ts, FunctionAction.ts
 │       └── tests/
 ├── routing/
 │   ├── ExitRoutes.ts        END, ExitRoutes, resolveRoutes (la cascada), submitSchemaFor
 │   └── tests/
 ├── engine/
-│   ├── Engine.ts, PipelineSource.ts, Project.ts
-│   ├── tracing.ts           qué deja el Engine en la traza (opciones de @traced/@tagged)
+│   ├── Engine.ts            fachada: start, dispatch, tick, select
+│   ├── DispatchPlanner.ts   qué pipelines corren para un evento (y la de un checkpoint)
+│   ├── ExecutionCoordinator.ts  el evento frente a la ejecución de su task (inject, wake, ifRunning, vencer)
+│   ├── RunLauncher.ts       lanzar corridas (esperadas con AggregateError, o desacopladas)
+│   ├── Redelivery.ts        re-despachar lo inyectado que nadie leyó
+│   ├── Execution.ts         UNA ejecución: ciclo de vida + ExecutionRecord + ExecutionJournal
+│   ├── Inbox.ts             lo que le llega a una ejecución (entregado / no aceptado)
+│   ├── ExecutionStore.ts    una por task + tope + ifPaused + recuperación, sobre un repositorio
+│   ├── ExecutionScheduler.ts, KeyedQueue.ts, Semaphore.ts   turno por task + tope global
+│   ├── ExecutionRepository.ts   el puerto de persistencia (síncrono)
+│   ├── InMemoryExecutionRepository.ts, InMemoryExecutionStore.ts
+│   ├── PipelineSource.ts, Project.ts
+│   ├── tracing.ts           qué deja el despacho en la traza (opciones de @traced/@tagged)
 │   └── tests/               … + tracing.test.ts (la forma de la traza de un evento)
+├── testing/                 suites de contrato (`@ia-tools/agent-pipeline/testing`) para adaptadores
 ├── index.ts
 └── tests/                index.test.ts
 ```
@@ -78,7 +100,21 @@ misma instancia dos veces; un paso determinístico nombrado es un `FunctionActio
 propio `when`/`id`), no un "agente" fingido.
 
 `isAgent(step)` (en `Pipeline.ts`) es el type guard para distinguir un `Agent` de un
-`Runnable` genérico dentro de un `do[]` construido dinámicamente.
+`Runnable` genérico dentro de un `do[]` construido dinámicamente (mira `step.kind`).
+
+**La pipeline pregunta capacidades, no clases.** `Runnable` declara cuatro puntos de extensión con
+default neutro: `kind` (`agent`/`action`, para la traza), `exitRoutes` (un paso que elige
+salidas), `asResumable()` (un paso que pausa y se reanuda por ramas) y `outcome(output)` (cómo la
+pipeline lee lo que devolvió `run`: output, salida elegida o pausa). `Agent` y `PauseAction` los
+sobreescriben; `PipelineGraph`, `StepRunner` y la traza no hacen `instanceof`. Un tipo de paso
+nuevo que elige salidas o pausa entra sin tocar `Pipeline` (ver `PipelineGraph.test.ts`).
+
+### Una clase con comportamiento por archivo
+
+Cada clase con comportamiento vive en su propio archivo (los tipos, interfaces y funciones
+puras pueden compartirlo). La excepción es `BoundAction`, en `Action.ts`: extiende `Action` y
+`Action.bind` la construye, y partir ese ciclo en dos módulos ESM cae en TDZ según el orden de
+carga. `AllowedAction` es un envoltorio sin comportamiento.
 
 ## Tests — en un `tests/` DENTRO de cada carpeta, no colocados ni en un árbol aparte
 
@@ -196,16 +232,21 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
   tiene que ponerle destino o la construcción falla.
 - **`report` corre ANTES que los destinos.** El siguiente agente (disparado por un cambio de
   status) lee los comentarios del issue; si la transición fuera primero, arrancaría sin ver el
-  hallazgo que lo mandó ahí. Este orden vive en `Pipeline.runStep`, en un solo lugar.
+  hallazgo que lo mandó ahí. Este orden vive en `StepRunner`, en un solo lugar.
 - **Proyecto y pipeline sólo definen `onError`/`report`** (`ExitDefaults`): no conocen a los
   agentes, no pueden inventarles salidas.
 - **Los loops no van por rutas.** `Pipeline` rechaza ciclos entre agentes; un "review → build"
   pasa por un evento (el cambio de status), con el tope de profundidad del `Engine`.
 
-`Pipeline` valida todo el cableado en su constructor llamando a `resolveRoutes` sin el nivel
-proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
+`PipelineGraph` valida todo el cableado al construir la pipeline, llamando a `resolveRoutes` sin
+el nivel proyecto (que llega en runtime vía `ctx.defaults` y sólo aporta `onError`/`report`).
 
-## Ejecuciones — `engine/Execution.ts`
+**`onStart` de un agente corre como paso de la pipeline** (`ctx.runStep`, que pone
+`Pipeline.execute`): respeta su `when` y abre su span, pero NO aplica ningún `onError` — si tira,
+el agente no arranca y el error es del agente (su cascada). Suelto, fuera de una pipeline, corre
+directo.
+
+## Ejecuciones — `engine/`
 
 Con `EngineOptions.executions`, cada corrida de una pipeline CON agentes sobre una task (la
 `executionKey` del evento; default, su `scope`) es una `Execution`. Eso le da al engine el control
@@ -224,9 +265,11 @@ Reglas que no son obvias al leer el código:
 - **Cada comportamiento vive en quien lo tiene.** Qué eventos acepta un paso lo declara el paso
   (`AgentDefinitionProps.injects`, porque es él quien lo lee). Lo de UNA ejecución está en
   `Execution`: su paso activo, su inbox, `inject`, `owns(event)` (nació en ella), `run`/`close`
-  (queda `done`/`failed` y loguea abre/cierra). Lo del conjunto —una por task, el tope global—
-  es del `ExecutionStore`. Qué hace una regla si la task está ocupada lo declara la regla
-  (`Pipeline.ifRunning`). El `Engine` sólo ordena: primero la ejecución, después la cascada.
+  (queda `done`/`failed` y loguea abre/cierra); lo que le llega, en su `Inbox`. Lo del conjunto
+  —una por task, el tope global— es del `ExecutionStore` (turnos en su `ExecutionScheduler`). Qué
+  hace una regla si la task está ocupada lo declara la regla (`Pipeline.ifRunning`). El despacho
+  sólo ordena: primero la ejecución (`ExecutionCoordinator`), después la cascada
+  (`DispatchPlanner`).
 - **Los `injects` del agente son TODO el filtro.** Un evento inyectado no pasa por el `when` de
   ninguna regla con agentes: lo que las reglas excluyen (ej. los comentarios que publica el propio
   engine) tiene que estar también en el `when` del `injects`.
@@ -292,9 +335,16 @@ Reglas que no son obvias al leer el código:
   **desacoplado**: el `dispatch` no lo espera, así la ejecución que lo emitió no retiene su lugar
   bajo el tope esperando a otra task (con tope 1, o dos tasks que se emiten entre sí, sería un
   deadlock). Sus errores van al log, no al que emitió.
-- **`ExecutionStore` es la costura para persistir.** `InMemoryExecutionStore` alcanza para un
-  proceso (un reinicio pierde las pausas); recuperarlas tras un reinicio es otro store con la
-  misma interfaz, que guarda el `Checkpoint`.
+- **`ExecutionRepository` es la costura para persistir.** `Execution` le anota cada transición
+  (un `ExecutionRecord` serializable: la `Pause` como `PauseJSON`, el `Checkpoint`) y lo que se le
+  entrega, vía `ExecutionJournal`. El repositorio es SÍNCRONO a propósito: el store ocupa la task en
+  el mismo tick del `start`. `InMemoryExecutionStore` alcanza para un proceso;
+  `@ia-tools/agent-pipeline-sqlite` guarda en SQLite. Al construirse, el `ExecutionStore` recupera lo
+  que el repositorio dejó vivo: las pausadas vuelven a esperar, las que corrían se cierran `failed`
+  (`closeReason: interrupted`) y lo que no leyeron lo re-despacha el `Engine` al construirse
+  (`takeOrphaned`). Un proceso por base: turnos y tope viven en memoria.
+- **Suites de contrato.** Un store o una fuente nueva prueba que sustituye a la de memoria con
+  `executionStoreContract` / `pipelineSourceContract` (`@ia-tools/agent-pipeline/testing`).
 - **El formato del mensaje inyectado es de la app** (`formatMessage`): el engine no sabe qué es un
   comentario o una review.
 
@@ -303,7 +353,7 @@ Reglas que no son obvias al leer el código:
 Los decorators y el logger viven en `@ia-tools/telemetry` (ver su CLAUDE.md); acá sólo se
 declara qué deja este paquete en la traza. Todo lo que corre por causa de UN evento cuelga de
 UNA traza: `Engine.dispatch` abre el span `event <type>` (raíz, o hijo si lo publicó un paso de
-otra pipeline), `Pipeline.execute` abre `pipeline <id>` y `runDueStep` abre `agent <id>` /
+otra pipeline), `Pipeline.execute` abre `pipeline <id>` y `StepRunner.runDue` abre `agent <id>` /
 `action <id>` por cada paso — los destinos de una salida cuelgan del agente que la eligió.
 Reglas que no son obvias al leer el código:
 
@@ -312,7 +362,8 @@ Reglas que no son obvias al leer el código:
   que la traza necesita sólo se conoce adentro del método, se devuelve en su resultado (ej.
   `StepRun`: la salida elegida, o el error que cubrió un `onError`) en vez de tocar el span.
 - **Cada clase que loguea tiene su campo `log`** (`readonly log = createLogger('agent-pipeline.engine')`
-  en `Engine`, igual en `Pipeline`). Los `onResult` de los `tracing.ts` loguean con `this.log`, y
+  en `Engine`, `DispatchPlanner`, `ExecutionCoordinator`, `RunLauncher` y `Redelivery`; el de
+  `agent-pipeline.pipeline` en `Pipeline` y `StepRunner`). Los `onResult` de los `tracing.ts` loguean con `this.log`, y
   `@traced` lo usa para loguear solo un error que se escapa del método.
 - **El scope del evento se hereda, no se repite.** El `inherit` de `dispatchTrace` pasa
   `event.scope` a atributos `ia.<clave>` (`ia.projectId`, `ia.repo`, `ia.issue`, …) que llegan a
@@ -327,7 +378,7 @@ Reglas que no son obvias al leer el código:
   pausa, `execution.resume` (con `ia.pause.branch`). Una pausa que vence abre su propia traza
   `execution.expired`. `pipeline.match` se
   registra al planear, antes de mirar las ejecuciones: para las pipelines que pasan por ellas,
-  `resolveRunning` deja además un span event `pipeline.if_running` (`starts`, `waits`, `injected`, `skipped`, `nested`)
+  `ExecutionCoordinator.resolveRunning` deja además un span event `pipeline.if_running` (`starts`, `waits`, `injected`, `skipped`, `nested`)
   con la `ia.execution.id` con la que chocó (e `ia.agent.id` si se inyectó). `pipeline <id>`
   hereda `ia.execution.id` a toda la corrida y lleva `ia.execution.wait_ms`; el agente deja
   `inbox.delivered` cuando lee lo inyectado. Un inyectado sin leer se re-despacha en una traza
