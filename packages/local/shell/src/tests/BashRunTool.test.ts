@@ -97,6 +97,45 @@ describe('bash_run', () => {
     expect(result.status).not.toBe('exit 0');
   }, 10_000);
 
+  it('un corte por tiempo dice que fue por tiempo, y cuánto más se puede pedir', async () => {
+    const tool = new BashRunTool({
+      baseDir,
+      policy: { deny: [] },
+      timeoutMs: 200,
+      maxTimeoutMs: 5_000,
+    });
+    const result = JSON.parse(await tool.handler({ command: 'sleep 30' }));
+    expect(result.status).toMatch(/^timeout: se cortó a los 0 s \(podés pedir hasta 5 s/);
+    expect(tool.description).toContain('pedí más con `timeoutMs`, hasta 5 s');
+  }, 10_000);
+
+  it('el agente puede pedir más tiempo por comando, sin pasar el máximo', async () => {
+    const tool = new BashRunTool({
+      baseDir,
+      policy: { deny: [] },
+      timeoutMs: 100,
+      maxTimeoutMs: 1_500,
+    });
+    // Con lo pedido termina solo.
+    expect(JSON.parse(await tool.handler({ command: 'sleep 0.5', timeoutMs: 1_000 })).status).toBe(
+      'exit 0',
+    );
+    // Pedir más que el máximo se recorta al máximo.
+    const start = Date.now();
+    const capped = JSON.parse(await tool.handler({ command: 'sleep 30', timeoutMs: 60_000 }));
+    expect(Date.now() - start).toBeLessThan(5_000);
+    expect(capped.status).toMatch(/es el máximo/);
+  }, 10_000);
+
+  it('sin maxTimeoutMs el agente no puede estirarlo', async () => {
+    const tool = new BashRunTool({ baseDir, policy: { deny: [] }, timeoutMs: 200 });
+    const start = Date.now();
+    const result = JSON.parse(await tool.handler({ command: 'sleep 30', timeoutMs: 60_000 }));
+    expect(Date.now() - start).toBeLessThan(5_000);
+    expect(result.status).toMatch(/^timeout/);
+    expect(tool.description).not.toContain('timeoutMs');
+  }, 10_000);
+
   it('stdin va a /dev/null, no queda un pipe abierto — un comando que lee stdin no cuelga hasta timeoutMs', async () => {
     const tool = new BashRunTool({ baseDir, policy: { deny: [] } }); // default timeoutMs: 60s
 
