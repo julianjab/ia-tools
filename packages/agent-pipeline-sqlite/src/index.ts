@@ -3,3 +3,4 @@ export type { SqliteExecutionRepositoryOptions } from './SqliteExecutionReposito
 export { SqliteExecutionRepository } from './SqliteExecutionRepository.js';
 export type { SqliteExecutionStoreOptions } from './SqliteExecutionStore.js';
 export { SqliteExecutionStore } from './SqliteExecutionStore.js';
+export { sqliteStoreDriver } from './sqliteStoreDriver.js';

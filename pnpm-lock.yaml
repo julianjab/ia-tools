@@ -153,6 +153,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@ia-tools/agent-pipeline-sqlite':
+        specifier: workspace:*
+        version: link:../agent-pipeline-sqlite
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

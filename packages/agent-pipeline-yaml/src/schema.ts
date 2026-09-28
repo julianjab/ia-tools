@@ -148,3 +148,29 @@ export const CommonStepShape = {
   when: ConditionRows.optional(),
   continueOnError: z.boolean().optional(),
 };
+
+/** `engine.yaml`: cómo arma el engine una app. Las rutas son relativas al archivo. */
+export const EngineDoc = z.strictObject({
+  maxEventDepth: z.number().int().positive().optional(),
+  executions: z
+    .strictObject({
+      /** Un driver registrado (`memory` viene incluido; ej. `sqlite` de
+       *  `@ia-tools/agent-pipeline-sqlite`). */
+      driver: z.string().min(1).default('memory'),
+      path: z.string().min(1).optional(),
+      maxConcurrent: z.number().int().min(1).optional(),
+    })
+    .optional(),
+  /** `dir`: la carpeta de un proyecto. `root`: una carpeta con un proyecto por subcarpeta. */
+  sources: z
+    .array(
+      z.union([
+        z.strictObject({ dir: z.string().min(1) }),
+        z.strictObject({ root: z.string().min(1) }),
+      ]),
+    )
+    .min(1),
+  /** Cada cuánto vence las pausas (`engine.tick()`). Sin esto, la app lo llama. */
+  tick: z.strictObject({ everyMs: z.number().int().positive() }).optional(),
+});
+export type EngineDoc = z.infer<typeof EngineDoc>;

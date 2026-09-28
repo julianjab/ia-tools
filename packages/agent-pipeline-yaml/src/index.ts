@@ -7,4 +7,10 @@ export type { ToolLookup, YamlCatalogs } from './YamlCatalogs.js';
 export type { YamlPipelineSourceOptions } from './YamlPipelineSource.js';
 export { YamlPipelineSource } from './YamlPipelineSource.js';
 export { YamlReader } from './YamlReader.js';
-export { AgentDoc, ConditionRows, PipelineDoc, ProjectDoc, StepNode } from './schema.js';
+export { AgentDoc, ConditionRows, EngineDoc, PipelineDoc, ProjectDoc, StepNode } from './schema.js';
+export type {
+  CreateEngineFromYamlOptions,
+  EngineFromYaml,
+  ExecutionStoreDriver,
+} from './createEngineFromYaml.js';
+export { createEngineFromYaml } from './createEngineFromYaml.js';
