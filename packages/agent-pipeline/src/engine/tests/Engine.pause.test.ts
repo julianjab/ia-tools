@@ -8,7 +8,7 @@ import { Pipeline } from '../../pipeline/Pipeline.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
 import { PauseAction } from '../../pipeline/actions/PauseAction.js';
 import { Engine, scopeExecutionKey } from '../Engine.js';
-import { InMemoryExecutionStore } from '../Execution.js';
+import { InMemoryExecutionStore } from '../ExecutionStore.js';
 import { StaticPipelineSource } from '../PipelineSource.js';
 import { Project } from '../Project.js';
 
