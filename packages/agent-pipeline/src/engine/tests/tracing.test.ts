@@ -17,7 +17,7 @@ import { Agent } from '../../agent/Agent.js';
 import { ProviderRegistry } from '../../agent/Provider.js';
 import { Condition } from '../../condition/Condition.js';
 import { Engine } from '../../engine/Engine.js';
-import { InMemoryExecutionStore } from '../../engine/ExecutionStore.js';
+import { InMemoryExecutionStore } from '../../engine/InMemoryExecutionStore.js';
 import { StaticPipelineSource } from '../../engine/PipelineSource.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';

@@ -9,7 +9,7 @@ import { type IfRunning, Pipeline } from '../../pipeline/Pipeline.js';
 import { EmitAction } from '../../pipeline/actions/EmitAction.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
 import { Engine, scopeExecutionKey } from '../Engine.js';
-import { InMemoryExecutionStore } from '../ExecutionStore.js';
+import { InMemoryExecutionStore } from '../InMemoryExecutionStore.js';
 import { StaticPipelineSource } from '../PipelineSource.js';
 
 const TASK = { projectId: 'p', repo: 'la-haus/subscriptions', issue: 1640 };

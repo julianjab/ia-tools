@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Condition } from '../../../condition/Condition.js';
 import { EventFilter } from '../../../condition/EventFilter.js';
 import { createEvent } from '../../../events/DomainEvent.js';
-import { Pause } from '../PauseAction.js';
+import { Pause } from '../Pause.js';
 
 describe('Pause as JSON', () => {
   it('round-trips: the restored pause wakes on the same events and expires at the same time', () => {

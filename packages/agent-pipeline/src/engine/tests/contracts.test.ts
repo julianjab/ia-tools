@@ -3,7 +3,7 @@ import { createEvent } from '../../events/DomainEvent.js';
 import { Pipeline } from '../../pipeline/Pipeline.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
 import { executionStoreContract, pipelineSourceContract } from '../../testing/index.js';
-import { InMemoryExecutionStore } from '../ExecutionStore.js';
+import { InMemoryExecutionStore } from '../InMemoryExecutionStore.js';
 import { StaticPipelineSource } from '../PipelineSource.js';
 import { Project } from '../Project.js';
 

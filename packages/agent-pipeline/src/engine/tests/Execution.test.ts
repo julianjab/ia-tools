@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Agent } from '../../agent/Agent.js';
 import { createEvent } from '../../events/DomainEvent.js';
-import { InMemoryExecutionStore } from '../ExecutionStore.js';
+import { InMemoryExecutionStore } from '../InMemoryExecutionStore.js';
 
 /** Lo común a cualquier store está en `contracts.test.ts` (`executionStoreContract`). */
 describe('InMemoryExecutionStore', () => {

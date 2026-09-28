@@ -5,10 +5,10 @@ import { EventFilter } from '../../condition/EventFilter.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import { Pipeline } from '../../pipeline/Pipeline.js';
-import { Pause } from '../../pipeline/actions/PauseAction.js';
+import { Pause } from '../../pipeline/actions/Pause.js';
 import { Engine, scopeExecutionKey } from '../Engine.js';
-import { InMemoryExecutionRepository } from '../ExecutionRepository.js';
 import { ExecutionStore } from '../ExecutionStore.js';
+import { InMemoryExecutionRepository } from '../InMemoryExecutionRepository.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const pause = () =>
