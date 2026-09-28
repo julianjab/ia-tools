@@ -256,6 +256,66 @@ describe('Engine with pauses', () => {
   });
 });
 
+describe('Pipeline: where a pause can go', () => {
+  const pause = () => new PauseAction({ id: 'wait', branches: { go: { on: ['go'] } } });
+  const agent = (id: string, routes: Record<string, unknown> = {}, onError?: unknown) =>
+    new Agent({
+      id,
+      provider: 'x',
+      prompt: 'p',
+      routes: routes as never,
+      ...(onError ? { onError: onError as never } : {}),
+    });
+  const notify = () => new FunctionAction({ id: 'notify', fn: () => null });
+
+  it('last in its list of targets — what follows would never resume', () => {
+    expect(
+      () =>
+        new Pipeline({
+          id: 'p',
+          on: ['x'],
+          do: [agent('a', { done: { to: [pause(), notify()] } })],
+        }),
+    ).toThrow(/"wait" puede pausar y no es el último destino/);
+  });
+
+  it('also through an agent that can pause further down', () => {
+    const b = agent('b', { done: { to: pause() } });
+    expect(
+      () =>
+        new Pipeline({
+          id: 'p',
+          on: ['x'],
+          do: [agent('a', { done: {} })],
+          routes: { a: { routes: { done: { to: [b, notify()] } } } },
+        }),
+    ).toThrow(/"b" puede pausar/);
+  });
+
+  it('never in an onError', () => {
+    expect(
+      () =>
+        new Pipeline({
+          id: 'p',
+          on: ['x'],
+          do: [agent('a', {}, { to: pause() })],
+        }),
+    ).toThrow(/un `onError` no puede pausar/);
+  });
+
+  it('a pause last in its list, or alone in do[], is fine', () => {
+    expect(
+      () =>
+        new Pipeline({
+          id: 'p',
+          on: ['x'],
+          do: [agent('a', { done: { to: [notify(), pause()] } })],
+        }),
+    ).not.toThrow();
+    expect(() => new Pipeline({ id: 'q', on: ['x'], do: [pause(), notify()] })).not.toThrow();
+  });
+});
+
 describe('PauseAction', () => {
   it('needs a branch or a timeout, and reserves the timeout branch name', () => {
     expect(() => new PauseAction({ id: 'p' })).toThrow(/nunca se reanudaría/);
