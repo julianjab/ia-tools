@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { Action, ProviderRegistry, createEvent, scopeExecutionKey } from '@ia-tools/agent-pipeline';
-import { sqliteStoreDriver } from '@ia-tools/agent-pipeline-sqlite';
+import { sqliteStoreDriver } from '@ia-tools/agent-pipeline-sqlite/node';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { YamlCatalogs } from '../YamlCatalogs.js';
