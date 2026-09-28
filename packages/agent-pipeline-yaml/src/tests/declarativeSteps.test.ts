@@ -210,26 +210,20 @@ do:
     );
   });
 
-  it('a templated path cannot take the credential to another host', async () => {
-    const fetch = vi.fn();
-    const { engine } = mount(
-      {
-        'pipelines/p.yaml': `
+  it('with a connection, the YAML writes the path: a whole-template path does not load', () => {
+    expect(() =>
+      mount(
+        {
+          'pipelines/p.yaml': `
 id: p
 on: [a]
 do:
   - { http: '{{path}}', connection: github }
 `,
-      },
-      { connections: connection(fetch) },
-    );
-
-    for (const path of ['//evil.com/x', '@evil.com/x', 'https://evil.com/x']) {
-      expect(await failure(engine.dispatch(createEvent('a', { path })))).toMatch(
-        /empieza con "\/"/,
-      );
-    }
-    expect(fetch).not.toHaveBeenCalled();
+        },
+        { connections: connection(vi.fn()) },
+      ),
+    ).toThrow(/el path no puede ser una plantilla entera/);
   });
 
   it('a value from the event cannot reach another endpoint of the same host', async () => {
@@ -241,7 +235,6 @@ id: p
 on: [a]
 do:
   - { http: '/repos/{{owner}}/{{repo}}/issues/{{number}}', connection: github }
-  - { http: '{{path}}', connection: github, when: [{ field: path, op: exists }] }
 `,
       },
       { connections: connection(fetch) },
@@ -257,15 +250,12 @@ do:
     for (const payload of [
       { owner: 'la-haus', repo: '..', number: 1 },
       { owner: '%2e%2E', repo: 'x', number: 1 },
-      { owner: 'o', repo: 'r', number: 1, path: '/repos/o/../../orgs/x/members' },
-      { owner: 'o', repo: 'r', number: 1, path: '/repos/o/r?per_page=1' },
     ]) {
       expect(await failure(engine.dispatch(createEvent('a', payload)))).toMatch(
-        /no puede ir en un path|no es un path simple/,
+        /no puede ir en un path/,
       );
     }
-    // La primera, y el paso fijo de las dos últimas: ningún request con un path armado por el evento.
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 
