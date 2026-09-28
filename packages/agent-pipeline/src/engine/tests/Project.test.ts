@@ -113,4 +113,30 @@ describe('Project', () => {
     await engine.dispatch(event);
     expect(ran).toEqual([['local-refine', localReport]]);
   });
+
+  it('its intake pipelines see the event before its when: they build the events it filters', async () => {
+    const ran: string[] = [];
+    const step = (id: string) => new FunctionAction({ fn: () => void ran.push(id) });
+    const project = new Project({
+      id: 'prod',
+      when: Condition.fromRows([{ field: 'item.labels', op: 'contains', value: 'blocked' }]),
+      intake: [new Pipeline({ id: 'intake', on: ['github.issues'], do: [step('intake')] })],
+      pipelines: [new Pipeline({ id: 'refine', on: ['github.issues'], do: [step('refine')] })],
+    });
+    const engine = new Engine({ bus: new EventBus(), pipelines: project });
+
+    await engine.dispatch(createEvent('github.issues', { issue: { number: 1 } }));
+
+    expect(ran).toEqual(['intake']);
+    expect(project.list().map((pipeline) => pipeline.id)).toEqual(['intake', 'refine']);
+  });
+
+  it('rejects an intake pipeline with the id of another pipeline', () => {
+    const intake = new Pipeline({ id: 'p', on: ['a'], do: [] });
+    const pipeline = new Pipeline({ id: 'p', on: ['b'], do: [] });
+
+    expect(() => new Project({ id: 'lahaus', intake: [intake], pipelines: [pipeline] })).toThrow(
+      /dos pipelines con el id "p"/,
+    );
+  });
 });

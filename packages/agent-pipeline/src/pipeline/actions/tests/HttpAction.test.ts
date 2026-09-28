@@ -72,6 +72,27 @@ describe('HttpAction', () => {
     });
   });
 
+  it('awaits async headers and uses the fetch it was given instead of the global one', async () => {
+    const global = vi.fn();
+    vi.stubGlobal('fetch', global);
+    const own = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+
+    const out = await new HttpAction({
+      url: 'https://api.example.com/x',
+      headers: async () => ({ authorization: 'Bearer fresh' }),
+      fetch: own,
+    }).run(makeCtx());
+
+    expect(out).toEqual({ ok: true });
+    expect(global).not.toHaveBeenCalled();
+    expect(own).toHaveBeenCalledWith('https://api.example.com/x', {
+      method: 'GET',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer fresh' },
+      body: undefined,
+      signal: expect.any(AbortSignal),
+    });
+  });
+
   it('returns text when the response is not application/json', async () => {
     vi.stubGlobal(
       'fetch',
