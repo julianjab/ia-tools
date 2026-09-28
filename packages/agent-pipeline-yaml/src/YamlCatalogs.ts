@@ -1,12 +1,29 @@
 import type {
   Action,
   FunctionActionProps,
+  McpServerRef,
   ProviderRegistry,
   SystemPromptCatalog,
   Tool,
   ToolInputSchema,
 } from '@ia-tools/agent-pipeline';
 import type { StepFactory } from './StepFactory.js';
+
+/** Para quién se arma una acción que depende de dónde se usa. */
+export interface ActionRequest {
+  projectId: string;
+  /** El agente que la recibe como tool, o dueño del paso (su `onStart`, sus rutas, su `report`). */
+  agentId?: string;
+  /** Las `options` de la entrada en el YAML. */
+  options: Record<string, unknown>;
+}
+
+/**
+ * Una acción que se arma a pedido: por proyecto (un board distinto), por agente (un comentario con
+ * su nombre) o con opciones propias (qué comandos puede correr). Varias acciones de una entrada
+ * sólo tienen sentido como tools de un agente.
+ */
+export type ActionProvider = (request: ActionRequest) => Action | Action[];
 
 /** Un registry de tools por nombre (ej. un `ToolRegistry` de `@ia-tools/github-tools`). */
 export interface ToolLookup {
@@ -21,8 +38,11 @@ export interface ToolLookup {
 export interface YamlCatalogs {
   /** Los providers que los agentes nombran en `provider`. Default: el `providerRegistry` global. */
   providers?: ProviderRegistry;
-  /** Acciones por nombre: `{ action: postComment, with: {...} }`. */
-  actions?: Record<string, Action>;
+  /** Acciones por nombre: `{ action: postComment, with: {...} }`. Una fija, o una que se arma a
+   *  pedido (`ActionProvider`). */
+  actions?: Record<string, Action | ActionProvider>;
+  /** Servidores MCP por id, para `mcpServers:` de un agente. */
+  mcpServers?: Record<string, McpServerRef>;
   /** Funciones para `{ function: <nombre> }` (un `FunctionAction`). */
   functions?: Record<string, FunctionActionProps['fn']>;
   /** Tools por nombre, para `tools:` de un agente. */

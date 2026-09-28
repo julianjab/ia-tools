@@ -8,15 +8,18 @@ import {
   type ErrorRoute,
   type ExitDefaults,
   type ExitRoute,
+  type McpServerRef,
   Pipeline,
   Project,
   type RouteTarget,
   type RouteTo,
   type Runnable,
   type Tool,
+  type ToolInputSchema,
 } from '@ia-tools/agent-pipeline';
+import { createLogger } from '@ia-tools/telemetry';
 import { z } from 'zod';
-import type { StepBuildContext } from './StepFactory.js';
+import type { AgentVariant, StepBuildContext } from './StepFactory.js';
 import { StepFactoryRegistry } from './StepFactoryRegistry.js';
 import { type ToolLookup, type YamlCatalogs, lookup } from './YamlCatalogs.js';
 import { located } from './located.js';
@@ -50,7 +53,10 @@ type DefaultsNode = {
  * misma pipeline. Se usa una vez por carga.
  */
 export class ProjectBuilder {
+  readonly log = createLogger('agent-pipeline.yaml');
   private readonly steps: StepFactoryRegistry;
+  private projectId = '';
+  private projectSystemPrompts: NonNullable<ProjectDoc['systemPrompts']> = [];
   private readonly agentDocs = new Map<string, Located<AgentDoc>>();
   private readonly agents = new Map<string, Agent>();
   private readonly building = new Set<string>();
@@ -60,6 +66,8 @@ export class ProjectBuilder {
   }
 
   build(docs: ProjectDocs): Project {
+    this.projectId = docs.project.doc.id ?? basename(docs.dir);
+    this.projectSystemPrompts = docs.project.doc.systemPrompts ?? [];
     for (const located of docs.agents) {
       const existing = this.agentDocs.get(located.doc.id);
       if (existing) {
@@ -76,7 +84,7 @@ export class ProjectBuilder {
       path,
       () =>
         new Project({
-          id: doc.id ?? basename(docs.dir),
+          id: this.projectId,
           when: Condition.fromRows(doc.when),
           pipelines,
           ...this.defaults(doc, context, path),
@@ -84,8 +92,9 @@ export class ProjectBuilder {
     );
   }
 
-  private agent(id: string): Agent {
-    const built = this.agents.get(id);
+  /** El agente del proyecto: el compartido, o una instancia propia de un paso (`variant`). */
+  private agent(id: string, variant?: AgentVariant): Agent {
+    const built = variant ? undefined : this.agents.get(id);
     if (built) return built;
     const located = this.agentDocs.get(id);
     if (!located) {
@@ -97,14 +106,14 @@ export class ProjectBuilder {
       throw new Error(`${located.path}: el agente "${id}" se referencia a sí mismo al armarse`);
     }
     this.building.add(id);
-    const agent = this.buildAgent(located);
+    const agent = this.buildAgent(located, variant);
     this.building.delete(id);
-    this.agents.set(id, agent);
+    if (!variant) this.agents.set(id, agent);
     return agent;
   }
 
-  private buildAgent({ path, doc }: Located<AgentDoc>): Agent {
-    const context = this.context(path, new Map());
+  private buildAgent({ path, doc }: Located<AgentDoc>, variant: AgentVariant = {}): Agent {
+    const context = this.context(path, new Map(), doc.id);
     const where = (rel: string) => `${path}: ${rel}`;
     return located(
       path,
@@ -113,21 +122,23 @@ export class ProjectBuilder {
           {
             id: doc.id,
             provider: doc.provider,
-            prompt: doc.prompt,
-            ...(doc.input ? { input: lookup(this.catalogs.schemas, doc.input, 'un schema') } : {}),
-            systemPrompts: doc.systemPrompts,
+            prompt: variant.brief ? `${variant.brief.trim()}\n\n${doc.prompt}` : doc.prompt,
+            ...(doc.input ? { input: this.input(doc.input) } : {}),
+            systemPrompts: [...this.projectSystemPrompts, ...(doc.systemPrompts ?? [])],
             variables: doc.variables,
             tools: doc.tools?.map((name) => this.tool(name)),
-            actions: doc.actions?.map((entry) => this.agentAction(entry)),
+            actions: doc.actions?.flatMap((entry) =>
+              this.agentActions(entry, doc.id, doc.allowWrites ?? false),
+            ),
             onStart: doc.onStart?.map((node, i) => context.step(node, where(`onStart[${i}]`))),
             injects: doc.injects?.map((filter) => ({
               on: filter.on,
               when: Condition.fromRows(filter.when),
             })),
             providerConfig: doc.providerConfig,
-            mcpServers: doc.mcpServers,
+            mcpServers: this.mcpServers(doc.mcpServers, where('mcpServers')),
             continueOnError: doc.continueOnError,
-            when: Condition.fromRows(doc.when),
+            when: [...Condition.fromRows(doc.when), ...(variant.when ?? [])],
             routes: this.exitRoutes(doc.routes, context, where('routes')) as Record<
               string,
               ExitRoute
@@ -177,13 +188,16 @@ export class ProjectBuilder {
     );
   }
 
-  private context(path: string, local: Map<string, Runnable>): StepBuildContext {
+  private context(path: string, local: Map<string, Runnable>, agentId?: string): StepBuildContext {
     const make = (where: string): StepBuildContext => ({
       catalogs: this.catalogs,
+      projectId: this.projectId,
+      ...(agentId !== undefined ? { agentId } : {}),
       where,
       step: (node, at) => this.step(node, at, local, make(at)),
       routeTo: (node, at) => this.routeTo(node, make(at)),
-      agent: (id) => located(where, () => this.agent(id)),
+      agent: (id, variant) => located(where, () => this.agent(id, variant)),
+      action: (name, options) => this.action(name, agentId, options),
     });
     return make(path);
   }
@@ -287,10 +301,72 @@ export class ProjectBuilder {
     return lookup(tools as Record<string, Tool> | undefined, name, 'una tool');
   }
 
-  private agentAction(entry: NonNullable<AgentDoc['actions']>[number]): Action | AllowedAction {
-    if (typeof entry === 'string') return lookup(this.catalogs.actions, entry, 'una acción');
-    const action = lookup(this.catalogs.actions, entry.action, 'una acción');
-    const bound = entry.with ? action.bind(entry.with as Partial<unknown>) : action;
-    return entry.allowWrite ? bound.allowWrite() : bound;
+  /** La acción `name` del catálogo — armada para este proyecto y agente si es un `ActionProvider`. */
+  private action(
+    name: string,
+    agentId: string | undefined,
+    options: Record<string, unknown> | undefined,
+  ): Action | Action[] {
+    const entry = lookup(this.catalogs.actions, name, 'una acción');
+    if (typeof entry === 'function') {
+      return entry({
+        projectId: this.projectId,
+        ...(agentId !== undefined ? { agentId } : {}),
+        options: options ?? {},
+      });
+    }
+    if (options) throw new Error(`la acción "${name}" es fija: no acepta \`options\``);
+    return entry;
+  }
+
+  private agentActions(
+    entry: NonNullable<AgentDoc['actions']>[number],
+    agentId: string,
+    allowWrites: boolean,
+  ): Array<Action | AllowedAction> {
+    const {
+      action: name,
+      with: fixed,
+      options,
+      allowWrite,
+    } = typeof entry === 'string' ? { action: entry } : entry;
+    return [this.action(name, agentId, options)].flat().map((action) => {
+      const bound = fixed ? action.bind(fixed as Partial<unknown>) : action;
+      return allowWrite || allowWrites ? bound.allowWrite() : bound;
+    });
+  }
+
+  /** `input` por nombre de schema, o los campos inline. */
+  private input(input: NonNullable<AgentDoc['input']>): ToolInputSchema {
+    if (typeof input === 'string') return lookup(this.catalogs.schemas, input, 'un schema');
+    const shape = Object.fromEntries(
+      Object.entries(input).map(([name, field]) => {
+        let schema: z.ZodType =
+          field.type === 'number'
+            ? z.number()
+            : field.type === 'boolean'
+              ? z.boolean()
+              : z.string();
+        if (field.description) schema = schema.describe(field.description);
+        if (field.optional) schema = schema.optional();
+        return [name, schema] as const;
+      }),
+    );
+    return z.strictObject(shape) as unknown as ToolInputSchema;
+  }
+
+  /** Los MCP del agente: los inline, y los del catálogo por id. Un id que el catálogo no tiene (ej.
+   *  un servidor que no respondió al arrancar) se omite con un aviso: el agente corre sin él. */
+  private mcpServers(refs: AgentDoc['mcpServers'], where: string): McpServerRef[] | undefined {
+    if (!refs) return undefined;
+    return refs.flatMap((ref) => {
+      if (typeof ref !== 'string') return [ref];
+      const server = this.catalogs.mcpServers?.[ref];
+      if (!server) {
+        this.log.warn(`${where}: el MCP "${ref}" no está en el catálogo — el agente corre sin él`);
+        return [];
+      }
+      return [server];
+    });
   }
 }

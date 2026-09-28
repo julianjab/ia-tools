@@ -24,6 +24,9 @@ export interface CreateEngineFromYamlOptions {
   catalogs?: YamlCatalogs;
   /** Drivers además de `memory` (ej. `{ sqlite: sqliteStoreDriver }`). */
   drivers?: Record<string, ExecutionStoreDriver>;
+  /** Fuentes armadas en código, además de las del YAML (ej. las pipelines que traducen un webhook
+   *  a los eventos que escuchan los proyectos). Van primero. */
+  sources?: PipelineSource[];
   executionKey?: (event: DomainEvent<any>) => string | undefined;
   formatMessage?: (event: DomainEvent<any>) => string;
 }
@@ -72,7 +75,7 @@ export function createEngineFromYaml(
   const bus = options.bus ?? new EventBus();
   const engine = new Engine({
     bus,
-    pipelines: sources as PipelineSource[],
+    pipelines: [...(options.sources ?? []), ...sources],
     ...optional('maxEventDepth', doc.maxEventDepth),
     ...optional('executions', executions),
     ...optional('executionKey', options.executionKey),

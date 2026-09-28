@@ -8,7 +8,8 @@ armado desde un `engine.yaml`. Hace I/O (lee archivos): por eso vive fuera del c
 - **`YamlPipelineSource`** — un `PipelineSource` por carpeta de proyecto, leído en vivo: el engine
   llama `list()` en cada evento y, si cambió algún archivo (fecha, tamaño, uno nuevo o borrado), se
   recarga. Una versión inválida se loguea y sigue la última buena; la primera carga tira.
-- **`createEngineFromYaml`** — la raíz de composición: lee `engine.yaml`, arma fuentes, store y
+- **`createEngineFromYaml`** — la raíz de composición (acepta además `sources` armadas en código,
+  ej. el intake de webhooks): lee `engine.yaml`, arma fuentes, store y
   `Engine`, lo suscribe al bus y vence pausas con `tick.everyMs`. El store se elige por nombre de
   driver: `memory` viene incluido, el resto se inyecta (`drivers: { sqlite: sqliteStoreDriver }`)
   — este paquete no depende de `@ia-tools/agent-pipeline-sqlite` (sólo en tests).
@@ -36,6 +37,17 @@ src/
 - **El YAML nunca trae funciones.** Acciones, funciones, tools, schemas de input, mappers de
   `onError` (`input`/`report` a partir del error), providers y system prompts se nombran en el YAML
   y se registran en `YamlCatalogs`.
+- **Una acción que depende de dónde se usa es un `ActionProvider`** en `catalogs.actions`: una
+  función que recibe `{ projectId, agentId?, options }` (las `options` de la entrada del YAML) y
+  arma la acción — un board por proyecto, un comentario con el nombre del agente, una shell con
+  sus comandos permitidos. Como tool de un agente puede armar varias; como paso, una sola.
+- **`allowWrites: true` en un agente** habilita todas sus acciones aunque escriban: listarlas ya
+  es la decisión del operador. Sin eso, cada una que escribe lleva `allowWrite: true`.
+- **Un paso de agente con `brief` o `when`** es una instancia propia de ese paso (el `brief` se
+  antepone al prompt). Sin ellos, el agente es uno por proyecto, compartido.
+- **`systemPrompts` del proyecto** van antes de los de cada agente: el prefijo compartido.
+- **MCP por id** salen de `catalogs.mcpServers`; un id que no está se omite con un aviso (un
+  servidor que no respondió al arrancar) y el agente corre sin él.
 - **Un tipo de paso nuevo es una `StepFactory`** en `catalogs.steps`: no se toca el loader.
 - **`{ ref: <id> }`** reusa un paso declarado ANTES en el `do` de la misma pipeline (ej. como
   destino de una ruta). Un agente (`{ agent: <id> }`) es uno por proyecto, compartido.

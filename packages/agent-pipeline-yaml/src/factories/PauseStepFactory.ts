@@ -1,7 +1,7 @@
 import { Condition, PauseAction, type PauseBranchProps } from '@ia-tools/agent-pipeline';
 import { z } from 'zod';
 import type { StepBuildContext, StepFactory } from '../StepFactory.js';
-import { ConditionRows, RouteToNode } from '../schema.js';
+import { ConditionRows, Duration, RouteToNode, durationMs } from '../schema.js';
 
 const Node = z.strictObject({
   /** El id de la pausa: el checkpoint la busca por él al reanudar. */
@@ -16,8 +16,16 @@ const Node = z.strictObject({
       }),
     )
     .optional(),
+  /** Vence tras `after` (`30m`, `2h`) o `afterMs`. */
   timeout: z
-    .strictObject({ afterMs: z.number().int().positive(), to: RouteToNode.optional() })
+    .strictObject({
+      after: Duration.optional(),
+      afterMs: z.number().int().positive().optional(),
+      to: RouteToNode.optional(),
+    })
+    .refine((timeout) => (timeout.after === undefined) !== (timeout.afterMs === undefined), {
+      message: 'timeout lleva `after` o `afterMs` (uno de los dos)',
+    })
     .optional(),
   when: ConditionRows.optional(),
 });
@@ -46,7 +54,7 @@ export class PauseStepFactory implements StepFactory<z.infer<typeof Node>> {
       ...(node.timeout
         ? {
             timeout: {
-              afterMs: node.timeout.afterMs,
+              afterMs: node.timeout.afterMs ?? durationMs(node.timeout.after as string),
               ...(timeoutTo !== undefined ? { to: timeoutTo } : {}),
             },
           }

@@ -53,6 +53,20 @@ export const ErrorRouteNode = z.strictObject({
   report: z.string().optional(),
 });
 
+/** `30s`, `45m`, `2h`. */
+export const Duration = z.string().regex(/^\d+(s|m|h)$/, 'una duración: `30s`, `45m`, `2h`');
+
+const DURATION_MS = { s: 1_000, m: 60_000, h: 3_600_000 } as const;
+
+export function durationMs(duration: string): number {
+  const unit = duration.at(-1) as keyof typeof DURATION_MS;
+  return Number(duration.slice(0, -1)) * DURATION_MS[unit];
+}
+
+const SystemPromptRefs = z.array(
+  z.strictObject({ id: z.string().optional(), text: z.string().optional() }),
+);
+
 const Defaults = {
   onError: ErrorRouteNode.nullable().optional(),
   report: StepNode.nullable().optional(),
@@ -62,6 +76,8 @@ export const ProjectDoc = z.strictObject({
   /** Default: el nombre de la carpeta. */
   id: z.string().min(1).optional(),
   when: ConditionRows.optional(),
+  /** Van ANTES de los de cada agente del proyecto: el prefijo compartido (y cacheable) de todos. */
+  systemPrompts: SystemPromptRefs.optional(),
   ...Defaults,
 });
 export type ProjectDoc = z.infer<typeof ProjectDoc>;
@@ -76,19 +92,27 @@ const ActionEntry = z.union([
   z.strictObject({
     action: z.string(),
     allowWrite: z.boolean().optional(),
+    /** Campos del input que fija la config (`Action.bind`). */
     with: z.record(z.string(), z.unknown()).optional(),
+    /** Para una acción que el catálogo arma a pedido (`ActionProvider`): cómo armarla. */
+    options: z.record(z.string(), z.unknown()).optional(),
   }),
 ]);
+
+const InputField = z.strictObject({
+  type: z.enum(['string', 'number', 'boolean']),
+  description: z.string().optional(),
+  optional: z.boolean().optional(),
+});
 
 export const AgentDoc = z.strictObject({
   id: z.string().min(1),
   provider: z.string().min(1),
   prompt: z.string(),
-  /** Nombre de un schema del catálogo. */
-  input: z.string().optional(),
-  systemPrompts: z
-    .array(z.strictObject({ id: z.string().optional(), text: z.string().optional() }))
-    .optional(),
+  /** Lo que recibe cuando lo alcanza una ruta (`{{input.x}}`): un schema del catálogo por nombre,
+   *  o los campos inline. */
+  input: z.union([z.string(), z.record(z.string(), InputField)]).optional(),
+  systemPrompts: SystemPromptRefs.optional(),
   variables: z
     .record(
       z.string(),
@@ -104,11 +128,21 @@ export const AgentDoc = z.strictObject({
     .optional(),
   tools: z.array(z.string()).optional(),
   actions: z.array(ActionEntry).optional(),
+  /** Todas sus acciones pueden escribir: listarlas ya es la decisión del operador. Sin esto, una
+   *  que escribe necesita `allowWrite: true` en su entrada. */
+  allowWrites: z.boolean().optional(),
   onStart: z.array(StepNode).optional(),
   injects: z.array(EventFilterNode).optional(),
   providerConfig: z.record(z.string(), z.unknown()).optional(),
+  /** Por id (del catálogo `mcpServers`) o inline. Un id que el catálogo no tiene se omite con un
+   *  aviso: el agente corre sin ese servidor. */
   mcpServers: z
-    .array(z.strictObject({ id: z.string(), config: z.record(z.string(), z.unknown()) }))
+    .array(
+      z.union([
+        z.string(),
+        z.strictObject({ id: z.string(), config: z.record(z.string(), z.unknown()) }),
+      ]),
+    )
     .optional(),
   continueOnError: z.boolean().optional(),
   when: ConditionRows.optional(),
@@ -119,6 +153,8 @@ export type AgentDoc = z.infer<typeof AgentDoc>;
 
 export const PipelineDoc = z.strictObject({
   id: z.string().min(1),
+  /** Para leerla: no cambia nada. */
+  name: z.string().optional(),
   on: z.array(z.string().min(1)).min(1),
   scope: z.record(z.string(), z.unknown()).optional(),
   enabled: z.boolean().optional(),
