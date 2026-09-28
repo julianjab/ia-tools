@@ -10,6 +10,7 @@ import { PauseAction } from '../../pipeline/actions/PauseAction.js';
 import { Engine, scopeExecutionKey } from '../Engine.js';
 import { InMemoryExecutionStore } from '../Execution.js';
 import { StaticPipelineSource } from '../PipelineSource.js';
+import { Project } from '../Project.js';
 
 const TASK = { projectId: 'p', issue: 7 };
 const event = (type: string, payload: Record<string, unknown> = {}): DomainEvent =>
@@ -453,6 +454,34 @@ describe('Engine with pauses', () => {
     await expect(engine.dispatch(event('go'))).rejects.toThrow();
     expect(paused?.status).toBe('failed');
     expect(ran).toEqual(['one:start']);
+  });
+
+  it('resumes in the project it paused in, even if another has a pipeline with the same id', async () => {
+    const ran: string[] = [];
+    const build = (project: string) =>
+      new Pipeline({
+        id: 'build',
+        on: ['start'],
+        when: [new Condition({ field: 'project', op: 'eq', value: project })],
+        do: [
+          new PauseAction({
+            id: 'wait',
+            branches: { go: { on: ['go'], to: action(`after-${project}`, ran) } },
+          }),
+        ],
+      });
+    const engine = new Engine({
+      bus: new EventBus(),
+      pipelines: [
+        new Project({ id: 'a', pipelines: [build('a')] }),
+        new Project({ id: 'b', pipelines: [build('b')] }),
+      ],
+      executions: new InMemoryExecutionStore(),
+    });
+
+    await engine.dispatch(event('start', { project: 'b' }));
+    expect(await engine.dispatch(event('go'))).toBe('resumed');
+    expect(ran).toEqual(['after-b:go']);
   });
 
   it('a pause needs executions: without them the pipeline fails loudly', async () => {
