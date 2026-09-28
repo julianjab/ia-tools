@@ -100,7 +100,6 @@ export interface AgentDefinitionProps extends ConditionalProps, ExitRoutes {
   /** Necesita `WorkspaceProvisionerPort` (worktrees) — no existe en este harness. */
   requiresBranch?: boolean;
   allowBlocked?: boolean;
-  maxConcurrentDispatches?: number;
   projectId?: string | null;
   position?: number;
   /** Comandos que correría el ENGINE en el worktree — necesita un ShellRunner + workspace. */
