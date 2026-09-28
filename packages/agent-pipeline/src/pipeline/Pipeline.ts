@@ -13,7 +13,30 @@ import {
   submitSchemaFor,
 } from '../routing/ExitRoutes.js';
 import type { PipelineExecutionContext, Runnable } from './Runnable.js';
+import { Pause, PauseAction } from './actions/PauseAction.js';
 import { pipelineTrace, stepTrace } from './tracing.js';
+
+/**
+ * Por dónde sigue una pipeline pausada. Serializable a propósito (ids e índices, no objetos):
+ * es lo que un store persistente guarda para reanudar después de un reinicio.
+ */
+export interface Checkpoint {
+  pipelineId: string;
+  /** La `PauseAction` que la cortó. */
+  pauseId: string;
+  /** El índice de `do[]` desde el que sigue, después de correr la rama. */
+  resumeAt: number;
+  /** `ctx.steps` al pausarse. */
+  steps: Record<string, unknown>;
+  /** El scope del evento, para el evento con el que vence (`execution.expired`). */
+  scope?: Record<string, unknown>;
+}
+
+/** Reanudar una pipeline pausada por una rama de su pausa. */
+export interface Resumption {
+  checkpoint: Checkpoint;
+  branch: string;
+}
 
 /** Por qué corrió un paso — queda en su span (`ia.step.via`): `do` (en orden), `exit:<salida>`,
  *  `report:<salida>`, `onError` u `onError.report`. */
@@ -139,17 +162,77 @@ export class Pipeline extends Conditional {
    * agente —, de la pipeline o del proyecto) o el paso tenga `continueOnError`.
    */
   @traced(pipelineTrace)
-  async execute(ctx: PipelineExecutionContext): Promise<Record<string, unknown>> {
+  async execute(
+    ctx: PipelineExecutionContext,
+    from?: Resumption,
+  ): Promise<Record<string, unknown>> {
     const runCtx: PipelineExecutionContext = {
       ...ctx,
+      ...(from ? { steps: { ...from.checkpoint.steps, ...ctx.steps } } : {}),
       pipelineId: this.id,
       routesFor: (step) => (step instanceof Agent ? this.resolve(step, ctx.defaults) : undefined),
     };
-    for (const step of this.do) {
+    let resumeAt = 0;
+    if (from) {
+      // Reanudar: primero la rama que la despertó (con el evento que la despertó en
+      // `steps.<pausa>`), después el resto de `do[]` desde donde se había cortado.
+      const { checkpoint, branch } = from;
+      runCtx.steps[checkpoint.pauseId] = { branch, event: ctx.event.payload };
+      for (const target of this.findPause(checkpoint.pauseId).targetsOf(branch)) {
+        await this.runStep(target, undefined, runCtx, `resume:${branch}`);
+        if (runCtx.paused) return this.pauseAt(runCtx, checkpoint.resumeAt);
+      }
+      resumeAt = checkpoint.resumeAt;
+    }
+    for (let index = resumeAt; index < this.do.length; index++) {
+      const step = this.do[index] as Runnable;
       if (this.routedTargets.has(step)) continue;
       await this.runStep(step, undefined, runCtx, 'do');
+      if (runCtx.paused) return this.pauseAt(runCtx, index + 1);
     }
     return runCtx.steps;
+  }
+
+  /** Un paso devolvió una pausa: la pipeline se corta acá y la ejecución guarda por dónde seguir. */
+  private pauseAt(ctx: PipelineExecutionContext, resumeAt: number): Record<string, unknown> {
+    const pause = ctx.paused as Pause;
+    if (!ctx.execution) {
+      throw new Error(
+        `Pipeline(${this.id}): la pausa "${pause.pauseId}" necesita un Engine con \`executions\``,
+      );
+    }
+    ctx.execution.pause(pause, {
+      pipelineId: this.id,
+      pauseId: pause.pauseId,
+      resumeAt,
+      steps: ctx.steps,
+      ...(ctx.event.scope ? { scope: ctx.event.scope } : {}),
+    });
+    return ctx.steps;
+  }
+
+  /** La `PauseAction` con ese id, en `do[]` o como destino de alguna salida. */
+  private findPause(pauseId: string): PauseAction {
+    const seen = new Set<Runnable>();
+    const walk = (steps: Runnable[]): PauseAction | undefined => {
+      for (const step of steps) {
+        if (seen.has(step)) continue;
+        seen.add(step);
+        if (step instanceof PauseAction && step.id === pauseId) return step;
+        const next =
+          step instanceof Agent
+            ? this.resolve(step).exits.flatMap((exit) => exit.targets)
+            : step instanceof PauseAction
+              ? step.allTargets
+              : [];
+        const found = walk(next);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    const pause = walk([...this.do]);
+    if (!pause) throw new Error(`Pipeline(${this.id}): no hay una pausa "${pauseId}"`);
+    return pause;
   }
 
   /** `handleErrors: false` para los pasos que corren DENTRO de un `onError`: si fallara, por
@@ -184,6 +267,10 @@ export class Pipeline extends Conditional {
       await this.runErrorRoute(handling.report, handling.route, error, ctx);
       return { error, handledBy: 'onError' };
     }
+    if (out instanceof Pause) {
+      ctx.paused = out;
+      return { output: out.describe() };
+    }
     if (step.id) ctx.steps[step.id] = out;
     if (!(step instanceof Agent)) return { output: out };
 
@@ -200,6 +287,7 @@ export class Pipeline extends Conditional {
         ctx,
         `exit:${exit.name}`,
       );
+      if (ctx.paused) break;
     }
     return { output: out, exit: { exit, payload } };
   }
@@ -232,6 +320,7 @@ export class Pipeline extends Conditional {
     }
     for (const target of routeTargets(route.to)) {
       await this.runStep(target, route.input?.(error), ctx, 'onError', false);
+      if (ctx.paused) break;
     }
   }
 

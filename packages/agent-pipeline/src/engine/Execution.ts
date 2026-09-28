@@ -1,6 +1,8 @@
 import { createLogger } from '@ia-tools/telemetry';
 import type { DomainEvent } from '../events/DomainEvent.js';
+import type { Checkpoint } from '../pipeline/Pipeline.js';
 import type { Runnable } from '../pipeline/Runnable.js';
+import { type Pause, TIMEOUT_BRANCH } from '../pipeline/actions/PauseAction.js';
 
 /**
  * Una ejecución: UNA corrida de una pipeline con agentes sobre UNA task (la `key`, que el `Engine`
@@ -13,17 +15,29 @@ import type { Runnable } from '../pipeline/Runnable.js';
  * última vuelta) queda en `unread()`: el engine lo vuelve a despachar al cerrar la ejecución, así
  * que nunca se pierde.
  *
+ * Una ejecución también puede PAUSARSE (una `PauseAction` de su pipeline): libera su lugar y su
+ * task, guarda por dónde seguir (`Checkpoint`) y espera un evento que la despierte (`wake`) o
+ * que venza (`expired`). Si mientras tanto arranca otra corrida de agentes sobre la task, la
+ * pausa queda reemplazada (`superseded`): esa corrida lee el estado nuevo.
+ *
  * Lo que es de UNA ejecución vive acá: su paso activo, su inbox, si un evento nació en ella,
- * correr y cerrarse. Qué eventos acepta el paso lo decide el paso (`Runnable.accepts`); lo que es
- * del conjunto (una por task, el tope global) es del store; qué hace una regla si la task está
- * ocupada lo declara la regla (`Pipeline.ifRunning`).
+ * correr, pausarse, despertar y cerrarse. Qué eventos acepta el paso lo decide el paso
+ * (`Runnable.accepts`); lo que es del conjunto (una por task, el tope global) es del store; qué
+ * hace una regla si la task está ocupada lo declara la regla (`Pipeline.ifRunning`).
  */
-export type ExecutionStatus = 'running' | 'done' | 'failed';
+export type ExecutionStatus = 'running' | 'paused' | 'done' | 'failed' | 'superseded' | 'expired';
+export type ClosedStatus = Exclude<ExecutionStatus, 'running' | 'paused'>;
 
 interface Delivered {
   message: string;
   event: DomainEvent<any>;
   read: boolean;
+}
+
+/** Por qué despertó una pausa: la rama y por dónde seguir. */
+export interface Wake {
+  branch: string;
+  checkpoint: Checkpoint;
 }
 
 export class Execution {
@@ -35,8 +49,11 @@ export class Execution {
   status: ExecutionStatus = 'running';
   private readonly delivered: Delivered[] = [];
   private step: Runnable | undefined;
+  private paused: { pause: Pause; checkpoint: Checkpoint } | undefined;
+  /** Devuelve su lugar y su task al store — lo pone el store cada vez que se los da. */
+  private releaser: (() => void) | undefined;
   private settle!: () => void;
-  /** Resuelve cuando la ejecución termina, bien o mal — nunca rechaza. */
+  /** Resuelve cuando la ejecución termina, bien o mal — nunca rechaza. Una pausa no la termina. */
   readonly finished = new Promise<void>((resolve) => {
     this.settle = resolve;
   });
@@ -55,6 +72,11 @@ export class Execution {
    *  pasos, o antes/después de un agente, no hay ninguno. */
   get active(): Runnable | undefined {
     return this.step;
+  }
+
+  /** La pausa en la que está, si está pausada. */
+  get pausedOn(): Pause | undefined {
+    return this.status === 'paused' ? this.paused?.pause : undefined;
   }
 
   /** Lo llama el agente al entrar y salir de su loop con el provider. */
@@ -95,7 +117,55 @@ export class Execution {
     return this.delivered.filter((entry) => !entry.read).map((entry) => entry.event);
   }
 
-  /** Corre `work` como esta ejecución: queda `done` o `failed` según termine, y se cierra. */
+  /** Su pipeline se cortó en una pausa: queda `paused` hasta que la despierte un evento o venza.
+   *  Devuelve su lugar y su task cuando `run` termina de desarmar la corrida. */
+  pause(pause: Pause, checkpoint: Checkpoint): void {
+    if (this.status !== 'running') {
+      throw new Error(`${this.id}: no se puede pausar una ejecución ${this.status}`);
+    }
+    this.status = 'paused';
+    this.step = undefined;
+    this.paused = { pause, checkpoint };
+    this.log.info(`${this.id} se pausa en "${pause.pauseId}" (${pause.describe()})`, {
+      'ia.execution.id': this.id,
+      'ia.pause.id': pause.pauseId,
+    });
+  }
+
+  /**
+   * Si `event` despierta su pausa, vuelve a `running` en el acto (así otro evento no la despierta
+   * dos veces) y devuelve la rama y por dónde seguir. Quien la despierta le pide al store que la
+   * vuelva a admitir (`ExecutionStore.resume`) antes de correrla.
+   */
+  wake(event: DomainEvent<any>): Wake | undefined {
+    if (this.status !== 'paused' || !this.paused) return undefined;
+    const branch = this.paused.pause.match(event);
+    return branch ? this.resumeBy(branch) : undefined;
+  }
+
+  /** Si su pausa venció (`now` ≥ `expiresAt`). */
+  expired(now: number): boolean {
+    return this.status === 'paused' && (this.paused?.pause.expired(now) ?? false);
+  }
+
+  /** La despierta por la rama `timeout`. Lo llama el engine con una pausa vencida. */
+  wakeOnTimeout(): Wake | undefined {
+    return this.status === 'paused' && this.paused ? this.resumeBy(TIMEOUT_BRANCH) : undefined;
+  }
+
+  private resumeBy(branch: string): Wake {
+    const { checkpoint } = this.paused as { checkpoint: Checkpoint };
+    this.status = 'running';
+    this.paused = undefined;
+    this.log.info(`${this.id} se reanuda por "${branch}"`, {
+      'ia.execution.id': this.id,
+      'ia.pause.branch': branch,
+    });
+    return { branch, checkpoint };
+  }
+
+  /** Corre `work` como esta ejecución: queda `done` o `failed` según termine, y se cierra — o,
+   *  si se pausó en el medio, devuelve su lugar y su task sin cerrarse. */
   async run<T>(work: () => Promise<T>): Promise<T> {
     this.log.info(
       `${this.id} abre: ${this.pipelineId}${this.waitedMs > 0 ? ` (esperó ${this.waitedMs} ms)` : ''}`,
@@ -103,7 +173,8 @@ export class Execution {
     );
     try {
       const result = await work();
-      this.close('done');
+      if (this.status === 'paused') this.release();
+      else this.close('done');
       return result;
     } catch (err) {
       this.close('failed');
@@ -111,16 +182,29 @@ export class Execution {
     }
   }
 
-  /** La cierra (una sola vez): libera su task y su lugar en el store (vía `finished`). */
-  close(status: Exclude<ExecutionStatus, 'running'>): void {
-    if (this.status !== 'running') return;
+  /** La cierra (una sola vez): devuelve su task y su lugar al store. */
+  close(status: ClosedStatus): void {
+    if (this.status !== 'running' && this.status !== 'paused') return;
     this.status = status;
     this.step = undefined;
-    this.log[status === 'failed' ? 'warn' : 'info'](`${this.id} cierra: ${status}`, {
+    this.paused = undefined;
+    this.log[status === 'done' ? 'info' : 'warn'](`${this.id} cierra: ${status}`, {
       'ia.execution.id': this.id,
       'ia.execution.duration_ms': Date.now() - this.startedMs,
     });
+    this.release();
     this.settle();
+  }
+
+  /** @internal lo llama el store cada vez que le da lugar y task: `release` se los devuelve. */
+  admit(release: () => void): void {
+    this.releaser = release;
+  }
+
+  private release(): void {
+    const releaser = this.releaser;
+    this.releaser = undefined;
+    releaser?.();
   }
 }
 
@@ -131,20 +215,26 @@ export interface StartExecution {
 
 /**
  * Dónde viven las ejecuciones. El engine sólo usa esta interfaz: el store en memoria de abajo
- * alcanza para un proceso; uno persistente (pausas, recuperación tras un reinicio) implementa lo
+ * alcanza para un proceso; uno persistente (recuperar pausas tras un reinicio) implementa lo
  * mismo.
  */
 export interface ExecutionStore {
-  /** La que está corriendo para esta task, si hay. */
+  /** La de esta task, corriendo o pausada, si hay. */
   current(key: string): Execution | undefined;
-  /** Si la task tiene una ejecución corriendo O esperando turno. Se marca en el mismo tick del
-   *  `start`, así que no hay ventana en la que una task ocupada parezca libre. */
+  /** Si la task tiene una ejecución corriendo O esperando turno — una pausada no la ocupa. Se
+   *  marca en el mismo tick del `start`/`resume`, así que no hay ventana en la que una task
+   *  ocupada parezca libre. */
   busy(key: string): boolean;
   /** Abre una ejecución: espera a que termine la que esté corriendo para la misma task (una task
-   *  nunca corre dos a la vez) y a que haya lugar bajo el tope global. La libera cuando la
-   *  ejecución se cierra (`Execution.finished`). */
+   *  nunca corre dos a la vez) y a que haya lugar bajo el tope global. Si la task tenía una
+   *  pausada, la reemplaza (`superseded`). */
   start(input: StartExecution): Promise<Execution>;
-  readonly stats: { running: number; waiting: number };
+  /** Vuelve a admitir una ejecución que despertó (`Execution.wake`): espera su turno en la task
+   *  y lugar bajo el tope, igual que `start`. La parte que ocupa la task corre en el mismo tick. */
+  resume(execution: Execution): Promise<void>;
+  /** Las pausadas — para ver cuáles vencieron. */
+  paused(): Execution[];
+  readonly stats: { running: number; waiting: number; paused: number };
 }
 
 export interface InMemoryExecutionStoreOptions {
@@ -154,8 +244,7 @@ export interface InMemoryExecutionStoreOptions {
 
 /**
  * Store en memoria: serie por task (una cola por `key`) y un tope global de ejecuciones en
- * paralelo. Un reinicio pierde todo — el mismo límite que tenía la cola de la app a la que
- * reemplaza.
+ * paralelo. Un reinicio pierde todo — también las pausas.
  */
 export class InMemoryExecutionStore implements ExecutionStore {
   private readonly byKey = new Map<string, Execution>();
@@ -184,36 +273,65 @@ export class InMemoryExecutionStore implements ExecutionStore {
   }
 
   async start({ key, pipelineId }: StartExecution): Promise<Execution> {
-    // Todo lo sincrónico va ANTES del primer await: la task queda ocupada en este mismo tick.
     const queuedAt = Date.now();
-    this.waitingCount++;
-    const previous = this.tails.get(key) ?? Promise.resolve();
-    let release!: () => void;
-    const mine = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = previous.then(() => mine);
-    this.tails.set(key, tail);
-    try {
-      await previous;
-      await this.acquireSlot();
-    } finally {
-      this.waitingCount--;
-    }
-
+    const { ready, release } = this.enqueue(key);
+    await ready;
     const execution = new Execution(`exec-${this.nextId++}`, key, pipelineId, queuedAt);
-    this.byKey.set(key, execution);
-    void execution.finished.then(() => {
-      if (this.byKey.get(key) === execution) this.byKey.delete(key);
-      this.releaseSlot();
-      release();
-      if (this.tails.get(key) === tail) this.tails.delete(key);
-    });
+    const previous = this.byKey.get(key);
+    if (previous?.status === 'paused') previous.close('superseded');
+    this.admit(execution, release);
     return execution;
   }
 
-  get stats(): { running: number; waiting: number } {
-    return { running: this.active, waiting: this.waitingCount };
+  async resume(execution: Execution): Promise<void> {
+    const { ready, release } = this.enqueue(execution.key);
+    await ready;
+    this.admit(execution, release);
+  }
+
+  paused(): Execution[] {
+    return [...this.byKey.values()].filter((execution) => execution.status === 'paused');
+  }
+
+  get stats(): { running: number; waiting: number; paused: number } {
+    return { running: this.active, waiting: this.waitingCount, paused: this.paused().length };
+  }
+
+  /**
+   * Pide turno en la task y lugar bajo el tope. Todo lo sincrónico va ANTES del primer await: la
+   * task queda ocupada en este mismo tick. `release` devuelve las dos cosas.
+   */
+  private enqueue(key: string): { ready: Promise<void>; release: () => void } {
+    this.waitingCount++;
+    const previous = this.tails.get(key) ?? Promise.resolve();
+    let free!: () => void;
+    const mine = new Promise<void>((resolve) => {
+      free = resolve;
+    });
+    const tail = previous.then(() => mine);
+    this.tails.set(key, tail);
+    const ready = (async () => {
+      try {
+        await previous;
+        await this.acquireSlot();
+      } finally {
+        this.waitingCount--;
+      }
+    })();
+    const release = () => {
+      this.releaseSlot();
+      free();
+      if (this.tails.get(key) === tail) this.tails.delete(key);
+    };
+    return { ready, release };
+  }
+
+  private admit(execution: Execution, release: () => void): void {
+    this.byKey.set(execution.key, execution);
+    execution.admit(release);
+    void execution.finished.then(() => {
+      if (this.byKey.get(execution.key) === execution) this.byKey.delete(execution.key);
+    });
   }
 
   private async acquireSlot(): Promise<void> {

@@ -32,6 +32,8 @@ export type { FunctionActionProps } from './pipeline/actions/FunctionAction.js';
 export { FunctionAction } from './pipeline/actions/FunctionAction.js';
 export type { ActionProps, SideEffects } from './pipeline/actions/Action.js';
 export { Action, AllowedAction, BoundAction } from './pipeline/actions/Action.js';
+export type { PauseActionProps, PauseBranchProps } from './pipeline/actions/PauseAction.js';
+export { Pause, PauseAction, TIMEOUT_BRANCH } from './pipeline/actions/PauseAction.js';
 export type { HttpActionProps } from './pipeline/actions/HttpAction.js';
 export { HttpAction } from './pipeline/actions/HttpAction.js';
 
@@ -42,16 +44,18 @@ export type {
 } from './pipeline/Runnable.js';
 export { Runnable } from './pipeline/Runnable.js';
 
-export type { IfRunning, PipelineProps } from './pipeline/Pipeline.js';
+export type { Checkpoint, IfRunning, PipelineProps, Resumption } from './pipeline/Pipeline.js';
 export { Pipeline, isAgent } from './pipeline/Pipeline.js';
 
-export type { DispatchOutcome, EngineOptions } from './engine/Engine.js';
+export type { DispatchOutcome, EngineOptions, Offer } from './engine/Engine.js';
 export { DEFAULT_MAX_EVENT_DEPTH, Engine, scopeExecutionKey } from './engine/Engine.js';
 export type {
+  ClosedStatus,
   ExecutionStatus,
   ExecutionStore,
   InMemoryExecutionStoreOptions,
   StartExecution,
+  Wake,
 } from './engine/Execution.js';
 export { Execution, InMemoryExecutionStore } from './engine/Execution.js';
 export type { PipelineSource } from './engine/PipelineSource.js';

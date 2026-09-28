@@ -4,6 +4,8 @@ import { Conditional, type ConditionalProps } from '../condition/Conditional.js'
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { ErrorRoute, ExitDefaults, ResolvedRoutes } from '../routing/ExitRoutes.js';
+import type { Checkpoint } from './Pipeline.js';
+import type { Pause } from './actions/PauseAction.js';
 
 export interface PipelineExecutionContext {
   event: DomainEvent<any>;
@@ -19,6 +21,8 @@ export interface PipelineExecutionContext {
   routesFor?: (step: Runnable) => ResolvedRoutes | undefined;
   /** La ejecución de esta corrida, si el `Engine` lleva ejecuciones (ver `ExecutionHandle`). */
   execution?: ExecutionHandle;
+  /** @internal La pausa que devolvió un paso (`PauseAction`): la `Pipeline` corta ahí. */
+  paused?: Pause;
 }
 
 /** Lo que un paso ve de su ejecución (`engine/Execution.ts`): un agente marca cuándo está en su
@@ -32,6 +36,9 @@ export interface ExecutionHandle {
   enter(step: Runnable): void;
   leave(): void;
   drain(): string[];
+  /** La pipeline se cortó en una `PauseAction`: la ejecución espera hasta que la despierte un
+   *  evento (o venza), y guarda por dónde seguir. */
+  pause(pause: Pause, checkpoint: Checkpoint): void;
 }
 
 export interface RunnableProps extends ConditionalProps {

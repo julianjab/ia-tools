@@ -239,6 +239,21 @@ Reglas que no son obvias al leer el código:
   (`Execution.unread()`); al cerrar la ejecución el engine lo vuelve a despachar contra las reglas
   CON agentes (las reacciones ya corrieron la primera vez) y, ya sin nada corriendo, arranca
   normal.
+- **Una ejecución se puede pausar entre pasos** (`PauseAction`, como destino de una salida o en
+  `do[]`). La `Pipeline` corta ahí y le pasa a la ejecución la `Pause` (qué la despierta: ramas
+  `{ on, when, to }` y un `timeout` opcional) y el `Checkpoint` (por dónde sigue: ids, índices y
+  `ctx.steps` — serializable, para un store persistente). Pausada, devuelve su lugar y su task.
+- **Un evento para una task pausada:** si pasa una rama, la reanuda (`Execution.wake` → el store
+  la vuelve a admitir → la pipeline sigue con el `to` de la rama y el resto de `do[]`; el evento
+  que la despertó queda en `steps.<pausa>`). Si no, sigue la cascada normal, y si una regla con
+  agentes arranca una corrida sobre la task, la pausa queda `superseded` — esa corrida lee el
+  estado nuevo. Una pausa no bloquea su task.
+- **Las pausas vencen con `engine.tick()`**, que la app llama cada tanto (el engine no tiene
+  reloj): la reanuda por su rama `timeout` con un evento `execution.expired`. Sin `timeout`, una
+  pausa espera hasta que llegue una rama o la reemplacen.
+- **Despertar es sincrónico y de una sola vez.** `wake` la pasa a `running` en el acto y el store
+  ocupa la task en el mismo tick: dos eventos que la despiertan a la vez la reanudan una vez.
+- **Sólo entre pasos.** Pausar a mitad del loop de un agente (y retomar su conversación) no está.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
   `busy`; inyectar mira el paso activo de `current`.
@@ -251,7 +266,8 @@ Reglas que no son obvias al leer el código:
   bajo el tope esperando a otra task (con tope 1, o dos tasks que se emiten entre sí, sería un
   deadlock). Sus errores van al log, no al que emitió.
 - **`ExecutionStore` es la costura para persistir.** `InMemoryExecutionStore` alcanza para un
-  proceso; pausas y recuperación tras un reinicio implementan la misma interfaz en otro paquete.
+  proceso (un reinicio pierde las pausas); recuperarlas tras un reinicio es otro store con la
+  misma interfaz, que guarda el `Checkpoint`.
 - **El formato del mensaje inyectado es de la app** (`formatMessage`): el engine no sabe qué es un
   comentario o una review.
 
@@ -280,7 +296,9 @@ Reglas que no son obvias al leer el código:
 - **Un error manejado igual se ve.** Un paso que falla y lo cubre un `onError` queda en ERROR con
   `ia.step.error_handled`; el `onError` corre como hijo con `ia.step.via: onError`.
 - **Lo que pasó con un evento frente a una ejecución.** Si el paso activo lo aceptó, el despacho
-  deja un span event `execution.inject` (`ia.execution.id`, `ia.agent.id`). `pipeline.match` se
+  deja un span event `execution.inject` (`ia.execution.id`, `ia.agent.id`); si despertó una
+  pausa, `execution.resume` (con `ia.pause.branch`). Una pausa que vence abre su propia traza
+  `execution.expired`. `pipeline.match` se
   registra al planear, antes de mirar las ejecuciones: para las pipelines que pasan por ellas,
   `resolveRunning` deja además un span event `pipeline.if_running` (`starts`, `waits`, `injected`, `skipped`, `nested`)
   con la `ia.execution.id` con la que chocó (e `ia.agent.id` si se inyectó). `pipeline <id>`

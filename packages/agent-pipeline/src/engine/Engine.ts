@@ -7,13 +7,20 @@ import {
   taggedSync,
   traced,
 } from '@ia-tools/telemetry';
-import type { DomainEvent } from '../events/DomainEvent.js';
+import { type DomainEvent, createEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
 import type { ExecutionHandle } from '../pipeline/Runnable.js';
-import type { ExecutionStore } from './Execution.js';
+import type { Execution, ExecutionStore, Wake } from './Execution.js';
 import type { PipelineSource } from './PipelineSource.js';
-import { dispatchTrace, ifRunningTag, injectTag, planTag, redeliverTrace } from './tracing.js';
+import {
+  dispatchTrace,
+  expireTrace,
+  ifRunningTag,
+  offerTag,
+  planTag,
+  redeliverTrace,
+} from './tracing.js';
 
 /** Tope de la cadena de derivación de eventos (EmitAction, Agent.emitOn). Sin esto un
  *  Pipeline que se re-emite a sí mismo —directo o vía un ciclo de N pipelines— no tiene fondo. */
@@ -28,9 +35,10 @@ export interface EngineOptions {
   /**
    * Con esto, cada corrida de una pipeline con agentes es una EJECUCIÓN de la task del evento:
    * una task nunca corre dos a la vez, y un evento para una task con una ejecución en curso se le
-   * ofrece primero a su paso activo (`injects` del agente); si no lo acepta, cada regla decide con
-   * su `ifRunning` (esperar o descartarlo). Sin esto, el comportamiento es el de siempre: todo lo
-   * que matchea corre en paralelo.
+   * ofrece primero a su paso activo (`injects` del agente) — o, si está pausada, a su pausa, que
+   * la reanuda si es un evento que espera. Si no, cada regla decide con su `ifRunning` (esperar o
+   * descartarlo). Sin esto, el comportamiento es el de siempre: todo lo que matchea corre en
+   * paralelo, y una `PauseAction` falla.
    */
   executions?: ExecutionStore;
   /** A qué task pertenece un evento. Default: el `scope` del evento (sin scope, no hay task y no
@@ -40,8 +48,9 @@ export interface EngineOptions {
   formatMessage?: (event: DomainEvent<any>) => string;
 }
 
-/** `injected`: nada arrancó, pero el evento le llegó al paso activo de una ejecución en curso. */
-export type DispatchOutcome = 'dispatched' | 'injected' | 'skipped';
+/** `injected`: nada arrancó, pero el evento le llegó al paso activo de una ejecución en curso.
+ *  `resumed`: reanudó una ejecución pausada de su task (y no arrancó nada más). */
+export type DispatchOutcome = 'dispatched' | 'injected' | 'resumed' | 'skipped';
 
 /** La task de un evento: su `scope` con las claves ordenadas — dos eventos de la misma task
  *  dan la misma clave aunque el scope se haya armado en otro orden. */
@@ -64,11 +73,17 @@ export interface Candidate {
   mismatch?: string;
 }
 
-/** El evento se le entregó al paso activo de la ejecución en curso de su task. */
-export interface Injection {
-  executionId: string;
-  stepId?: string;
-}
+/** Lo que pasó al ofrecerle el evento a la ejecución de su task: se le entregó a su paso activo,
+ *  o despertó su pausa (con la corrida que la reanuda). */
+export type Offer =
+  | { kind: 'injected'; executionId: string; stepId?: string }
+  | {
+      kind: 'resumed';
+      executionId: string;
+      branch: string;
+      run: () => Promise<unknown>;
+      detach: boolean;
+    };
 
 /**
  * Qué hizo el engine con una pipeline que matcheó, frente a la ejecución de su task:
@@ -77,10 +92,11 @@ export interface Injection {
  * - `starts`: la task está libre, abre su ejecución.
  * - `waits`: la task está ocupada — corre cuando se libere (`ifRunning: wait`).
  * - `injected`: no corre — el evento ya lo recibió el paso activo de la task (`agentId`).
+ * - `resumed`: no corre — el evento reanudó la ejecución pausada de la task.
  * - `skipped`: la task está ocupada y la regla es `skip`.
  */
 export interface Resolution {
-  decision: 'direct' | 'nested' | 'starts' | 'waits' | 'injected' | 'skipped';
+  decision: 'direct' | 'nested' | 'starts' | 'waits' | 'injected' | 'resumed' | 'skipped';
   /** La corrida a lanzar, salvo `injected`/`skipped`. */
   run?: () => Promise<unknown>;
   /** Corre sin que `dispatch` la espere (ver `runDetached`). */
@@ -149,53 +165,135 @@ export class Engine {
   async dispatch(event: DomainEvent<any>): Promise<DispatchOutcome> {
     if (event.depth >= this.maxEventDepth) return 'skipped';
 
-    // Primero la ejecución en curso de su task: si su paso activo lo acepta, ya lo recibió.
-    // Sincrónico, antes de ceder el turno: el paso no puede salir de su loop en el medio.
-    const injection = this.inject(event);
+    // Primero la ejecución de su task: si su paso activo lo acepta, ya lo recibió; si está
+    // pausada y el evento la despierta, la reanuda. Sincrónico, antes de ceder el turno: el paso
+    // no puede salir de su loop, ni otro evento despertar la pausa, en el medio.
+    const offer = this.offer(event);
     const { toRun } = await this.decide(event);
-    return this.runCandidates(toRun, event, injection);
+    return this.runCandidates(toRun, event, offer);
   }
 
   /**
-   * Le ofrece `event` al paso activo de la ejecución en curso de su task (`Execution.inject`,
-   * que le pregunta al paso con `accepts`). Un evento que nació en esa misma ejecución no se le
-   * ofrece: sería mandarse un mensaje a sí misma.
+   * Las pausas vencidas se reanudan por su rama `timeout`, con un evento `execution.expired`. La
+   * app lo llama cada tanto (ej. cada minuto): el engine no tiene reloj propio.
    */
-  @taggedSync(injectTag)
-  private inject(event: DomainEvent<any>): Injection | undefined {
+  tick(now = Date.now()): void {
+    for (const execution of this.executions?.paused() ?? []) {
+      if (!execution.expired(now)) continue;
+      // El error ya lo logueó `@traced` adentro de su span; acá sólo no queda sin manejar.
+      inFreshContext(() => this.expire(execution)).catch(() => {});
+    }
+  }
+
+  /**
+   * Le ofrece `event` a la ejecución de su task: si corre, a su paso activo (`Execution.inject`,
+   * que le pregunta al paso con `accepts`); si está pausada, a su pausa (`Execution.wake`). Un
+   * evento que nació en esa misma ejecución no se le ofrece: sería mandarse un mensaje a sí misma.
+   */
+  @taggedSync(offerTag)
+  private offer(event: DomainEvent<any>): Offer | undefined {
     const key = this.executions ? this.executionKey(event) : undefined;
     const current = key === undefined ? undefined : this.executions?.current(key);
     if (!current || current.owns(event)) return undefined;
+    if (current.status === 'paused') {
+      const wake = current.wake(event);
+      return wake ? this.resumption(current, wake, event) : undefined;
+    }
     if (!current.inject(this.formatMessage(event), event)) return undefined;
     const origin = captureSpanLink();
     if (origin) this.origins.set(event, origin);
     return {
+      kind: 'injected',
       executionId: current.id,
       ...(current.active?.id ? { stepId: current.active.id } : {}),
     };
   }
 
+  /**
+   * La corrida que reanuda una ejecución que despertó. Le pide lugar al store YA (ocupa la task en
+   * este tick); la corrida sigue la pipeline desde su checkpoint por la rama que la despertó.
+   */
+  private resumption(
+    execution: Execution,
+    wake: Wake,
+    event: DomainEvent<any>,
+  ): Extract<Offer, { kind: 'resumed' }> {
+    const admitted = (this.executions as ExecutionStore).resume(execution);
+    const run = async () => {
+      await admitted;
+      try {
+        return await execution.run(() => this.continue(execution, wake, event));
+      } finally {
+        this.redispatch(execution.unread(), execution.id);
+      }
+    };
+    return {
+      kind: 'resumed',
+      executionId: execution.id,
+      branch: wake.branch,
+      run,
+      // Nacido dentro de OTRA ejecución: no se espera, ver `runDetached`.
+      detach: event.executionId !== undefined,
+    };
+  }
+
+  /** Sigue la pipeline de `execution` desde su checkpoint, por la rama que la despertó. */
+  private async continue(
+    execution: Execution,
+    { checkpoint, branch }: Wake,
+    event: DomainEvent<any>,
+  ): Promise<Record<string, unknown>> {
+    const { pipeline, source } = await this.findCandidate(checkpoint.pipelineId);
+    return pipeline.execute(
+      {
+        event,
+        steps: {},
+        bus: this.bus,
+        pipelineId: pipeline.id,
+        defaults: source.defaults,
+        execution,
+      },
+      { checkpoint, branch },
+    );
+  }
+
+  @traced(expireTrace)
+  private async expire(execution: Execution): Promise<DispatchOutcome> {
+    const wake = execution.wakeOnTimeout();
+    if (!wake) return 'skipped';
+    const event = createEvent(
+      'execution.expired',
+      { executionId: execution.id, pauseId: wake.checkpoint.pauseId },
+      wake.checkpoint.scope ? { scope: wake.checkpoint.scope } : {},
+    );
+    await this.resumption(execution, wake, event).run();
+    return 'resumed';
+  }
+
   /** Corre las pipelines elegidas para `event`, resolviendo antes las que chocan con una
-   *  ejecución en curso de su task (`resolveRunning`). */
+   *  ejecución en curso de su task (`resolveRunning`) — y la reanudación, si el evento despertó
+   *  una pausa. */
   private async runCandidates(
     toRun: Candidate[],
     event: DomainEvent<any>,
-    injection?: Injection,
+    offer?: Offer,
   ): Promise<DispatchOutcome> {
-    if (toRun.length === 0) return injection ? 'injected' : 'skipped';
-
     const runs: Array<() => Promise<unknown>> = [];
-    let detached = false;
+    const launch = (run: () => Promise<unknown>, detach: boolean) => {
+      if (detach) this.runDetached(run, event);
+      else runs.push(run);
+    };
+    if (offer?.kind === 'resumed') launch(offer.run, offer.detach);
+    let others = false;
     for (const candidate of toRun) {
-      const { run, detach } = this.resolveRunning(candidate, event, injection);
+      const { run, detach } = this.resolveRunning(candidate, event, offer);
       if (!run) continue;
-      if (detach) {
-        detached = true;
-        this.runDetached(run, event);
-      } else runs.push(run);
+      others = true;
+      launch(run, detach ?? false);
     }
-    if (runs.length === 0) return detached ? 'dispatched' : injection ? 'injected' : 'skipped';
-
+    // Sin otras corridas, el resultado es lo que pasó con la ejecución de la task (o nada).
+    const quiet = offer ? offer.kind : 'skipped';
+    if (runs.length === 0) return others ? 'dispatched' : quiet;
     // `Promise.allSettled`, no `Promise.all`: los pipelines matcheados son independientes, así
     // que un fallo en uno no debe cortar a los demás a mitad de camino — y quien llamó
     // `dispatch` (o el `AggregateError` de `EventBus.publish`, vía `start()`) tiene que ver
@@ -210,7 +308,7 @@ export class Engine {
         `${failures.length} pipeline(s) failed for event "${event.type}"`,
       );
     }
-    return 'dispatched';
+    return others ? 'dispatched' : quiet;
   }
 
   /**
@@ -238,24 +336,20 @@ export class Engine {
    * se haya inyectado.
    */
   @taggedSync(ifRunningTag)
-  private resolveRunning(
-    candidate: Candidate,
-    event: DomainEvent<any>,
-    injection?: Injection,
-  ): Resolution {
+  private resolveRunning(candidate: Candidate, event: DomainEvent<any>, offer?: Offer): Resolution {
     const { pipeline } = candidate;
     const executions = this.executions;
     const key = executions && pipeline.runsAgents ? this.executionKey(event) : undefined;
     const direct = () => this.execute(candidate, event);
     if (!executions || key === undefined) return { decision: 'direct', run: direct };
 
-    // El paso activo de la task ya lo recibió: otra corrida de agentes sobre la misma task sería
-    // hacer el trabajo dos veces.
-    if (injection) {
+    // La ejecución de la task ya lo recibió (su paso activo, o reanudándose): otra corrida de
+    // agentes sobre la misma task sería hacer el trabajo dos veces.
+    if (offer) {
       return {
-        decision: 'injected',
-        executionId: injection.executionId,
-        ...(injection.stepId ? { agentId: injection.stepId } : {}),
+        decision: offer.kind,
+        executionId: offer.executionId,
+        ...(offer.kind === 'injected' && offer.stepId ? { agentId: offer.stepId } : {}),
       };
     }
     const current = executions.current(key);
@@ -313,6 +407,16 @@ export class Engine {
       toRun.filter((candidate) => candidate.pipeline.runsAgents),
       event,
     );
+  }
+
+  /** La pipeline con ese id y su fuente — para reanudar una ejecución pausada. */
+  private async findCandidate(pipelineId: string): Promise<Candidate> {
+    for (const source of this.sources) {
+      for (const pipeline of await source.list()) {
+        if (pipeline.id === pipelineId) return { pipeline, source };
+      }
+    }
+    throw new Error(`no hay una pipeline "${pipelineId}" para reanudar`);
   }
 
   private execute(

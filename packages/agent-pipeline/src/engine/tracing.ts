@@ -15,9 +15,10 @@ import type {
   DispatchOutcome,
   DispatchPlan,
   Engine,
-  Injection,
+  Offer,
   Resolution,
 } from './Engine.js';
+import type { Execution } from './Execution.js';
 
 /** Instrumentation scope de los spans de este paquete. */
 export const SCOPE = '@ia-tools/agent-pipeline';
@@ -81,23 +82,44 @@ export const planTag: TagOptions<Engine, [DomainEvent<any>], DispatchPlan> = {
 };
 
 /**
- * Si el evento se le entregó al paso activo de la ejecución en curso de su task: un span event
- * `execution.inject` en el despacho y un log. El agente deja `inbox.delivered` cuando lo lee.
+ * Qué pasó al ofrecerle el evento a la ejecución de su task: `execution.inject` si lo recibió su
+ * paso activo (el agente deja `inbox.delivered` cuando lo lee), `execution.resume` si despertó su
+ * pausa. Un span event en el despacho y un log.
  */
-export const injectTag: TagOptions<Engine, [DomainEvent<any>], Injection | undefined> = {
-  onResult(span, injection, event) {
-    if (!injection) return;
-    const { executionId, stepId } = injection;
-    span.addEvent('execution.inject', {
-      'ia.execution.id': executionId,
-      ...(stepId ? { 'ia.agent.id': stepId } : {}),
-    });
-    this.log.info(
-      `evento "${event.type}" inyectado a ${stepId ?? 'la ejecución'} (${executionId})`,
-      {
+export const offerTag: TagOptions<Engine, [DomainEvent<any>], Offer | undefined> = {
+  onResult(span, offer, event) {
+    if (!offer) return;
+    if (offer.kind === 'injected') {
+      const { executionId, stepId } = offer;
+      span.addEvent('execution.inject', {
         'ia.execution.id': executionId,
-      },
-    );
+        ...(stepId ? { 'ia.agent.id': stepId } : {}),
+      });
+      this.log.info(
+        `evento "${event.type}" inyectado a ${stepId ?? 'la ejecución'} (${executionId})`,
+        { 'ia.execution.id': executionId },
+      );
+      return;
+    }
+    span.addEvent('execution.resume', {
+      'ia.execution.id': offer.executionId,
+      'ia.pause.branch': offer.branch,
+    });
+    this.log.info(`evento "${event.type}" reanuda ${offer.executionId} por "${offer.branch}"`, {
+      'ia.execution.id': offer.executionId,
+    });
+  },
+};
+
+/** `execution.expired`: una pausa que venció y se reanuda por su rama `timeout` — traza propia. */
+export const expireTrace: TraceOptions<Engine, [Execution], DispatchOutcome> = {
+  name: 'execution.expired',
+  kind: SpanKind.INTERNAL,
+  scope: SCOPE,
+  inherit: (execution) => ({ 'ia.execution.id': execution.id }),
+  onResult(span, outcome, execution) {
+    span.setAttribute('ia.dispatch.outcome', outcome);
+    this.log.info(`${execution.id}: su pausa venció`, { 'ia.execution.id': execution.id });
   },
 };
 
