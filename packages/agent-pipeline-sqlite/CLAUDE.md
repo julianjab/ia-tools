@@ -1,23 +1,28 @@
 # @ia-tools/agent-pipeline-sqlite
 
-`ExecutionRepository` de `@ia-tools/agent-pipeline` sobre SQLite (`node:sqlite`, Node ≥ 22.13):
-las ejecuciones pausadas sobreviven a un reinicio. Hace I/O (una base en disco): por eso vive
+`ExecutionRepository` de `@ia-tools/agent-pipeline` sobre SQLite: las ejecuciones pausadas
+sobreviven a un reinicio. El repositorio depende de un puerto (`SqliteDatabase`), no de un
+runtime: `./node` abre la base con `node:sqlite` (Node ≥ 22.13); en Bun, la app le pasa un
+`Database` de `bun:sqlite`. Hace I/O (una base en disco): por eso vive
 fuera del core.
 
 ## Estructura
 
 ```
 src/
+├── SqliteDatabase.ts             el puerto: la base síncrona que comparten node:sqlite y bun:sqlite
 ├── SqliteExecutionRepository.ts  el repositorio: save / delivered / read / live / unread / nextId
 ├── SqliteExecutionStore.ts       ExecutionStore sobre ese repositorio (+ close)
-├── sqliteStoreDriver.ts          el driver `sqlite` para engine.yaml (agent-pipeline-yaml)
+├── node.ts                       entry `./node`: openNodeSqlite + el driver `sqlite` de engine.yaml
 ├── migrations.ts                 el esquema por versión (PRAGMA user_version)
 └── tests/                        el contrato del store + reinicios reales sobre un archivo
 ```
 
 ## Reglas que no son obvias
 
-- **Síncrono a propósito** (`DatabaseSync`): el store ocupa una task en el mismo tick del
+- **El entry principal no importa `node:sqlite`**: carga en cualquier runtime. Lo de Node vive en
+  `./node`.
+- **Síncrono a propósito** (`DatabaseSync` / `bun:sqlite`): el store ocupa una task en el mismo tick del
   `start`; una escritura asíncrona abriría una ventana en la que otra corrida la vería libre.
 - **Un proceso por base.** La exclusión por task y el tope viven en memoria (el
   `ExecutionScheduler` del core). Varias réplicas sobre la misma base necesitarían leases.

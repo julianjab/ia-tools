@@ -1,9 +1,10 @@
 import { ExecutionStore } from '@ia-tools/agent-pipeline';
+import type { SqliteDatabase } from './SqliteDatabase.js';
 import { SqliteExecutionRepository } from './SqliteExecutionRepository.js';
 
 export interface SqliteExecutionStoreOptions {
-  /** Archivo de la base (se crea si no existe), o `:memory:`. */
-  path: string;
+  /** La base ya abierta por el runtime (`openNodeSqlite` de `./node`, o `bun:sqlite`). */
+  database: SqliteDatabase;
   /** Cuántas ejecuciones corren a la vez, entre todas las tasks. Default: sin tope. */
   maxConcurrent?: number;
 }
@@ -18,7 +19,7 @@ export class SqliteExecutionStore extends ExecutionStore {
   readonly database: SqliteExecutionRepository;
 
   constructor(options: SqliteExecutionStoreOptions) {
-    const repository = new SqliteExecutionRepository({ path: options.path });
+    const repository = new SqliteExecutionRepository({ database: options.database });
     super({
       repository,
       ...(options.maxConcurrent !== undefined ? { maxConcurrent: options.maxConcurrent } : {}),

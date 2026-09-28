@@ -1,4 +1,3 @@
-import { DatabaseSync } from 'node:sqlite';
 import type {
   Checkpoint,
   DomainEvent,
@@ -7,11 +6,13 @@ import type {
   ExecutionStatus,
   PauseJSON,
 } from '@ia-tools/agent-pipeline';
+import type { SqliteDatabase } from './SqliteDatabase.js';
 import { migrate } from './migrations.js';
 
 export interface SqliteExecutionRepositoryOptions {
-  /** Archivo de la base (se crea si no existe), o `:memory:`. */
-  path: string;
+  /** La base ya abierta por el runtime (`openNodeSqlite` de `./node`, o `bun:sqlite`). El
+   *  repositorio le aplica el esquema y la cierra con `close()`. */
+  database: SqliteDatabase;
 }
 
 interface ExecutionRow {
@@ -28,19 +29,18 @@ interface ExecutionRow {
 }
 
 /**
- * Las ejecuciones en SQLite, con `node:sqlite`: síncrono (lo que el `ExecutionStore` necesita para
- * ocupar una task en el mismo tick) y sin binarios nativos. Guarda cada transición y lo que se le
+ * Las ejecuciones en SQLite, sobre cualquier base síncrona (`SqliteDatabase`: `node:sqlite` o
+ * `bun:sqlite`) — lo que el `ExecutionStore` necesita para ocupar una task en el mismo tick. Guarda cada transición y lo que se le
  * entregó a cada ejecución, así un store nuevo sobre la misma base recupera las pausadas y lo que
  * las interrumpidas no leyeron.
  *
  * Un proceso por base: la exclusión por task y el tope viven en memoria, en el store.
  */
 export class SqliteExecutionRepository implements ExecutionRepository {
-  private readonly db: DatabaseSync;
+  private readonly db: SqliteDatabase;
 
   constructor(options: SqliteExecutionRepositoryOptions) {
-    this.db = new DatabaseSync(options.path);
-    if (options.path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL');
+    this.db = options.database;
     this.db.exec('PRAGMA foreign_keys = ON');
     migrate(this.db);
   }

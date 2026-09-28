@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { SqliteDatabase } from './SqliteDatabase.js';
 
 /**
  * El esquema, por versión. Una migración nueva se AGREGA al final — nunca se edita una que ya
@@ -38,7 +38,7 @@ const MIGRATIONS: string[] = [
 ];
 
 /** Lleva la base a la última versión del esquema (`PRAGMA user_version`). */
-export function migrate(db: DatabaseSync): void {
+export function migrate(db: SqliteDatabase): void {
   const { user_version: current } = db.prepare('PRAGMA user_version').get() as {
     user_version: number;
   };

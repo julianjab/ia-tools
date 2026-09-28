@@ -1,4 +1,17 @@
+/**
+ * `@ia-tools/agent-pipeline-sqlite/node`: la base con `node:sqlite` (Node ≥ 22.13). Vive en su
+ * propio entry para que el paquete principal cargue en otros runtimes (Bun trae su `bun:sqlite`).
+ */
+import { DatabaseSync } from 'node:sqlite';
+import type { SqliteDatabase } from './SqliteDatabase.js';
 import { SqliteExecutionStore } from './SqliteExecutionStore.js';
+
+/** Abre (o crea) la base en `path` — `:memory:` para una en memoria. Con archivo, en modo WAL. */
+export function openNodeSqlite(path: string): SqliteDatabase {
+  const database = new DatabaseSync(path);
+  if (path !== ':memory:') database.exec('PRAGMA journal_mode = WAL');
+  return database;
+}
 
 /**
  * El driver `sqlite` para el `engine.yaml` de `@ia-tools/agent-pipeline-yaml`
@@ -13,7 +26,7 @@ export function sqliteStoreDriver(options: {
     throw new Error('executions.path: el driver sqlite necesita el archivo de la base');
   }
   return new SqliteExecutionStore({
-    path: options.path,
+    database: openNodeSqlite(options.path),
     ...(options.maxConcurrent !== undefined ? { maxConcurrent: options.maxConcurrent } : {}),
   });
 }

@@ -1,7 +1,7 @@
 {
   "name": "@ia-tools/agent-pipeline-sqlite",
   "version": "0.1.0",
-  "description": "ExecutionRepository de @ia-tools/agent-pipeline sobre SQLite (node:sqlite): las ejecuciones pausadas sobreviven a un reinicio",
+  "description": "ExecutionRepository de @ia-tools/agent-pipeline sobre SQLite (node:sqlite o bun:sqlite): las ejecuciones pausadas sobreviven a un reinicio",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,12 +9,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
     }
   },
-  "files": ["dist"],
-  "engines": {
-    "node": ">=22.13"
-  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
