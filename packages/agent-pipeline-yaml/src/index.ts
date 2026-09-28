@@ -6,9 +6,15 @@ export { StepFactoryRegistry } from './StepFactoryRegistry.js';
 export type {
   ActionProvider,
   ActionRequest,
+  HttpConnection,
   ToolLookup,
   YamlCatalogs,
 } from './YamlCatalogs.js';
+export { hasTemplate, render, substituteVars, templateRoot } from './Template.js';
+export type { EmitStepProps } from './steps/EmitStep.js';
+export { EmitStep } from './steps/EmitStep.js';
+export type { HttpStepProps } from './steps/HttpStep.js';
+export { HttpStep } from './steps/HttpStep.js';
 export type { YamlPipelineSourceOptions } from './YamlPipelineSource.js';
 export { YamlPipelineSource } from './YamlPipelineSource.js';
 export { YamlReader } from './YamlReader.js';

@@ -25,6 +25,16 @@ export interface ActionRequest {
  */
 export type ActionProvider = (request: ActionRequest) => Action | Action[];
 
+/** Un host al que los pasos `http` le hablan por nombre, con su credencial. */
+export interface HttpConnection {
+  /** Ej. `https://api.github.com`. El path de cada paso se agrega acá: no puede cambiar el host. */
+  baseUrl: string;
+  /** Los headers de cada request (ej. el token, que puede vencer: se piden en cada una). */
+  headers?: () => Record<string, string> | Promise<Record<string, string>>;
+  /** Default: el `fetch` global. */
+  fetch?: typeof fetch;
+}
+
 /** Un registry de tools por nombre (ej. un `ToolRegistry` de `@ia-tools/github-tools`). */
 export interface ToolLookup {
   get(name: string): Tool;
@@ -53,6 +63,12 @@ export interface YamlCatalogs {
   schemas?: Record<string, ToolInputSchema>;
   /** Los system prompts que un agente referencia por `id`. */
   systemPrompts?: SystemPromptCatalog;
+  /** Las conexiones que nombra un paso `http` (`connection: github`): a qué host va y con qué
+   *  credencial. El secreto vive acá, en código; el YAML sólo pone el path. */
+  connections?: Record<string, HttpConnection>;
+  /** Las `vars` que la app le da a un proyecto (ej. su board, leído de otra config), además de
+   *  las de su `project.yaml` — que ganan. Se sustituyen al cargar: `{{vars.board}}`. */
+  projectVars?: (projectId: string) => Record<string, unknown>;
   /** Tipos de paso propios, además de los incluidos (`agent`, `action`, `emit`, `http`, `pause`,
    *  `function`). */
   steps?: StepFactory[];

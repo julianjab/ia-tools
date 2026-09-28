@@ -64,8 +64,8 @@ export class YamlPipelineSource implements PipelineSource {
     return this.refresh().list();
   }
 
-  explainMismatch(event: DomainEvent<any>): string | undefined {
-    return this.refresh().explainMismatch(event);
+  explainMismatch(event: DomainEvent<any>, pipeline: Pipeline): string | undefined {
+    return this.refresh().explainMismatch(event, pipeline);
   }
 
   private refresh(): Project {

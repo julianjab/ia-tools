@@ -1,7 +1,9 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { Project } from '@ia-tools/agent-pipeline';
+import type { z } from 'zod';
 import { ProjectBuilder } from './ProjectBuilder.js';
+import { substituteVars } from './Template.js';
 import type { YamlCatalogs } from './YamlCatalogs.js';
 import { YamlReader } from './YamlReader.js';
 import { AgentDoc, PipelineDoc, ProjectDoc } from './schema.js';
@@ -13,10 +15,14 @@ const YAML = /\.ya?ml$/;
  *
  * ```
  * <dir>/
- *   project.yaml        id, when, onError, report   (opcional)
+ *   project.yaml        id, when, vars, onError, report   (opcional)
  *   agents/*.yaml       un agente por archivo
+ *   intake/*.yaml       pipelines de ENTRADA: ven el evento antes del `when` del proyecto
  *   pipelines/*.yaml    una pipeline por archivo, en orden de nombre
  * ```
+ *
+ * Las `vars` (las de `project.yaml` sobre las de `YamlCatalogs.projectVars`) se sustituyen en
+ * todos los documentos antes de armarlos.
  */
 export class ProjectLoader {
   private readonly reader = new YamlReader();
@@ -37,6 +43,7 @@ export class ProjectLoader {
     return [
       ...(existsSync(project) ? [project] : []),
       ...inFolder('agents'),
+      ...inFolder('intake'),
       ...inFolder('pipelines'),
     ];
   }
@@ -57,18 +64,23 @@ export class ProjectLoader {
     }
     const files = this.files(dir);
     const projectPath = join(dir, 'project.yaml');
-    const under = (folder: string) => files.filter((path) => path.startsWith(join(dir, folder)));
+    const under = (folder: string) =>
+      files.filter((path) => path.startsWith(join(dir, folder, '/')));
+    const project = existsSync(projectPath) ? this.reader.read(projectPath, ProjectDoc) : {};
+    const vars = {
+      ...this.catalogs.projectVars?.(project.id ?? basename(dir)),
+      ...project.vars,
+    };
+    const read = <T>(path: string, schema: z.ZodType<T>) => ({
+      path,
+      doc: substituteVars(this.reader.read(path, schema), vars, path),
+    });
     return new ProjectBuilder(this.catalogs).build({
       dir,
-      project: {
-        path: projectPath,
-        doc: existsSync(projectPath) ? this.reader.read(projectPath, ProjectDoc) : {},
-      },
-      agents: under('agents').map((path) => ({ path, doc: this.reader.read(path, AgentDoc) })),
-      pipelines: under('pipelines').map((path) => ({
-        path,
-        doc: this.reader.read(path, PipelineDoc),
-      })),
+      project: { path: projectPath, doc: substituteVars(project, vars, projectPath) },
+      agents: under('agents').map((path) => read(path, AgentDoc)),
+      intake: under('intake').map((path) => read(path, PipelineDoc)),
+      pipelines: under('pipelines').map((path) => read(path, PipelineDoc)),
     });
   }
 }

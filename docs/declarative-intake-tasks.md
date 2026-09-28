@@ -13,21 +13,21 @@ Diseño en dos etapas:
 
 ## Fase 1 — ia-tools (`agent-pipeline` + `agent-pipeline-yaml`)
 
-- [ ] `Template`: `{{path}}` resuelto al correr contra payload + `steps` (+ `item` en un
+- [x] `Template`: `{{path}}` resuelto al correr contra payload + `steps` (+ `item` en un
       `forEach`). Un string que es SÓLO `{{x}}` conserva el tipo; embebido, se vuelve texto.
-- [ ] `vars` del proyecto (`project.yaml` + `YamlCatalogs.projectVars`): `{{vars.x}}` se
+- [x] `vars` del proyecto (`project.yaml` + `YamlCatalogs.projectVars`): `{{vars.x}}` se
       sustituye al CARGAR, en cualquier lugar del YAML (también en `when`). Una var que no
       existe rompe la carga.
-- [ ] Carpeta `intake/` del proyecto: pipelines que ven el evento ANTES del `when` del proyecto
+- [x] Carpeta `intake/` del proyecto: pipelines que ven el evento ANTES del `when` del proyecto
       (`PipelineSource.explainMismatch(event, pipeline)`).
-- [ ] `HttpAction`: headers async y `fetch` inyectable.
-- [ ] Paso `http`: `connection` (catálogo `connections`: base URL + headers + fetch), path/query/
+- [x] `HttpAction`: headers async y `fetch` inyectable.
+- [x] Paso `http`: `connection` (catálogo `connections`: base URL + headers + fetch), path/query/
       headers/body en plantilla, `graphql` + `variables`, `select` (dot path). Con conexión,
       el path no puede cambiar el host.
-- [ ] Paso `function`: `with` en plantilla, como input de la función.
-- [ ] Paso `emit`: tipo/payload/scope en plantilla y `forEach`.
-- [ ] Tests de cada pieza.
-- [ ] Limpiar lo que quede sin uso; CLAUDE.md de los paquetes.
+- [x] Paso `function`: `with` en plantilla, como input de la función.
+- [x] Paso `emit`: tipo/payload/scope en plantilla y `forEach`.
+- [x] Tests de cada pieza.
+- [x] Limpiar lo que quede sin uso; CLAUDE.md de los paquetes.
 
 ## Fase 2 — runner-v2 (ia-flow)
 
