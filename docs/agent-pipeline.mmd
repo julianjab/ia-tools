@@ -1,0 +1,907 @@
+
+classDiagram
+direction TB
+
+class Agent{
+            +log: Logger
++definition: AgentDefinitionProps
++toolset: Toolset
+-registry: ProviderRegistry
+-renderer: PromptRenderer
+-injects: EventFilter[]
+            +acceptsInput() ToolInputSchema | undefined
++outcome() StepOutcome
++accepts() boolean
++run() Promise~AgentRunResult~
+-runOnStart() Promise~void~
+-readInbox() string[]
+-assertBaseRoutesTargetActions() void
+        }
+class AgentRunResult {
+            <<interface>>
+            +output: ProviderRunOutput
++exit?: string
++payload?: Record~string, unknown~
+            
+        }
+Runnable<|--Agent
+class SystemPromptRef {
+            <<interface>>
+            +id?: string
++text?: string
+            
+        }
+class McpServerRef {
+            <<interface>>
+            +id: string
++config: Record~string, unknown~
+            
+        }
+class Tool~TInput~ {
+            <<interface>>
+            +name: string
++description: string
++inputSchema: Record~string, unknown~
++handler: (input: TInput) =~ string | Promise~string~
++terminal?: boolean
++failure?: boolean
+            
+        }
+class AgentDefinitionProps {
+            <<interface>>
+            +id: string
++provider: string
++prompt: string
++input?: ToolInputSchema
++systemPrompts?: SystemPromptRef[]
++variables?: Record~string, AgentVariableValue~
++tools?: Tool~any~[]
++actions?: (Action~ToolInputSchema, unknown~ | AllowedAction)[]
++onStart?: Runnable | Runnable[]
++injects?: EventFilterProps[]
++providerConfig?: Record~string, unknown~
++mcpServers?: McpServerRef[]
++continueOnError?: boolean
++requiresBranch?: boolean
++allowBlocked?: boolean
++projectId?: string | null
++position?: number
++verify?: string[]
+            
+        }
+ConditionalProps<|..AgentDefinitionProps
+ExitRoutes<|..AgentDefinitionProps
+class FailTool{
+            +name: "fail_turn"
++description: "Terminá tu turno declarando que NO pudiste completar el trabajo. Usala ante ambigüedad o un bloqueo que no te corresponde resolver, en vez de improvisar."
++input: ZodObject~#123; reason: ZodString; #125;, $strict~
++terminal: true
++failure: true
+-onFail: (reason: string) =~ void
+            #execute() string
+        }
+SchemaTool~S~<|--FailTool
+class PromptRenderer{
+            -catalog?: SystemPromptCatalog
+            +render() RenderedPrompt
+        }
+class SystemPromptCatalog {
+            <<interface>>
+            
+            +resolve() string | undefined
+        }
+class RenderedPrompt {
+            <<interface>>
+            +prompt: string
++systemPrompts: string[]
+            
+        }
+class ProviderRegistry{
+            -providers: Map~string, Provider~
+            +register() this
++resolve() Provider | undefined
+        }
+class ProviderRunContext {
+            <<interface>>
+            +agentId: string
++prompt: string
++systemPrompts: string[]
++variables: Record~string, AgentVariableValue~
++providerConfig: Record~string, unknown~
++mcpServers: McpServerRef[]
++tools: Tool~any~[]
++ctx: PipelineExecutionContext
++inbox?: (() =~ string[])
+            
+        }
+class ProviderRunOutput {
+            <<interface>>
+            +outcome: string
++summary?: string
++structuredOutput?: Record~string, unknown~
+            
+        }
+class Provider {
+            <<interface>>
+            +id: string
+            +run() Promise~ProviderRunOutput~
+        }
+class SchemaTool~S~{
+            +name: string*
++description: string*
++input: S*
+-cachedInputSchema?: Record~string, unknown~
+            #execute() string | Promise~string~*
++handler() Promise~string~
+        }
+Tool~TInput~<|..SchemaTool~S~
+class SubmitTool{
+            +name: string
++description: string
++input: ToolInputSchema
++terminal: true
+-exit: ResolvedExit
+-onSubmit: (submission: Submission) =~ void
+            #execute() string
+        }
+class Submission {
+            <<interface>>
+            +exit: string
++payload: Record~string, unknown~
+            
+        }
+SchemaTool~S~<|--SubmitTool
+class ToolRegistry~TArgs~{
+            #registeredTools: ToolConstructor~any~[]$
+-tools: Map~string, Tool~any~~
+            +register() void$
++get() Tool~any~
++names() string[]
++all() Tool~any~[]
++resolve() Tool~any~[]
+        }
+class Toolset{
+            -actions: Action~ToolInputSchema, unknown~[]
+-agentId: string
+-tools: Tool~any~[]
+            +forRun() Tool~any~[]
+        }
+class TurnProtocol{
+            +tools: Tool~any~[]
+-submission: Submission | undefined
+-failure: string | undefined
+-agentId: string
+-routes: ResolvedRoutes
+            +resolve() AgentRunResult
+-fallback() Submission
+-assertOpen() void
+        }
+class DispatchPlanner{
+            +log: Logger
+-sources: PipelineSource[]
+            +select() Promise~Pipeline[]~
++decide() Promise~DispatchPlan~
++plan() Promise~DispatchPlan~
++findCandidate() Promise~Candidate~
+        }
+class Candidate {
+            <<interface>>
+            +pipeline: Pipeline
++source: PipelineSource
++mismatch?: string
+            
+        }
+class DispatchPlan {
+            <<interface>>
+            +candidates: Candidate[]
++toRun: Candidate[]
++winningExclusive?: Pipeline
+            
+        }
+class Engine{
+            +log: Logger
+-bus: EventBus
++maxEventDepth: number
+-planner: DispatchPlanner
+-launcher: RunLauncher
+-coordinator: ExecutionCoordinator
+-redelivery: Redelivery
+            +start() Unsubscribe
++dispatch() Promise~DispatchOutcome~
++tick() void
++select() Promise~Pipeline[]~
+        }
+class EngineOptions {
+            <<interface>>
+            +bus: EventBus
++pipelines: PipelineSource | PipelineSource[]
++maxEventDepth?: number
++executions?: ExecutionStore
++executionKey?: ((event: DomainEvent~any~) =~ string | undefined)
++formatMessage?: ((event: DomainEvent~any~) =~ string)
+            
+        }
+class Execution{
+            +log: Logger
++id: string
++key: string
++pipelineId: string
+-startedMs: number
++startedAt: string
++waitedMs: number
++status: ExecutionStatus
+-inbox: Inbox
+-journal?: ExecutionJournal
+-step: Runnable | undefined
+-paused: #123; pause: Pause; checkpoint: Checkpoint; #125; | undefined
+-closedAt?: string
+-closeReason?: string
+-releaser: (() =~ void) | undefined
+-settle: () =~ void
++finished: Promise~void~
+            +open() Execution$
++restore() Execution$
++enter() void
++leave() void
++owns() boolean
++inject() boolean
++takeMissedWake() DomainEvent~any~ | undefined
++drain() string[]
++takeUnread() DomainEvent~any~[]
++pause() void
++wake() Wake | undefined
++expired() boolean
++wakeOnTimeout() Wake | undefined
++run() Promise~T~
++close() void
++admit() void
++toRecord() ExecutionRecord
+-resumeBy() Wake
+-markRead() T[]
+-release() void
+        }
+class Wake {
+            <<interface>>
+            +branch: string
++checkpoint: Checkpoint
+            
+        }
+class ExecutionRecord {
+            <<interface>>
+            +id: string
++key: string
++pipelineId: string
++status: ExecutionStatus
++startedAt: string
++waitedMs: number
++closedAt?: string
++closeReason?: string
++pause?: PauseJSON
++checkpoint?: Checkpoint
+            
+        }
+class ExecutionJournal {
+            <<interface>>
+            
+            +save() void
++delivered() void
++read() void
+        }
+class ExecutionProps {
+            <<interface>>
+            +id: string
++key: string
++pipelineId: string
++queuedAt?: number
++journal?: ExecutionJournal
+            
+        }
+class ExecutionCoordinator{
+            +log: Logger
+-bus: EventBus
+-planner: DispatchPlanner
+-launcher: RunLauncher
++executions?: ExecutionStore
+-executionKey: (event: DomainEvent~any~) =~ string | undefined
+-formatMessage: (event: DomainEvent~any~) =~ string
+-redispatch: (unread: DomainEvent~any~[], executionId: string) =~ void
+-wokeLate: WeakMap~DomainEvent~any~, #123; executionId: string; branch: string; #125;~
+            +inject() Offer | undefined
++wake() Offer | undefined
++wokenLate() Offer | undefined
++resolveRunning() Resolution
++expireDue() void
+-expire() Promise~DispatchOutcome~
+-currentFor() Execution | undefined
+-resumption() Required~#123; kind: "resumed"; executionId: string; branch: string; run?: (() =~ Promise~unknown~) | undefined; detach?: boolean | undefined; #125;~
+-runAsExecution() Promise~T~
+-wakeLate() void
+-runPipeline() Promise~Record~string, unknown~~
+        }
+class Resolution {
+            <<interface>>
+            +decision: "injected" | "resumed" | "skipped" | "direct" | "nested" | "starts" | "waits"
++run?: (() =~ Promise~unknown~)
++detach?: boolean
++executionId?: string
++agentId?: string
+            
+        }
+class ExecutionCoordinatorOptions {
+            <<interface>>
+            +bus: EventBus
++planner: DispatchPlanner
++launcher: RunLauncher
++executions?: ExecutionStore
++executionKey: (event: DomainEvent~any~) =~ string | undefined
++formatMessage: (event: DomainEvent~any~) =~ string
++redispatch: (unread: DomainEvent~any~[], executionId: string) =~ void
+            
+        }
+class ExecutionRepository {
+            <<interface>>
+            
+            +nextId() string
++live() ExecutionRecord[]
++unread() DomainEvent~any~[]
+        }
+ExecutionJournal<|..ExecutionRepository
+class ExecutionScheduler{
+            -queue: KeyedQueue
+-slots: Semaphore
+-waitingCount: number
+            +busy() boolean
++enter() Turn
+        }
+class ExecutionStore{
+            +log: Logger
+-repository: ExecutionRepository
+-scheduler: ExecutionScheduler
+-byKey: Map~string, Execution~
+-orphaned: OrphanedEvents[]
+            +current() Execution | undefined
++busy() boolean
++start() Promise~Execution~
++resume() Promise~void~
++paused() Execution[]
++takeOrphaned() OrphanedEvents[]
+-recover() void
+-admit() void
+-track() void
+        }
+class StartExecution {
+            <<interface>>
+            +key: string
++pipelineId: string
++ifPaused?: IfPaused
+            
+        }
+class ExecutionStoreOptions {
+            <<interface>>
+            +repository: ExecutionRepository
++maxConcurrent?: number
+            
+        }
+class OrphanedEvents {
+            <<interface>>
+            +executionId: string
++events: DomainEvent~any~[]
+            
+        }
+class Inbox{
+            -delivered: Delivered[]
+-missed: DomainEvent~any~[]
+            +deliver() void
++miss() void
++drain() string[]
++takeUnread() DomainEvent~any~[]
++takeMissed() DomainEvent~any~[]
+-takeFresh() Delivered[]
+        }
+class Delivered {
+            <<interface>>
+            +message: string
++event: DomainEvent~any~
++read: boolean
+            
+        }
+class InMemoryExecutionRepository{
+            -records: Map~string, ExecutionRecord~
+-inboxes: Map~string, #123; event: DomainEvent~any~; read: boolean; #125;[]~
+-sequence: number
+            +nextId() string
++save() void
++delivered() void
++read() void
++live() ExecutionRecord[]
++unread() DomainEvent~any~[]
+        }
+ExecutionRepository<|..InMemoryExecutionRepository
+class InMemoryExecutionStore{
+            
+            
+        }
+class InMemoryExecutionStoreOptions {
+            <<interface>>
+            +maxConcurrent?: number
+            
+        }
+ExecutionStore<|--InMemoryExecutionStore
+class KeyedQueue{
+            -tails: Map~string, Promise~void~~
+            +busy() boolean
++enqueue() Turn
+        }
+class Turn {
+            <<interface>>
+            +ready: Promise~void~
++release: () =~ void
+            
+        }
+class StaticPipelineSource{
+            -pipelines: Pipeline[]
+            +list() Pipeline[]
+        }
+class PipelineSource {
+            <<interface>>
+            +id?: string
++defaults?: ExitDefaults
+            +list() Pipeline[] | Promise~Pipeline[]~
++explainMismatch() string | undefined
+        }
+PipelineSource<|..StaticPipelineSource
+class Project{
+            +id: string
++defaults: ExitDefaults
+-pipelines: Pipeline[]
+            +list() Pipeline[]
++explainMismatch() string | undefined
+        }
+class ProjectProps {
+            <<interface>>
+            +id: string
++pipelines: Pipeline[]
++onError?: ErrorRoute | null
++report?: Runnable | null
+            
+        }
+Conditional<|--Project
+PipelineSource<|..Project
+ConditionalProps<|..ProjectProps
+class Redelivery{
+            +log: Logger
+-planner: DispatchPlanner
+-launcher: RunLauncher
+-coordinator: ExecutionCoordinator
+-origins: WeakMap~DomainEvent~any~, Link~
+            +rememberOrigin() void
++redispatch() void
+-redeliver() Promise~DispatchOutcome~
+        }
+class RedeliveryOptions {
+            <<interface>>
+            +planner: DispatchPlanner
++launcher: RunLauncher
++coordinator: ExecutionCoordinator
+            
+        }
+class RunLauncher{
+            +log: Logger
+            +launch() Promise~DispatchOutcome~
++detach() void
+        }
+class Semaphore{
+            -used: number
+-waiters: (() =~ void)[]
++max: number
+            +acquire() Promise~void~
++release() void
+        }
+class DomainEvent~TPayload~ {
+            <<interface>>
+            +type: string
++payload: TPayload
++scope?: Record~string, unknown~
++occurredAt: string
++depth: number
++executionId?: string
+            
+        }
+class CreateEventOptions {
+            <<interface>>
+            +scope?: Record~string, unknown~
++depth?: number
++occurredAt?: string
++executionId?: string
+            
+        }
+class EventBus{
+            -handlers: Map~string, Set~EventHandler~~
+            +subscribe() Unsubscribe
++publish() Promise~void~
+        }
+class ExitRoute {
+            <<interface>>
+            +when?: string
++to?: RouteTo
++report?: Runnable | null
+            
+        }
+class ErrorRoute {
+            <<interface>>
+            +to?: RouteTo
++input?: ((err: Error) =~ unknown)
++report?: ((err: Error) =~ unknown)
+            
+        }
+class ExitDefaults {
+            <<interface>>
+            +onError?: ErrorRoute | null
++report?: Runnable | null
+            
+        }
+class ExitRoutes {
+            <<interface>>
+            +routes?: Record~string, ExitRoute | null~
+            
+        }
+class ResolvedExit {
+            <<interface>>
+            +name: string
++when?: string
++targets: Runnable[]
++report: Runnable | null
++origin: RouteOrigin
++reportOrigin: RouteOrigin | null
+            
+        }
+class ResolvedRoutes {
+            <<interface>>
+            +exits: ResolvedExit[]
++onError: #123; route: ErrorRoute; origin: RouteOrigin; #125; | null
++report: #123; target: Runnable; origin: RouteOrigin; #125; | null
+            
+        }
+class RouteLayers {
+            <<interface>>
+            +project?: ExitDefaults
++pipeline?: ExitDefaults
++step?: ExitRoutes
+            
+        }
+ExitDefaults<|..ExitRoutes
+class Checkpoints{
+            -pipelineId: string
+-steps: Runnable[]
+-graph: PipelineGraph
+            +save() Record~string, unknown~
++resume() Runnable[]
+        }
+class Pipeline{
+            +log: Logger
++id: string
++trigger: PipelineTrigger
++position: number
++exclusive: boolean
++ifRunning: IfRunning
++ifPaused: IfPaused
++do: Runnable[]
++defaults: ExitDefaults
+-graph: PipelineGraph
+-runner: StepRunner
+-checkpoints: Checkpoints
+            +routesOf() ResolvedRoutes
++matches() boolean
++explainMismatch() string | undefined
++execute() Promise~Record~string, unknown~~
+        }
+class Checkpoint {
+            <<interface>>
+            +pipelineId: string
++pauseId: string
++resumeAt: number
++steps: Record~string, unknown~
++shape: string
++sourceId?: string
++scope?: Record~string, unknown~
+            
+        }
+class Resumption {
+            <<interface>>
+            +checkpoint: Checkpoint
++branch: string
+            
+        }
+class PipelineProps {
+            <<interface>>
+            +id: string
++on: string[]
++scope?: Record~string, unknown~
++enabled?: boolean
++position?: number
++exclusive?: boolean
++ifRunning?: IfRunning
++ifPaused?: IfPaused
++do: Runnable[]
++routes?: Record~string, ExitRoutes~
+            
+        }
+ConditionalProps<|..PipelineProps
+ExitDefaults<|..PipelineProps
+class PipelineGraph{
+            -pipelineId: string
+-steps: Runnable[]
+-defaults: ExitDefaults
+-stepRoutes: Record~string, ExitRoutes~
+-agents: Map~string, Runnable~
+-pauses: Map~string, Resumable~
++routed: Set~Runnable~
+            +resolve() ResolvedRoutes
++routesOf() ResolvedRoutes
++pause() Resumable
+-findAgents() Map~string, Runnable~
+-findPauses() Map~string, Resumable~
+-validate() Set~Runnable~
+-assertPausesResumable() void
+-assertNoCycles() void
+        }
+class PipelineGraphProps {
+            <<interface>>
+            +pipelineId: string
++do: Runnable[]
++defaults: ExitDefaults
++stepRoutes: Record~string, ExitRoutes~
+            
+        }
+class PipelineTrigger{
+            +scope?: Record~string, unknown~
++enabled: boolean
+            +matches() boolean
++explainMismatch() string | undefined
+        }
+class PipelineTriggerProps {
+            <<interface>>
+            +scope?: Record~string, unknown~
++enabled?: boolean
+            
+        }
+EventFilter<|--PipelineTrigger
+EventFilterProps<|..PipelineTriggerProps
+class Runnable{
+            +id?: string
++onError?: ErrorRoute | null
++continueOnError: boolean
+            +shouldRun() boolean
++acceptsInput() ToolInputSchema | undefined
++asResumable() Resumable | undefined
++outcome() StepOutcome
++accepts() boolean
+#parseInput() Record~string, unknown~ | undefined
++run() Promise~unknown~*
+        }
+class PipelineExecutionContext {
+            <<interface>>
+            +event: DomainEvent~any~
++steps: Record~string, unknown~
++bus: EventBus
++pipelineId: string
++defaults?: ExitDefaults
++sourceId?: string
++routesFor?: ((step: Runnable) =~ ResolvedRoutes | undefined)
++execution?: ExecutionHandle
++runStep?: ((step: Runnable, via: string) =~ Promise~void~)
+            
+        }
+class Resumable {
+            <<interface>>
+            +id: string
++branchNames: string[]
++allTargets: Runnable[]
+            +targetsOf() Runnable[]
+        }
+class ExecutionHandle {
+            <<interface>>
+            +id: string
++waitedMs?: number
+            +enter() void
++leave() void
++drain() string[]
++pause() void
+        }
+class RunnableProps {
+            <<interface>>
+            +id?: string
++onError?: ErrorRoute | null
++continueOnError?: boolean
+            
+        }
+Conditional<|--Runnable
+ConditionalProps<|..RunnableProps
+class StepRunner{
+            +log: Logger
+-pipelineId: string
+-graph: PipelineGraph
+-defaults: ExitDefaults
+            +run() Promise~Pause | undefined~
+-runDue() Promise~StepRun~
+-errorHandling() #123; route: ErrorRoute; report: Runnable | null; #125; | null
+-runErrorRoute() Promise~void~
+        }
+class Condition{
+            +field: string
++op: ConditionOp
++value?: unknown
++logic: "and" | "or"
+-pattern?: RegExp
+            +describe() string
++evaluate() boolean
++toRow() ConditionRow
++fromRows() Condition[]$
++evaluateAll() boolean$
+        }
+class ConditionRow {
+            <<interface>>
+            +field: string
++op: ConditionOp
++value?: unknown
++logic?: "and" | "or"
+            
+        }
+class Conditional{
+            +when: Condition[]
+            +matchesConditions() boolean
++explainConditions() string | undefined
+        }
+class ConditionalProps {
+            <<interface>>
+            +when?: Condition[]
+            
+        }
+class EventFilter{
+            +on: string[]
+            +matches() boolean
+        }
+class EventFilterProps {
+            <<interface>>
+            +on: string[]
+            
+        }
+Conditional<|--EventFilter
+ConditionalProps<|..EventFilterProps
+class Action~S,O~{
+            +id: string
++description: string*
++input: S*
++sideEffects: SideEffects
+            +execute() O | Promise~O~*
++acceptsInput() ToolInputSchema
++run() Promise~O~
++bind() BoundAction
++asTool() Tool~any~
++allowWrite() AllowedAction
+        }
+class AllowedAction{
+            +action: Action~ToolInputSchema, unknown~
+            
+        }
+class BoundAction{
+            +description: string
++input: ToolInputSchema
++sideEffects: SideEffects
++target: Action~ToolInputSchema, unknown~
++fixed: Record~string, unknown~
+            +execute() Promise~unknown~
+        }
+class ActionProps {
+            <<interface>>
+            +id: string
+            
+        }
+Runnable<|--Action~S,O~
+Action~S,O~<|--BoundAction
+RunnableProps<|..ActionProps
+class ActionTool{
+            +name: string
++description: string
++input: ToolInputSchema
+-action: Action~ToolInputSchema, unknown~
+-ctx: PipelineExecutionContext
+            #execute() Promise~string~
+        }
+SchemaTool~S~<|--ActionTool
+class EmitAction{
+            +type: string
++payload?: Record~string, unknown~ | ((ctx: PipelineExecutionContext, input: Record~string, unknown~ | undefined) =~ Record~string, unknown~)
++input?: ToolInputSchema
++scope?: Record~string, unknown~ | ((ctx: PipelineExecutionContext, input: Record~string, unknown~ | undefined) =~ Record~string, unknown~ | undefined)
+            +acceptsInput() ToolInputSchema | undefined
++run() Promise~unknown~
+        }
+class EmitActionProps {
+            <<interface>>
+            +type: string
++payload?: Record~string, unknown~ | ((ctx: PipelineExecutionContext, input: Record~string, unknown~ | undefined) =~ Record~string, unknown~)
++input?: ToolInputSchema
++scope?: Record~string, unknown~ | ((ctx: PipelineExecutionContext, input: Record~string, unknown~ | undefined) =~ Record~string, unknown~ | undefined)
+            
+        }
+Runnable<|--EmitAction
+RunnableProps<|..EmitActionProps
+class FunctionAction{
+            +fn: (ctx: PipelineExecutionContext, input: Record~string, unknown~ | undefined) =~ unknown
++input?: ToolInputSchema
+            +acceptsInput() ToolInputSchema | undefined
++run() Promise~unknown~
+        }
+class FunctionActionProps {
+            <<interface>>
+            +fn: (ctx: PipelineExecutionContext, input: Record~string, unknown~ | undefined) =~ unknown
++input?: ToolInputSchema
+            
+        }
+Runnable<|--FunctionAction
+RunnableProps<|..FunctionActionProps
+class HttpAction{
+            +url: string | ((ctx: PipelineExecutionContext, input: StepInput) =~ string)
++method: NonNullable~"GET" | "POST" | "PUT" | "PATCH" | "DELETE" | undefined~
++headers?: Record~string, string~ | ((ctx: PipelineExecutionContext, input: StepInput) =~ Record~string, string~)
++body?: JsonBody | ((ctx: PipelineExecutionContext, input: StepInput) =~ unknown)
++timeoutMs: number
++input?: ToolInputSchema
+            +acceptsInput() ToolInputSchema | undefined
++run() Promise~unknown~
+        }
+class HttpActionProps {
+            <<interface>>
+            +url: string | ((ctx: PipelineExecutionContext, input: StepInput) =~ string)
++method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
++headers?: Record~string, string~ | ((ctx: PipelineExecutionContext, input: StepInput) =~ Record~string, string~)
++body?: JsonBody | ((ctx: PipelineExecutionContext, input: StepInput) =~ unknown)
++input?: ToolInputSchema
++timeoutMs?: number
+            
+        }
+Runnable<|--HttpAction
+RunnableProps<|..HttpActionProps
+class Pause{
+            +pauseId: string
+-branches: readonly #123; name: string; filter: EventFilter; #125;[]
++expiresAt?: number
+            +fromJSON() Pause$
++match() string | undefined
++expired() boolean
++describe() string
++toJSON() PauseJSON
+        }
+class PauseJSON {
+            <<interface>>
+            +pauseId: string
++branches: #123; name: string; on: string[]; when: ConditionRow[]; #125;[]
++expiresAt?: number
+            
+        }
+class PauseAction{
+            +id: string
+-branches: #123; name: string; filter: EventFilter; to?: RouteTo | undefined; #125;[]
++timeout?: #123; afterMs: number; to?: RouteTo | undefined; #125;
+            +targetsOf() Runnable[]
++asResumable() Resumable
++outcome() StepOutcome
++run() Promise~Pause~
+        }
+class PauseBranchProps {
+            <<interface>>
+            +to?: RouteTo
+            
+        }
+class PauseActionProps {
+            <<interface>>
+            +id: string
++branches?: Record~string, PauseBranchProps~
++timeout?: #123; afterMs: number; to?: RouteTo | undefined; #125;
+            
+        }
+Runnable<|--PauseAction
+Resumable<|..PauseAction
+EventFilterProps<|..PauseBranchProps
+RunnableProps<|..PauseActionProps
