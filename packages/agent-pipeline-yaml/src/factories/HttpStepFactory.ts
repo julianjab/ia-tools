@@ -6,6 +6,8 @@ import { type HttpConnection, lookup } from '../YamlCatalogs.js';
 import { CommonStepShape } from '../schema.js';
 import { HttpStep } from '../steps/HttpStep.js';
 
+const WHOLE_TEMPLATE = /^\{\{[^}]*\}\}$/;
+
 const Node = z.strictObject({
   /** Una URL, o el path en la `connection`. Admite `{{...}}`. */
   http: z.string().min(1),
@@ -41,6 +43,12 @@ export class HttpStepFactory implements StepFactory<Node> {
       ? lookup(context.catalogs.connections, node.connection, 'una conexión')
       : undefined;
     if (!connection && !hasTemplate(node.http)) new URL(node.http);
+    // Con credencial, qué endpoint se pide lo decide el YAML: el evento sólo completa valores.
+    if (connection && WHOLE_TEMPLATE.test(node.http.trim())) {
+      throw new Error(
+        `http: con \`connection\` el path no puede ser una plantilla entera ("${node.http}"): escribilo y poné {{...}} sólo en los valores`,
+      );
+    }
     const headers = connection?.headers;
     return new HttpStep({
       url: (ctx) => url(node, connection, ctx),
@@ -98,13 +106,10 @@ function connectionUrl(
   root: Record<string, unknown>,
 ) {
   const dotSegment = (value: string) => /^(\.|%2e){1,2}$/i.test(value);
-  const whole = hasTemplate(template) && /^\{\{[^}]*\}\}$/.test(template.trim());
-  const path = whole
-    ? String(render(template, root))
-    : renderText(template, root, (value) => {
-        if (dotSegment(value)) throw new Error(`http: "${value}" no puede ir en un path`);
-        return encodeURIComponent(value);
-      });
+  const path = renderText(template, root, (value) => {
+    if (dotSegment(value)) throw new Error(`http: "${value}" no puede ir en un path`);
+    return encodeURIComponent(value);
+  });
   if (!path.startsWith('/') || path.startsWith('//')) {
     throw new Error(`http: con \`connection\` va un path que empieza con "/" (llegó "${path}")`);
   }

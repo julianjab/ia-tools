@@ -64,7 +64,8 @@ src/
 - **Un paso `http` con `connection`** va al host de esa conexión (`catalogs.connections`) con su
   credencial; el path tiene que empezar con `/` y no puede cambiar el host. Cada valor que una
   plantilla inserta en el path va con `encodeURIComponent` (no agrega segmentos ni una query) y un
-  `.`/`..` se rechaza: lo que trae un webhook no lleva el token a otro endpoint. La query va en
+  `.`/`..` se rechaza: lo que trae un webhook no lleva el token a otro endpoint. Un path que es
+  entero una plantilla (`http: '{{path}}'`) no carga: el endpoint lo escribe el YAML. La query va en
   `query:`; un path con `?`/`#` falla.
   Sin `connection`, `http` es una URL y no lleva secretos. `graphql` hace el POST y lee `data`
   (con `errors`, falla); `select` es el dot path de lo que queda como output.
