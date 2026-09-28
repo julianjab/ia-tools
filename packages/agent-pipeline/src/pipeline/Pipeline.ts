@@ -28,6 +28,9 @@ export interface Checkpoint {
   resumeAt: number;
   /** `ctx.steps` al pausarse. */
   steps: Record<string, unknown>;
+  /** La forma de `do[]` al pausarse: si la pipeline cambió mientras esperaba, `resumeAt`
+   *  apuntaría a otro paso — reanudar falla en vez de repetir o saltear pasos. */
+  shape: string;
   /** El scope del evento, para el evento con el que vence (`execution.expired`). */
   scope?: Record<string, unknown>;
 }
@@ -126,6 +129,17 @@ export class Pipeline extends Conditional {
     return this.reachableAgents().size > 0;
   }
 
+  /** Si cada corrida tiene que ser una ejecución: corre agentes, o puede pausarse (una pausa
+   *  sólo existe dentro de una ejecución). */
+  get needsExecution(): boolean {
+    return this.runsAgents || this.reachablePauses().size > 0;
+  }
+
+  /** La forma de `do[]` que guarda un `Checkpoint`. */
+  private get shape(): string {
+    return this.do.map((step) => step.id ?? step.constructor.name).join(' → ');
+  }
+
   /** Las rutas efectivas de un agente en esta pipeline, con el origen de cada una. Con
    *  `project`, incluye los defaults del proyecto — lo que efectivamente va a correr. */
   routesOf(agentId: string, project?: ExitDefaults): ResolvedRoutes {
@@ -177,6 +191,11 @@ export class Pipeline extends Conditional {
       // Reanudar: primero la rama que la despertó (con el evento que la despertó en
       // `steps.<pausa>`), después el resto de `do[]` desde donde se había cortado.
       const { checkpoint, branch } = from;
+      if (checkpoint.shape !== this.shape) {
+        throw new Error(
+          `Pipeline(${this.id}): cambió mientras estaba pausada (era "${checkpoint.shape}", es "${this.shape}") — no se puede reanudar`,
+        );
+      }
       runCtx.steps[checkpoint.pauseId] = { branch, event: ctx.event.payload };
       for (const target of this.findPause(checkpoint.pauseId).targetsOf(branch)) {
         await this.runStep(target, undefined, runCtx, `resume:${branch}`);
@@ -197,8 +216,10 @@ export class Pipeline extends Conditional {
   private pauseAt(ctx: PipelineExecutionContext, resumeAt: number): Record<string, unknown> {
     const pause = ctx.paused as Pause;
     if (!ctx.execution) {
+      // Sin ejecución propia no hay qué pausar: un Engine sin `executions`, o una pipeline que
+      // corre anidada dentro de otra ejecución (un evento que emitió esa misma ejecución).
       throw new Error(
-        `Pipeline(${this.id}): la pausa "${pause.pauseId}" necesita un Engine con \`executions\``,
+        `Pipeline(${this.id}): la pausa "${pause.pauseId}" necesita correr como su propia ejecución (Engine con \`executions\`, y no anidada en otra)`,
       );
     }
     ctx.execution.pause(pause, {
@@ -206,6 +227,7 @@ export class Pipeline extends Conditional {
       pauseId: pause.pauseId,
       resumeAt,
       steps: ctx.steps,
+      shape: this.shape,
       ...(ctx.event.scope ? { scope: ctx.event.scope } : {}),
     });
     return ctx.steps;
@@ -213,26 +235,29 @@ export class Pipeline extends Conditional {
 
   /** La `PauseAction` con ese id, en `do[]` o como destino de alguna salida. */
   private findPause(pauseId: string): PauseAction {
+    const pause = this.reachablePauses().get(pauseId);
+    if (!pause) throw new Error(`Pipeline(${this.id}): no hay una pausa "${pauseId}"`);
+    return pause;
+  }
+
+  /** Las `PauseAction` de `do[]` y de los destinos de las salidas (y de sus ramas), por id. */
+  private reachablePauses(): Map<string, PauseAction> {
+    const pauses = new Map<string, PauseAction>();
     const seen = new Set<Runnable>();
-    const walk = (steps: Runnable[]): PauseAction | undefined => {
+    const walk = (steps: Runnable[]) => {
       for (const step of steps) {
         if (seen.has(step)) continue;
         seen.add(step);
-        if (step instanceof PauseAction && step.id === pauseId) return step;
-        const next =
-          step instanceof Agent
-            ? this.resolve(step).exits.flatMap((exit) => exit.targets)
-            : step instanceof PauseAction
-              ? step.allTargets
-              : [];
-        const found = walk(next);
-        if (found) return found;
+        if (step instanceof PauseAction) {
+          pauses.set(step.id, step);
+          walk(step.allTargets);
+        } else if (step instanceof Agent) {
+          walk(this.resolve(step).exits.flatMap((exit) => exit.targets));
+        }
       }
-      return undefined;
     };
-    const pause = walk([...this.do]);
-    if (!pause) throw new Error(`Pipeline(${this.id}): no hay una pausa "${pauseId}"`);
-    return pause;
+    walk([...this.do]);
+    return pauses;
   }
 
   /** `handleErrors: false` para los pasos que corren DENTRO de un `onError`: si fallara, por

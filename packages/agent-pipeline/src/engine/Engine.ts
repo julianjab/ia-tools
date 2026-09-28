@@ -360,7 +360,7 @@ export class Engine {
   private resolveRunning(candidate: Candidate, event: DomainEvent<any>, offer?: Offer): Resolution {
     const { pipeline } = candidate;
     const executions = this.executions;
-    const key = executions && pipeline.runsAgents ? this.executionKey(event) : undefined;
+    const key = executions && pipeline.needsExecution ? this.executionKey(event) : undefined;
     const direct = () => this.execute(candidate, event);
     if (!executions || key === undefined) return { decision: 'direct', run: direct };
 
@@ -427,7 +427,7 @@ export class Engine {
     // Si la ejecución que lo dejó sin leer se pausó esperando justo este evento, lo recibe su
     // pausa — igual que en `dispatch`.
     return this.runCandidates(
-      toRun.filter((candidate) => candidate.pipeline.runsAgents),
+      toRun.filter((candidate) => candidate.pipeline.needsExecution),
       event,
       this.wake(event),
     );

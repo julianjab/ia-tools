@@ -261,6 +261,11 @@ Reglas que no son obvias al leer el código:
   salidas) que no es el último destino de su lista, o que está en un `onError`, rompe al
   construir la pipeline — lo que viene después se perdería sin error. El `onError` del proyecto
   recién se conoce al correr: ahí falla al pausar.
+- **Lo que puede pausar es una ejecución, tenga agentes o no** (`Pipeline.needsExecution`). Una
+  pipeline anidada en otra ejecución (corre por un evento que emitió esa misma ejecución) no
+  puede pausar: falla diciendo por qué, en vez de pisar el checkpoint de la que la contiene.
+- **Si la pipeline cambió mientras esperaba, no se reanuda.** El `Checkpoint` guarda la forma de
+  `do[]` (`shape`); si al reanudar no coincide, la ejecución falla en vez de seguir en otro paso.
 - **Sólo entre pasos.** Pausar a mitad del loop de un agente (y retomar su conversación) no está.
 - **Ocupada no es lo mismo que activa.** `busy(key)` se marca en el mismo tick del `start` (cuenta
   la que espera turno o lugar bajo el tope); `current(key)` es la que ya corre. `skip` mira
