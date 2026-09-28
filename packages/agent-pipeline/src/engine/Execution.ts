@@ -25,7 +25,7 @@ import { type Pause, TIMEOUT_BRANCH } from '../pipeline/actions/PauseAction.js';
  * (`Runnable.accepts`); lo que es del conjunto (una por task, el tope global) es del store; qué
  * hace una regla si la task está ocupada lo declara la regla (`Pipeline.ifRunning`).
  */
-export type ExecutionStatus = 'running' | 'paused' | 'done' | 'failed' | 'superseded' | 'expired';
+export type ExecutionStatus = 'running' | 'paused' | 'done' | 'failed' | 'superseded';
 export type ClosedStatus = Exclude<ExecutionStatus, 'running' | 'paused'>;
 
 interface Delivered {

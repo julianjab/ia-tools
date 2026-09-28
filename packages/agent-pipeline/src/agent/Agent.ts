@@ -227,7 +227,8 @@ export class Agent extends Runnable {
     const tools = [...(def.tools ?? []), ...actionTools, ...submitTools];
     this.assertUniqueToolNames(tools);
 
-    // Mientras el provider corre, este agente es el que recibe lo inyectado (`ifRunning: inject`).
+    // Mientras el provider corre, este agente es el paso activo: se le ofrece lo que llega a la
+    // task, y recibe lo que acepta (`injects`).
     const execution = ctx.execution;
     execution?.enter(this);
     const output = await provider

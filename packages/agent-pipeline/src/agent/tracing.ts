@@ -6,9 +6,9 @@ import type { ExecutionHandle } from '../pipeline/Runnable.js';
 import type { Agent } from './Agent.js';
 
 /**
- * Cuándo el agente leyó lo que se le inyectó (`ifRunning: inject`): un span event
- * `inbox.delivered` en el span activo (el del agente, o el de la vuelta del provider) y un log.
- * Del lado del evento, `pipeline.if_running` = `injected` dice a qué ejecución se entregó; esto
+ * Cuándo el agente leyó lo que se le inyectó (sus `injects`): un span event `inbox.delivered`
+ * en el span activo (el del agente, o el de la vuelta del provider) y un log. Del lado del
+ * evento, `execution.inject` dice a qué ejecución y a qué agente se entregó; esto
  * cierra el recorrido. Una vuelta sin nada nuevo no deja nada.
  */
 export const inboxTag: TagOptions<Agent, [ExecutionHandle], string[]> = {
