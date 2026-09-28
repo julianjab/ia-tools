@@ -6,7 +6,7 @@ import { ProjectBuilder } from './ProjectBuilder.js';
 import { substituteVars } from './Template.js';
 import type { YamlCatalogs } from './YamlCatalogs.js';
 import { YamlReader } from './YamlReader.js';
-import { AgentDoc, PipelineDoc, ProjectDoc } from './schema.js';
+import { AgentDoc, PipelineDoc, ProjectDoc, ProjectVarsDoc } from './schema.js';
 
 const YAML = /\.ya?ml$/;
 
@@ -66,18 +66,22 @@ export class ProjectLoader {
     const projectPath = join(dir, 'project.yaml');
     const under = (folder: string) =>
       files.filter((path) => path.startsWith(join(dir, folder, '/')));
-    const project = existsSync(projectPath) ? this.reader.read(projectPath, ProjectDoc) : {};
+    // Las vars se leen primero (sin sustituir nada); después cada documento se lee con ellas
+    // sustituidas en el YAML crudo, así el schema valida el valor real y no `'{{vars.x}}'`.
+    const declared = existsSync(projectPath) ? this.reader.read(projectPath, ProjectVarsDoc) : {};
     const vars = {
-      ...this.catalogs.projectVars?.(project.id ?? basename(dir)),
-      ...project.vars,
+      ...this.catalogs.projectVars?.(declared.id ?? basename(dir)),
+      ...declared.vars,
     };
     const read = <T>(path: string, schema: z.ZodType<T>) => ({
       path,
-      doc: substituteVars(this.reader.read(path, schema), vars, path),
+      doc: this.reader.read(path, schema, (raw) => substituteVars(raw, vars, path)),
     });
     return new ProjectBuilder(this.catalogs).build({
       dir,
-      project: { path: projectPath, doc: substituteVars(project, vars, projectPath) },
+      project: existsSync(projectPath)
+        ? read(projectPath, ProjectDoc)
+        : { path: projectPath, doc: {} },
       agents: under('agents').map((path) => read(path, AgentDoc)),
       intake: under('intake').map((path) => read(path, PipelineDoc)),
       pipelines: under('pipelines').map((path) => read(path, PipelineDoc)),

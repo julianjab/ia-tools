@@ -88,6 +88,12 @@ export const ProjectDoc = z.strictObject({
 });
 export type ProjectDoc = z.infer<typeof ProjectDoc>;
 
+/** Lo que se lee de `project.yaml` antes de sustituir nada: su id y sus vars. */
+export const ProjectVarsDoc = z.looseObject({
+  id: z.string().min(1).optional(),
+  vars: z.record(z.string(), z.unknown()).optional(),
+});
+
 const EventFilterNode = z.strictObject({
   on: z.array(z.string().min(1)).min(1),
   when: ConditionRows.optional(),
