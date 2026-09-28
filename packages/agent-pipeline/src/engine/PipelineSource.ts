@@ -9,6 +9,9 @@ import type { ExitDefaults } from '../routing/ExitRoutes.js';
  */
 export interface PipelineSource {
   list(): Promise<Pipeline[]> | Pipeline[];
+  /** Quién es (ej. el id del `Project`): una pausa recuerda de qué fuente es su pipeline, para
+   *  reanudarla ahí aunque otra fuente tenga una pipeline con el mismo id. */
+  readonly id?: string;
   /** Defaults de rutas para todas sus pipelines — el nivel "proyecto" de la cascada. */
   readonly defaults?: ExitDefaults;
   /**

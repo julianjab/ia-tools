@@ -31,6 +31,9 @@ export interface Checkpoint {
   /** La forma de `do[]` al pausarse: si la pipeline cambió mientras esperaba, `resumeAt`
    *  apuntaría a otro paso — reanudar falla en vez de repetir o saltear pasos. */
   shape: string;
+  /** La fuente de la pipeline (`PipelineSource.id`): se reanuda ahí, no en otra que tenga una
+   *  pipeline con el mismo id. */
+  sourceId?: string;
   /** El scope del evento, para el evento con el que vence (`execution.expired`). */
   scope?: Record<string, unknown>;
 }
@@ -228,6 +231,7 @@ export class Pipeline extends Conditional {
       resumeAt,
       steps: ctx.steps,
       shape: this.shape,
+      ...(ctx.sourceId !== undefined ? { sourceId: ctx.sourceId } : {}),
       ...(ctx.event.scope ? { scope: ctx.event.scope } : {}),
     });
     return ctx.steps;

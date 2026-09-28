@@ -9,7 +9,7 @@ import {
 } from '@ia-tools/telemetry';
 import { type DomainEvent, createEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
-import type { Pipeline } from '../pipeline/Pipeline.js';
+import type { Checkpoint, Pipeline } from '../pipeline/Pipeline.js';
 import type { ExecutionHandle } from '../pipeline/Runnable.js';
 import type { Execution, ExecutionStore, Wake } from './Execution.js';
 import type { PipelineSource } from './PipelineSource.js';
@@ -264,7 +264,7 @@ export class Engine {
     { checkpoint, branch }: Wake,
     event: DomainEvent<any>,
   ): Promise<Record<string, unknown>> {
-    const { pipeline, source } = await this.findCandidate(checkpoint.pipelineId);
+    const { pipeline, source } = await this.findCandidate(checkpoint);
     return pipeline.execute(
       {
         event,
@@ -272,6 +272,7 @@ export class Engine {
         bus: this.bus,
         pipelineId: pipeline.id,
         defaults: source.defaults,
+        ...(source.id !== undefined ? { sourceId: source.id } : {}),
         execution,
       },
       { checkpoint, branch },
@@ -448,13 +449,25 @@ export class Engine {
   }
 
   /** La pipeline con ese id y su fuente — para reanudar una ejecución pausada. */
-  private async findCandidate(pipelineId: string): Promise<Candidate> {
+  /** La pipeline de un checkpoint, en SU fuente: dos proyectos pueden tener una pipeline con el
+   *  mismo id. Sin id de fuente, sólo si no es ambigua. */
+  private async findCandidate({ pipelineId, sourceId }: Checkpoint): Promise<Candidate> {
+    const found: Candidate[] = [];
     for (const source of this.sources) {
+      if (sourceId !== undefined && source.id !== sourceId) continue;
       for (const pipeline of await source.list()) {
-        if (pipeline.id === pipelineId) return { pipeline, source };
+        if (pipeline.id === pipelineId) found.push({ pipeline, source });
       }
     }
-    throw new Error(`no hay una pipeline "${pipelineId}" para reanudar`);
+    const where = sourceId !== undefined ? ` en "${sourceId}"` : '';
+    if (found.length === 0)
+      throw new Error(`no hay una pipeline "${pipelineId}"${where} para reanudar`);
+    if (found.length > 1) {
+      throw new Error(
+        `hay ${found.length} pipelines "${pipelineId}" y la pausa no dice de qué fuente es`,
+      );
+    }
+    return found[0] as Candidate;
   }
 
   private execute(
@@ -468,6 +481,7 @@ export class Engine {
       bus: this.bus,
       pipelineId: pipeline.id,
       defaults: source.defaults,
+      ...(source.id !== undefined ? { sourceId: source.id } : {}),
       ...(execution ? { execution } : {}),
     });
   }

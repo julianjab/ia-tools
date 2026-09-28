@@ -16,6 +16,8 @@ export interface PipelineExecutionContext {
   /** Defaults del proyecto (`onError`, `report`) — el nivel más general de la cascada de rutas.
    *  Lo pone el `Engine` a partir de `PipelineSource.defaults` (ver `Project`). */
   defaults?: ExitDefaults;
+  /** El id de la fuente (`PipelineSource.id`) de esta pipeline — lo guarda una pausa. */
+  sourceId?: string;
   /** Las rutas efectivas de un agente DENTRO de esta pipeline (sus overrides + los defaults).
    *  Lo pone `Pipeline.execute`; un agente corriendo suelto usa sólo sus rutas base. */
   routesFor?: (step: Runnable) => ResolvedRoutes | undefined;
