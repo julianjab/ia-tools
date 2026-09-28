@@ -25,6 +25,8 @@ export const ConditionRows = z.array(
     field: z.string().min(1),
     op: z.enum(CONDITION_OPS),
     value: z.unknown().optional(),
+    /** Otro campo del mismo payload contra el que comparar, en vez de `value`. */
+    valueFrom: z.string().min(1).optional(),
     logic: z.enum(['and', 'or']).optional(),
   }),
 );

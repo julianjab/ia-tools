@@ -18,6 +18,9 @@ export interface ConditionRow {
   field: string;
   op: ConditionOp;
   value?: unknown;
+  /** Compara contra OTRO campo del mismo payload en vez de un `value` fijo (ej. `changes.to`
+   *  `neq` `changes.from`). No aplica a `matches`, cuyo patrón se compila al armar. */
+  valueFrom?: string;
   /** Cómo se combina con la condición anterior de la misma lista — default 'and'. */
   logic?: 'and' | 'or';
 }
@@ -27,6 +30,7 @@ export class Condition {
   readonly field: string;
   readonly op: ConditionOp;
   readonly value?: unknown;
+  readonly valueFrom?: string;
   readonly logic: 'and' | 'or';
   /** La regex de un `matches`, compilada una vez al construir: un patrón inválido rompe ACÁ (al
    *  armar la pipeline, como un ruteo mal cableado) y no en cada `evaluate`, donde tiraría dentro
@@ -39,6 +43,12 @@ export class Condition {
     this.field = row.field;
     this.op = row.op;
     this.value = row.value;
+    if (row.valueFrom !== undefined) {
+      if (row.op === 'matches') {
+        throw new Error(`condition ${row.field} matches: no admite valueFrom (el patrón es fijo)`);
+      }
+      this.valueFrom = row.valueFrom;
+    }
     this.logic = row.logic ?? 'and';
     if (row.op === 'matches' && typeof row.value === 'string') {
       try {
@@ -53,36 +63,42 @@ export class Condition {
 
   /** La condición y lo que vino en el payload — para explicar por qué algo no matcheó. */
   describe(payload: unknown): string {
-    const expected = this.value === undefined ? '' : ` ${JSON.stringify(this.value)}`;
+    const expected =
+      this.valueFrom !== undefined
+        ? ` ${this.valueFrom} (${JSON.stringify(getPath(payload, this.valueFrom))})`
+        : this.value === undefined
+          ? ''
+          : ` ${JSON.stringify(this.value)}`;
     const actual = getPath(payload, this.field);
     return `${this.field} ${this.op}${expected} (vino ${actual === undefined ? 'nada' : JSON.stringify(actual)})`;
   }
 
   evaluate(payload: unknown): boolean {
     const actual = getPath(payload, this.field);
+    const value = this.valueFrom !== undefined ? getPath(payload, this.valueFrom) : this.value;
     switch (this.op) {
       case 'eq':
-        return actual === this.value;
+        return actual === value;
       case 'neq':
-        return actual !== this.value;
+        return actual !== value;
       case 'exists':
         return actual !== undefined && actual !== null;
       case 'notExists':
         return actual === undefined || actual === null;
       case 'in':
-        return Array.isArray(this.value) && this.value.includes(actual);
+        return Array.isArray(value) && value.includes(actual);
       case 'notIn':
-        return Array.isArray(this.value) && !this.value.includes(actual);
+        return Array.isArray(value) && !value.includes(actual);
       case 'contains':
-        if (Array.isArray(actual)) return actual.includes(this.value);
-        if (typeof actual === 'string' && typeof this.value === 'string') {
-          return actual.includes(this.value);
+        if (Array.isArray(actual)) return actual.includes(value);
+        if (typeof actual === 'string' && typeof value === 'string') {
+          return actual.includes(value);
         }
         return false;
       case 'notContains':
-        if (Array.isArray(actual)) return !actual.includes(this.value);
-        if (typeof actual === 'string' && typeof this.value === 'string') {
-          return !actual.includes(this.value);
+        if (Array.isArray(actual)) return !actual.includes(value);
+        if (typeof actual === 'string' && typeof value === 'string') {
+          return !actual.includes(value);
         }
         // Sin lista (campo ausente): no puede contener nada — mismo criterio que `neq`.
         return true;
@@ -93,13 +109,13 @@ export class Condition {
           typeof actual === 'string' && this.pattern !== undefined && this.pattern.test(actual)
         );
       case 'gt':
-        return typeof actual === 'number' && typeof this.value === 'number' && actual > this.value;
+        return typeof actual === 'number' && typeof value === 'number' && actual > value;
       case 'gte':
-        return typeof actual === 'number' && typeof this.value === 'number' && actual >= this.value;
+        return typeof actual === 'number' && typeof value === 'number' && actual >= value;
       case 'lt':
-        return typeof actual === 'number' && typeof this.value === 'number' && actual < this.value;
+        return typeof actual === 'number' && typeof value === 'number' && actual < value;
       case 'lte':
-        return typeof actual === 'number' && typeof this.value === 'number' && actual <= this.value;
+        return typeof actual === 'number' && typeof value === 'number' && actual <= value;
       default:
         return false;
     }
@@ -112,6 +128,7 @@ export class Condition {
       field: this.field,
       op: this.op,
       ...(this.value !== undefined ? { value: this.value } : {}),
+      ...(this.valueFrom !== undefined ? { valueFrom: this.valueFrom } : {}),
       logic: this.logic,
     };
   }
