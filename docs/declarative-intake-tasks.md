@@ -26,16 +26,24 @@ Diseño en dos etapas:
       el path no puede cambiar el host.
 - [x] Paso `function`: `with` en plantilla, como input de la función.
 - [x] Paso `emit`: tipo/payload/scope en plantilla y `forEach`.
+- [x] `Condition.valueFrom`: comparar dos campos del payload (un cambio de Status con from == to).
+- [x] `Project.intakePipelines()` / `YamlPipelineSource.intakePipelines()`.
 - [x] Tests de cada pieza.
 - [x] Limpiar lo que quede sin uso; CLAUDE.md de los paquetes.
 
 ## Fase 2 — runner-v2 (ia-flow)
 
-- [ ] Catálogo: conexión `github` (token de la App / PAT), funciones puras (`linked_issue`,
+- [x] Catálogo: conexión `github` (token de la App / PAT), funciones puras (`linked_issue`,
       `board_item`, `open_pr`, `task_payload`) y `projectVars` (board, branchPrefix, repos).
-- [ ] `.config/projects/lahaus-ai-flow/intake/*.yaml`: projects_v2_item, issue_comment,
+- [x] `.config/projects/lahaus-ai-flow/intake/*.yaml`: projects_v2_item, issue_comment,
       pull_request, pull_request_review, check_suite, workflow_run, unblock, resolve-task.
-- [ ] Tests del intake contra la versión YAML (fetch mockeado): mismos payloads que hoy.
-- [ ] Borrar `intake.ts`, `actions/intake/*`, `board-reader.ts` y la fuente de código de
+- [x] Tests del intake contra la versión YAML (fetch mockeado): mismos payloads que hoy.
+- [x] Borrar `intake.ts`, `actions/intake/*`, `board-reader.ts` y la fuente de código de
       `boot.ts`; `buildPayload` comparte el armado con `task_payload`.
-- [ ] README, CLAUDE.md, typecheck + lint + tests.
+- [x] README, CLAUDE.md, typecheck + lint + tests.
+
+## Decisiones
+
+- El `from` de un cambio de Status ya no se recuerda en memoria: sale de
+  `changes.field_value.from`. Sin `to`, `task_payload` usa el status actual de la card.
+- Un PR de un webhook se lee siempre (`pulls/{n}`): si no existe, el paso falla y lo loguea.
