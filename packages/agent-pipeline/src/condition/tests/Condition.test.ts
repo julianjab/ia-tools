@@ -143,3 +143,28 @@ describe('Condition.evaluateAll', () => {
     expect(Condition.evaluateAll(conditions, { a: 0, b: 0 })).toBe(false);
   });
 });
+
+describe('Condition valueFrom', () => {
+  it('compares against another field of the same payload', () => {
+    const changed = new Condition({ field: 'to', op: 'neq', valueFrom: 'from' });
+
+    expect(changed.evaluate({ from: 'Refine', to: 'Build' })).toBe(true);
+    expect(changed.evaluate({ from: 'Build', to: 'Build' })).toBe(false);
+    expect(
+      new Condition({ field: 'n', op: 'in', valueFrom: 'list' }).evaluate({ n: 2, list: [1, 2] }),
+    ).toBe(true);
+  });
+
+  it('survives toRow and says what it compared against', () => {
+    const condition = new Condition({ field: 'to', op: 'neq', valueFrom: 'from' });
+
+    expect(new Condition(condition.toRow()).evaluate({ from: 'a', to: 'a' })).toBe(false);
+    expect(condition.describe({ from: 'a', to: 'a' })).toBe('to neq from ("a") (vino "a")');
+  });
+
+  it('is rejected on matches, whose pattern is fixed', () => {
+    expect(() => new Condition({ field: 'body', op: 'matches', valueFrom: 'x' })).toThrow(
+      /no admite valueFrom/,
+    );
+  });
+});
