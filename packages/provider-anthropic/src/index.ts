@@ -15,6 +15,7 @@ export type {
   AnthropicProviderOptions,
   AnthropicRunConfig,
   AnthropicThinkingConfig,
+  McpAuthorizationToken,
 } from './AnthropicProvider.js';
 export {
   AnthropicProvider,

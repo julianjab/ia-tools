@@ -194,26 +194,48 @@ function resolveRunConfig(
   return resolved as unknown as ResolvedRunConfig;
 }
 
-/** Mapea `McpServerRef` (id + config libre) → la forma que exige `mcp_servers[]` de la API.
- *  Sólo entradas con `config.url` — el conector MCP remoto de Anthropic es la única modalidad
- *  soportada acá (stdio no cruza la red). */
-function toApiMcpServers(servers: McpServerRef[]): Array<Record<string, unknown>> | undefined {
-  const out: Array<Record<string, unknown>> = [];
+/**
+ * El token de un MCP server: un string fijo, o una función que lo devuelve en cada request. La
+ * función es para tokens que vencen (el installation token de una GitHub App dura una hora):
+ * resolverlo una sola vez al bootear lo deja vencido en un proceso de larga vida.
+ */
+export type McpAuthorizationToken = string | (() => string | Promise<string>);
+
+interface ApiMcpServer {
+  name: string;
+  url: string;
+  token?: McpAuthorizationToken;
+}
+
+/** Mapea `McpServerRef` (id + config libre) → los `mcp_servers[]` de la API, sin el token (se
+ *  resuelve por request, ver `withTokens`). Sólo entradas con `config.url` — el conector MCP
+ *  remoto de Anthropic es la única modalidad soportada acá (stdio no cruza la red). */
+function toApiMcpServers(servers: McpServerRef[]): ApiMcpServer[] | undefined {
+  const out: ApiMcpServer[] = [];
   for (const server of servers) {
     const config = server.config as {
       url?: string;
-      authorizationToken?: string;
+      authorizationToken?: McpAuthorizationToken;
       headers?: Record<string, string>;
     };
     if (!config.url) continue;
-    const entry: Record<string, unknown> = { name: server.id, type: 'url', url: config.url };
-    if (config.authorizationToken) entry.authorization_token = config.authorizationToken;
-    else if (config.headers?.Authorization?.startsWith('Bearer ')) {
-      entry.authorization_token = config.headers.Authorization.slice('Bearer '.length);
-    }
-    out.push(entry);
+    const bearer = config.headers?.Authorization?.startsWith('Bearer ')
+      ? config.headers.Authorization.slice('Bearer '.length)
+      : undefined;
+    const token = config.authorizationToken ?? bearer;
+    out.push({ name: server.id, url: config.url, ...(token ? { token } : {}) });
   }
   return out.length > 0 ? out : undefined;
+}
+
+/** Los `mcp_servers[]` de UN request, con el token vigente de cada uno. */
+async function withTokens(servers: ApiMcpServer[]): Promise<Array<Record<string, unknown>>> {
+  return Promise.all(
+    servers.map(async ({ name, url, token }) => {
+      const value = typeof token === 'function' ? await token() : token;
+      return { name, type: 'url', url, ...(value ? { authorization_token: value } : {}) };
+    }),
+  );
 }
 
 /** Un solo breakpoint de cache, en el ÚLTIMO bloque de system — el caching de la API es prefix
@@ -407,7 +429,7 @@ export class AnthropicProvider implements Provider {
         };
         if (allTools.length > 0) body.tools = allTools;
         if (thinking) body.thinking = thinking;
-        if (apiMcpServers) body.mcp_servers = apiMcpServers;
+        if (apiMcpServers) body.mcp_servers = await withTokens(apiMcpServers);
         if (outputConfig) body.output_config = outputConfig;
         return this.send(body, round, { stream: useStream, extraBetas, maxRetries });
       };
