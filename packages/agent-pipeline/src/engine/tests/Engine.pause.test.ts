@@ -399,6 +399,84 @@ describe('Engine with pauses', () => {
     expect(ran.at(-1)).toBe('pushed:check_suite');
   });
 
+  describe('ifPaused: wait — a rule that must not replace the pause', () => {
+    /** Un triage de comentarios que no trae trabajo nuevo: no puede llevarse puesta la espera del
+     *  CI (el caso de subscriptions#1625: `not_actionable` y la tarjeta nunca pasó a Review). */
+    const triage = (ran: string[]) =>
+      new Pipeline({
+        id: 'comment',
+        on: ['comment'],
+        ifPaused: 'wait',
+        do: [implementer(ran)({ done: { to: action('triaged', ran) } })],
+      });
+
+    it('does not supersede the pause: it runs once the pause wakes and closes', async () => {
+      const ran: string[] = [];
+      const { engine, store } = ciGate({ extra: [triage(ran)] });
+      await engine.dispatch(event('build'));
+      const paused = store.current(KEY);
+
+      const comment = engine.dispatch(event('comment'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(paused?.status).toBe('paused');
+      // Mientras espera no ocupa la task: la pausa puede despertar.
+      expect(store.busy(KEY)).toBe(false);
+
+      expect(await engine.dispatch(ci('success'))).toBe('resumed');
+      await comment;
+      expect(paused?.status).toBe('done');
+      expect(ran).toEqual(['implementer:comment', 'triaged:comment']);
+    });
+
+    it('queued while the run was still going, it does not replace the pause that run took', async () => {
+      const ran: string[] = [];
+      const { engine, store, ran: gate } = ciGate({ extra: [triage(ran)] });
+      const build = engine.dispatch(event('build'));
+      // Llega con la task ocupada: queda en cola detrás del implementer.
+      const comment = engine.dispatch(event('comment'));
+      await build;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const paused = store.current(KEY);
+      expect(paused?.status).toBe('paused');
+      expect(ran).toEqual([]);
+
+      expect(await engine.dispatch(ci('success'))).toBe('resumed');
+      await comment;
+      expect(gate).toContain('review:check_suite');
+      expect(ran).toEqual(['implementer:comment', 'triaged:comment']);
+    });
+
+    it('if another rule supersedes the pause meanwhile, it runs after that run', async () => {
+      const ran: string[] = [];
+      const { engine, store, ran: gate } = ciGate({ extra: [triage(ran)] });
+      await engine.dispatch(event('build'));
+      const paused = store.current(KEY);
+      const comment = engine.dispatch(event('comment'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // CI rojo: `ci-red` usa el default (`supersede`) y la reemplaza.
+      expect(await engine.dispatch(ci('failure'))).toBe('dispatched');
+      await comment;
+      expect(paused?.status).toBe('superseded');
+      expect(gate.at(-1)).toBe('pushed:check_suite');
+      expect(ran).toEqual(['implementer:comment', 'triaged:comment']);
+    });
+
+    it('also waits out a pause that ends through its timeout', async () => {
+      const ran: string[] = [];
+      const { engine, store } = ciGate({ timeoutMs: 1_000, extra: [triage(ran)] });
+      await engine.dispatch(event('build'));
+      const paused = store.current(KEY);
+      const comment = engine.dispatch(event('comment'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      engine.tick(Date.now() + 2_000);
+      await comment;
+      expect(paused?.status).toBe('done');
+      expect(ran).toEqual(['implementer:comment', 'triaged:comment']);
+    });
+  });
+
   it('an expired pause resumes through its timeout branch on the next tick', async () => {
     const { engine, store, ran } = ciGate({ timeoutMs: 1_000 });
     await engine.dispatch(event('build'));
