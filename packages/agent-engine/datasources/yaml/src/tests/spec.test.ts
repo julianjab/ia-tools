@@ -68,6 +68,14 @@ describe('YamlDefinitionSource with explicit entries', () => {
     expect(() => source.read()).toThrow(/\.\/nope: no existe/);
   });
 
+  it('a source path has to be exactly one file', () => {
+    for (const ref of ['./agents', './nothing-*.yaml']) {
+      expect(() =>
+        new YamlDefinitionSource({ id: 's', spec: { base, source: ref } }).read(),
+      ).toThrow(/source tiene que ser un único archivo/);
+    }
+  });
+
   it('vars are substituted in inline documents too', () => {
     const source = new YamlDefinitionSource({
       id: 's',
