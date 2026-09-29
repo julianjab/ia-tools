@@ -1,5 +1,13 @@
-import { type DomainEvent, Engine, EventBus, createEvent } from '@ia-tools/agent-pipeline';
+import {
+  Action,
+  type DomainEvent,
+  Engine,
+  EventBus,
+  type PipelineExecutionContext,
+  createEvent,
+} from '@ia-tools/agent-pipeline';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { render } from '../Template.js';
 import type { YamlCatalogs } from '../YamlCatalogs.js';
 import { YamlPipelineSource } from '../YamlPipelineSource.js';
@@ -275,6 +283,49 @@ do:
       );
     }
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('action', () => {
+  class Echo extends Action {
+    readonly description = 'devuelve su input';
+    readonly input = z.strictObject({
+      number: z.number(),
+      label: z.string(),
+      note: z.string().optional(),
+    });
+    execute(input: z.infer<typeof this.input>, _ctx: PipelineExecutionContext) {
+      return input;
+    }
+  }
+
+  it('a templated with is rendered on every run and validated by the action', async () => {
+    const seen = vi.fn();
+    const { engine } = mount(
+      {
+        'pipelines/p.yaml': `
+id: p
+on: [a]
+do:
+  - id: echo
+    action: echo
+    with: { number: '{{issue.number}}', label: 'issue #{{issue.number}}', note: '{{note}}' }
+    when: [{ field: issue.number, op: gt, value: 0 }]
+  - { function: seen, with: { echoed: '{{steps.echo}}' }, when: [{ field: steps.echo, op: exists }] }
+`,
+      },
+      { actions: { echo: new Echo({ id: 'echo' }) }, functions: { seen } },
+    );
+
+    await engine.dispatch(createEvent('a', { issue: { number: 7 } }));
+    expect(seen.mock.calls[0]?.[1]).toEqual({ echoed: { number: 7, label: 'issue #7' } });
+
+    await engine.dispatch(createEvent('a', { issue: { number: 0 } }));
+    expect(seen).toHaveBeenCalledTimes(1);
+
+    expect(
+      await failure(engine.dispatch(createEvent('a', { issue: { number: 1 }, note: 5 }))),
+    ).toMatch(/echo: input inválido/);
   });
 });
 
