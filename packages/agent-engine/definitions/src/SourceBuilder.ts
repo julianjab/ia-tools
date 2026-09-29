@@ -1,4 +1,3 @@
-import { basename } from 'node:path';
 import {
   type Action,
   Agent,
@@ -20,9 +19,9 @@ import {
 } from '@ia-tools/agent-engine';
 import { createLogger } from '@ia-tools/telemetry';
 import { z } from 'zod';
+import { type Catalogs, type ToolLookup, lookup } from './Catalogs.js';
 import type { AgentVariant, StepBuildContext } from './StepFactory.js';
 import { StepFactoryRegistry } from './StepFactoryRegistry.js';
-import { type ToolLookup, type YamlCatalogs, lookup } from './YamlCatalogs.js';
 import { located } from './located.js';
 import type {
   AgentDoc,
@@ -41,9 +40,8 @@ export interface Located<T> {
 
 /** Lo que se leyó de la carpeta de una fuente. */
 export interface SourceDocs {
-  dir: string;
-  /** El id que le da quien la monta; gana sobre el de `source.yaml`. */
-  id?: string;
+  /** El id de la fuente: lo decide el datasource (o quien lo monta). */
+  id: string;
   source: Located<SourceDoc>;
   agents: Located<AgentDoc>[];
   pipelines: Located<PipelineDoc>[];
@@ -64,7 +62,7 @@ type DefaultsNode = {
  * misma pipeline. Se usa una vez por carga.
  */
 export class SourceBuilder {
-  readonly log = createLogger('agent-engine.yaml');
+  readonly log = createLogger('agent-engine.definitions');
   private readonly steps: StepFactoryRegistry;
   private sourceId = '';
   private sourceSystemPrompts: NonNullable<SourceDoc['systemPrompts']> = [];
@@ -72,12 +70,12 @@ export class SourceBuilder {
   private readonly agents = new Map<string, Agent>();
   private readonly building = new Set<string>();
 
-  constructor(private readonly catalogs: YamlCatalogs = {}) {
+  constructor(private readonly catalogs: Catalogs = {}) {
     this.steps = new StepFactoryRegistry(catalogs.steps);
   }
 
   build(docs: SourceDocs): StaticPipelineSource {
-    this.sourceId = docs.id ?? docs.source.doc.id ?? basename(docs.dir);
+    this.sourceId = docs.id;
     this.sourceSystemPrompts = docs.source.doc.systemPrompts ?? [];
     for (const located of docs.agents) {
       const existing = this.agentDocs.get(located.doc.id);

@@ -1,5 +1,5 @@
 /**
- * `@ia-tools/agent-engine-sqlite/node`: la base con `node:sqlite` (Node ≥ 22.13). Vive en su
+ * `@ia-tools/agent-engine-datasource-sqlite/node`: la base con `node:sqlite` (Node ≥ 22.13). Vive en su
  * propio entry para que el paquete principal cargue en otros runtimes (Bun trae su `bun:sqlite`).
  */
 import { DatabaseSync } from 'node:sqlite';
@@ -14,7 +14,7 @@ export function openNodeSqlite(path: string): SqliteDatabase {
 }
 
 /**
- * El driver `sqlite` para el `engine.yaml` de `@ia-tools/agent-engine-yaml`
+ * El driver `sqlite` para el `engine.yaml` de `@ia-tools/agent-engine-datasource-yaml`
  * (`createEngineFromYaml(path, { drivers: { sqlite: sqliteStoreDriver } })`). `path` es obligatorio:
  * sin archivo, las pausas no sobreviven a un reinicio y no hace falta SQLite.
  */

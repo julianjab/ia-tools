@@ -1,5 +1,5 @@
 {
-  "name": "@ia-tools/agent-engine-sqlite",
+  "name": "@ia-tools/agent-engine-datasource-sqlite",
   "version": "0.1.0",
   "description": "ExecutionRepository de @ia-tools/agent-engine sobre SQLite (node:sqlite o bun:sqlite): las ejecuciones pausadas sobreviven a un reinicio",
   "type": "module",

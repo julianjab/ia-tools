@@ -1,7 +1,7 @@
 {
-  "name": "@ia-tools/agent-engine-yaml",
+  "name": "@ia-tools/agent-engine-definitions",
   "version": "0.1.0",
-  "description": "PipelineSource de @ia-tools/agent-engine que lee proyectos, agentes y pipelines de YAML (con recarga en caliente), y arma un Engine desde un engine.yaml",
+  "description": "El modelo de definiciones de @ia-tools/agent-engine (fuentes, agentes, pipelines) y cómo se arman las entidades, venga de donde venga: los datasources (YAML, SQLite, …) sólo lo producen",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,11 +22,9 @@
   "dependencies": {
     "@ia-tools/agent-engine": "workspace:*",
     "@ia-tools/telemetry": "workspace:*",
-    "yaml": "^2.6.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@ia-tools/agent-engine-sqlite": "workspace:*",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.4"

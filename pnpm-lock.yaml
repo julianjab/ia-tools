@@ -119,14 +119,14 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
 
-  packages/agent-engine/sqlite:
+  packages/agent-engine/datasources/sqlite:
     dependencies:
       '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../core
+        version: link:../../core
       '@ia-tools/telemetry':
         specifier: workspace:*
-        version: link:../../telemetry
+        version: link:../../../telemetry
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -138,14 +138,14 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
 
-  packages/agent-engine/yaml:
+  packages/agent-engine/datasources/yaml:
     dependencies:
       '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../core
-      '@ia-tools/telemetry':
+        version: link:../../core
+      '@ia-tools/agent-engine-definitions':
         specifier: workspace:*
-        version: link:../../telemetry
+        version: link:../../definitions
       yaml:
         specifier: ^2.6.0
         version: 2.9.1
@@ -153,9 +153,28 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
-      '@ia-tools/agent-engine-sqlite':
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
+
+  packages/agent-engine/definitions:
+    dependencies:
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../sqlite
+        version: link:../core
+      '@ia-tools/telemetry':
+        specifier: workspace:*
+        version: link:../../telemetry
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

@@ -59,7 +59,10 @@ src/
 │       ├── ActionTool.ts     una Action como tool de un agente
 │       ├── Pause.ts          la pausa en curso (valor, serializable: toJSON/fromJSON)
 │       ├── PauseAction.ts, EmitAction.ts, HttpAction.ts, FunctionAction.ts
+│       ├── HttpStep.ts, EmitStep.ts, ActionStep.ts   con `{{...}}` resueltos al correr
 │       └── tests/
+├── template/
+│   └── Template.ts          `{{path}}` al correr (render) y `{{vars.x}}` al leer (substituteVars)
 ├── routing/
 │   ├── ExitRoutes.ts        END, ExitRoutes, resolveRoutes (la cascada), submitSchemaFor
 │   └── tests/
@@ -355,7 +358,7 @@ Reglas que no son obvias al leer el código:
   (un `ExecutionRecord` serializable: la `Pause` como `PauseJSON`, el `Checkpoint`) y lo que se le
   entrega, vía `ExecutionJournal`. El repositorio es SÍNCRONO a propósito: el store ocupa la task en
   el mismo tick del `start`. `InMemoryExecutionStore` alcanza para un proceso;
-  `@ia-tools/agent-engine-sqlite` guarda en SQLite. Al construirse, el `ExecutionStore` recupera lo
+  `@ia-tools/agent-engine-datasource-sqlite` guarda en SQLite. Al construirse, el `ExecutionStore` recupera lo
   que el repositorio dejó vivo: las pausadas vuelven a esperar, las que corrían se cierran `failed`
   (`closeReason: interrupted`) y lo que no leyeron lo re-despacha el `Engine` al construirse
   (`takeOrphaned`). Un proceso por base: turnos y tope viven en memoria.

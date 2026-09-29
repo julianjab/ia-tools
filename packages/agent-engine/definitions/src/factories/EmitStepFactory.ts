@@ -1,8 +1,8 @@
 import { Condition } from '@ia-tools/agent-engine';
+import { EmitStep } from '@ia-tools/agent-engine';
 import { z } from 'zod';
 import type { StepBuildContext, StepFactory } from '../StepFactory.js';
 import { CommonStepShape } from '../schema.js';
-import { EmitStep } from '../steps/EmitStep.js';
 
 const Node = z.strictObject({
   emit: z.string().min(1),

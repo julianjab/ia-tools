@@ -14,7 +14,7 @@ export interface ActionRequest {
   sourceId: string;
   /** El agente que la recibe como tool, o dueño del paso (su `onStart`, sus rutas, su `report`). */
   agentId?: string;
-  /** Las `options` de la entrada en el YAML. */
+  /** Las `options` de la entrada en la definición. */
   options: Record<string, unknown>;
 }
 
@@ -41,11 +41,11 @@ export interface ToolLookup {
 }
 
 /**
- * Lo que el YAML nombra y la app registra en código. El YAML nunca trae funciones: una acción,
+ * Lo que una definición nombra y la app registra en código. Una definición nunca trae funciones: una acción,
  * una tool, un schema de input o cómo se arma el input de un `onError` a partir del error se
  * referencian por nombre acá.
  */
-export interface YamlCatalogs {
+export interface Catalogs {
   /** Los providers que los agentes nombran en `provider`. Default: el `providerRegistry` global. */
   providers?: ProviderRegistry;
   /** Acciones por nombre: `{ action: postComment, with: {...} }`. Una fija, o una que se arma a
@@ -64,11 +64,8 @@ export interface YamlCatalogs {
   /** Los system prompts que un agente referencia por `id`. */
   systemPrompts?: SystemPromptCatalog;
   /** Las conexiones que nombra un paso `http` (`connection: github`): a qué host va y con qué
-   *  credencial. El secreto vive acá, en código; el YAML sólo pone el path. */
+   *  credencial. El secreto vive acá, en código; la definición sólo pone el path. */
   connections?: Record<string, HttpConnection>;
-  /** Las `vars` que la app le da a una fuente (ej. su board, leído de otra config), además de
-   *  las de su `source.yaml` — que ganan. Se sustituyen al cargar: `{{vars.board}}`. */
-  sourceVars?: (sourceId: string) => Record<string, unknown>;
   /** Tipos de paso propios, además de los incluidos (`agent`, `action`, `emit`, `http`, `pause`,
    *  `function`). */
   steps?: StepFactory[];

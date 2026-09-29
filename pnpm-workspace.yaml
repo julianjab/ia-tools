@@ -1,7 +1,9 @@
 packages:
   - plugins/slack-bridge
-  # core/, yaml/, sqlite/ — el engine y sus intérpretes de fuentes y stores, cada uno un paquete.
+  # core/, definitions/ y datasources/{yaml,sqlite}/ — el engine, su modelo de definiciones y los
+  # datasources que lo alimentan, cada uno un paquete.
   - packages/agent-engine/*
+  - packages/agent-engine/datasources/*
   - packages/provider-anthropic
   - packages/telemetry
   # auth/, webhook/, api/, tools/ — cuatro paquetes propios dentro de una sola carpeta github/,

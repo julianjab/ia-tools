@@ -48,6 +48,19 @@ export type { PauseActionProps, PauseBranchProps } from './pipeline/actions/Paus
 export { PauseAction } from './pipeline/actions/PauseAction.js';
 export type { HttpActionProps } from './pipeline/actions/HttpAction.js';
 export { HttpAction } from './pipeline/actions/HttpAction.js';
+export type { ActionStepProps } from './pipeline/actions/ActionStep.js';
+export { ActionStep } from './pipeline/actions/ActionStep.js';
+export type { EmitStepProps } from './pipeline/actions/EmitStep.js';
+export { EmitStep } from './pipeline/actions/EmitStep.js';
+export type { HttpStepProps } from './pipeline/actions/HttpStep.js';
+export { HttpStep } from './pipeline/actions/HttpStep.js';
+export {
+  hasTemplate,
+  render,
+  renderText,
+  substituteVars,
+  templateRoot,
+} from './template/Template.js';
 
 export type {
   ExecutionHandle,

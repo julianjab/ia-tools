@@ -1,4 +1,4 @@
-# @ia-tools/agent-engine-sqlite
+# @ia-tools/agent-engine-datasource-sqlite
 
 `ExecutionRepository` de `@ia-tools/agent-engine` sobre SQLite: las ejecuciones pausadas
 sobreviven a un reinicio. El repositorio depende de un puerto (`SqliteDatabase`), no de un
@@ -13,7 +13,7 @@ src/
 ├── SqliteDatabase.ts             el puerto: la base síncrona que comparten node:sqlite y bun:sqlite
 ├── SqliteExecutionRepository.ts  el repositorio: save / delivered / read / live / unread / nextId
 ├── SqliteExecutionStore.ts       ExecutionStore sobre ese repositorio (+ close)
-├── node.ts                       entry `./node`: openNodeSqlite + el driver `sqlite` de engine.yaml
+├── node.ts                       entry `./node`: openNodeSqlite + `sqliteStoreDriver` (un store sobre node:sqlite)
 ├── migrations.ts                 el esquema por versión (PRAGMA user_version)
 └── tests/                        el contrato del store + reinicios reales sobre un archivo
 ```
@@ -36,7 +36,7 @@ src/
 ## Antes de commitear
 
 ```bash
-pnpm --filter @ia-tools/agent-engine-sqlite typecheck
-pnpm --filter @ia-tools/agent-engine-sqlite test
-pnpm --filter @ia-tools/agent-engine-sqlite build
+pnpm --filter @ia-tools/agent-engine-datasource-sqlite typecheck
+pnpm --filter @ia-tools/agent-engine-datasource-sqlite test
+pnpm --filter @ia-tools/agent-engine-datasource-sqlite build
 ```

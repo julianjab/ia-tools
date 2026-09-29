@@ -1,8 +1,8 @@
 import { Condition, FunctionAction } from '@ia-tools/agent-engine';
+import { render, templateRoot } from '@ia-tools/agent-engine';
 import { z } from 'zod';
+import { lookup } from '../Catalogs.js';
 import type { StepBuildContext, StepFactory } from '../StepFactory.js';
-import { render, templateRoot } from '../Template.js';
-import { lookup } from '../YamlCatalogs.js';
 import { CommonStepShape } from '../schema.js';
 
 const Node = z.strictObject({

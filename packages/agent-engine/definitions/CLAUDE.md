@@ -1,43 +1,41 @@
-# @ia-tools/agent-engine-yaml
+# @ia-tools/agent-engine-definitions
 
-Fuentes de pipelines de `@ia-tools/agent-engine` escritas en YAML (una carpeta con `agents/`,
-`pipelines/` y un `source.yaml` opcional), y el `Engine` armado desde un `engine.yaml`. Hace I/O
-(lee archivos): por eso vive fuera del core. No sabe de proyectos: una fuente es una carpeta, y
-qué eventos le tocan lo decide quien la monta (una app puede envolverla con su propio
-`explainMismatch`).
+El modelo de definiciones de `@ia-tools/agent-engine` —una fuente, sus agentes y sus pipelines— y
+cómo se arman las entidades, venga de donde venga la definición. Los datasources
+(`datasources/yaml`, mañana SQLite o Postgres) sólo producen `SourceDocs`; este paquete los valida
+(sus schemas), los arma (`SourceBuilder`) y los sirve al engine en vivo (`DefinitionPipelineSource`).
+
+No sabe de proyectos ni de cómo se compone un engine: eso es de la app. Una pipeline filtra por
+`scope` (propiedad de la definición, como `on` o `when`); quién la pone es asunto de quien la define
+o la monta.
 
 ## Qué es este paquete
 
-- **`YamlPipelineSource`** — un `PipelineSource` por carpeta, leído en vivo. Su id: el que le da
-  quien la monta (`id`), si no el de `source.yaml`, y si no el nombre de la carpeta. Leída en vivo: el engine
-  llama `list()` en cada evento y, si cambió algún archivo (fecha, tamaño, uno nuevo o borrado), se
-  recarga. Una versión inválida se loguea y sigue la última buena; la primera carga tira.
-- **`createEngineFromYaml`** — la raíz de composición (acepta además `sources` armadas en código;
-  con ellas, `sources` del archivo puede faltar): lee `engine.yaml` —o una sección de un archivo
-  más grande, `{ section: 'engine' }`—, arma fuentes, store y
-  `Engine`, lo suscribe al bus y vence pausas con `tick.everyMs`. El store se elige por nombre de
-  driver: `memory` viene incluido, el resto se inyecta (`drivers: { sqlite: sqliteStoreDriver }`)
-  — este paquete no depende de `@ia-tools/agent-engine-sqlite` (sólo en tests).
+- **`DefinitionSource`** — lo que implementa un datasource: `read()` (sus `SourceDocs`) y
+  `version()` (cambia cuando cambió algo).
+- **`DefinitionPipelineSource`** — un `PipelineSource` sobre un `DefinitionSource`: en cada evento
+  mira la versión y, si cambió, vuelve a leer y armar. Una versión inválida se loguea y sigue la
+  última buena; la primera carga tira.
+- **`SourceBuilder`** — documentos → `StaticPipelineSource` (agentes compartidos, pipelines,
+  defaults, refs). Cada paso lo arma su `StepFactory`.
 
 ## Estructura
 
 ```
 src/
-├── YamlPipelineSource.ts    la fuente: caché por firma de archivos + recarga
-├── SourceLoader.ts         qué archivos forman una fuente, y leerlos
-├── SourceBuilder.ts        documentos → StaticPipelineSource (agentes compartidos, pipelines, defaults, refs)
-├── YamlReader.ts            leer + validar un archivo contra su schema (errores con archivo)
-├── schema.ts                la forma de cada archivo (zod): source, agent, pipeline, engine
+├── DefinitionSource.ts      el contrato de un datasource + la fuente en vivo
+├── SourceBuilder.ts         documentos → StaticPipelineSource
+├── schema.ts                la forma de cada definición (zod): source, agent, pipeline, pasos
 ├── StepFactory.ts           el contrato de un tipo de paso (keyword + schema + create)
 ├── StepFactoryRegistry.ts   qué factory arma cada nodo (la primera clave registrada)
 ├── factories/               una por tipo incluido: agent, action, emit, http, pause, function
-├── steps/                   los pasos propios del YAML: HttpStep (select, GraphQL), EmitStep
-├── Template.ts              `{{path}}` al correr (render) y `{{vars.x}}` al cargar (substituteVars)
-├── YamlCatalogs.ts          lo que el YAML nombra y la app registra en código
-├── createEngineFromYaml.ts  la raíz de composición
-├── located.ts               anteponer archivo y ruta a un error
-└── tests/
+├── Catalogs.ts              lo que una definición nombra y la app registra en código
+├── located.ts               anteponer dónde (archivo, fila…) y ruta a un error
+└── tests/                   con un datasource en memoria (`tests/memory.ts`)
 ```
+
+Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`render`,
+`substituteVars`) son del core.
 
 ## Reglas que no son obvias
 
@@ -83,19 +81,19 @@ src/
   después del `when`. `whenText: <texto>` o `{ text, systemPrompts, model }`; cada system prompt
   por id (uno del `source.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline
   (`{ text }`), resueltos AL CARGAR — un id que no existe rompe la carga. El de un paso de agente
-  gana sobre el del agente. El clasificador sale de `engine.yaml` (`whenText: { model,
-  apiKeyEnv }` → `AnthropicTextClassifier`) o de `textClassifier` en código; sin clasificador, o
-  sin veredicto, lo que tiene `whenText` no corre. Una fuente no tiene filtro (`when`/`whenText`) ni sabe de proyectos: qué eventos le tocan lo decide quien la monta (`PipelineSource.explainMismatch`).
-- **`formatMessage: '{{message}}'`** en `engine.yaml`: el texto con el que un evento le llega a un
-  agente que ya corre, como plantilla contra el payload. Vacía, el mensaje por default.
-- **Los errores dicen dónde**: `<archivo>: <ruta del campo>: <qué>` (`located`).
+  gana sobre el del agente. El clasificador es del `Engine` (`textClassifier`); sin
+  clasificador, o sin veredicto, lo que tiene `whenText` no corre.
+- **`scope` en una pipeline** filtra por `event.scope` (cada clave, exacta). Es una propiedad más:
+  una app que agrupa fuentes (ej. un proyecto) la pone en la definición antes de armarla.
+- **Los errores dicen dónde**: `<dónde>: <ruta del campo>: <qué>` (`located`); el `path` de cada
+  documento lo pone el datasource (un archivo, una fila).
 - **Una pausa sobrevive a una recarga** si la pipeline no cambió de forma: el `Checkpoint` compara
   `shape` y falla en vez de seguir en otro paso.
 
 ## Antes de commitear
 
 ```bash
-pnpm --filter @ia-tools/agent-engine-yaml typecheck
-pnpm --filter @ia-tools/agent-engine-yaml test
-pnpm --filter @ia-tools/agent-engine-yaml build
+pnpm --filter @ia-tools/agent-engine-definitions typecheck
+pnpm --filter @ia-tools/agent-engine-definitions test
+pnpm --filter @ia-tools/agent-engine-definitions build
 ```

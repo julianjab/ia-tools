@@ -1,8 +1,5 @@
-import {
-  HttpAction,
-  type HttpActionProps,
-  type PipelineExecutionContext,
-} from '@ia-tools/agent-engine';
+import type { PipelineExecutionContext } from '../Runnable.js';
+import { HttpAction, type HttpActionProps } from './HttpAction.js';
 
 export interface HttpStepProps extends HttpActionProps {
   /** Una query GraphQL: la respuesta con `errors` falla, y lo que sigue se lee desde `data`. */

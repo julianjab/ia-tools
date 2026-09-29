@@ -1,10 +1,6 @@
-import {
-  type Action,
-  type PipelineExecutionContext,
-  Runnable,
-  type RunnableProps,
-} from '@ia-tools/agent-engine';
-import { render, templateRoot } from '../Template.js';
+import { render, templateRoot } from '../../template/Template.js';
+import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
+import type { Action } from './Action.js';
 
 export interface ActionStepProps extends RunnableProps {
   action: Action;

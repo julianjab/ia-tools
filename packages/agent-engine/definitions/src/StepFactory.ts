@@ -1,6 +1,6 @@
 import type { Action, Agent, Condition, RouteTo, Runnable, WhenText } from '@ia-tools/agent-engine';
 import type { z } from 'zod';
-import type { YamlCatalogs } from './YamlCatalogs.js';
+import type { Catalogs } from './Catalogs.js';
 import type { WhenTextNode } from './schema.js';
 
 /** Un agente de la fuente ajustado a UN paso de una pipeline. */
@@ -15,7 +15,7 @@ export interface AgentVariant {
 
 /** Lo que una factory puede pedir mientras arma un paso. */
 export interface StepBuildContext {
-  readonly catalogs: YamlCatalogs;
+  readonly catalogs: Catalogs;
   readonly sourceId: string;
   /** El agente dueño de este nodo (su `onStart`, sus rutas, su `report`), si hay. */
   readonly agentId?: string;

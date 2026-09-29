@@ -1,9 +1,9 @@
 import { type Action, Condition, type Runnable } from '@ia-tools/agent-engine';
+import { hasTemplate } from '@ia-tools/agent-engine';
+import { ActionStep } from '@ia-tools/agent-engine';
 import { z } from 'zod';
 import type { StepBuildContext, StepFactory } from '../StepFactory.js';
-import { hasTemplate } from '../Template.js';
 import { CommonStepShape } from '../schema.js';
-import { ActionStep } from '../steps/ActionStep.js';
 
 const Node = z.strictObject({
   action: z.string().min(1),

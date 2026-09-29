@@ -1,11 +1,6 @@
-import {
-  type DomainEvent,
-  type PipelineExecutionContext,
-  Runnable,
-  type RunnableProps,
-  deriveEvent,
-} from '@ia-tools/agent-engine';
-import { render, templateRoot } from '../Template.js';
+import { type DomainEvent, deriveEvent } from '../../events/DomainEvent.js';
+import { render, templateRoot } from '../../template/Template.js';
+import { type PipelineExecutionContext, Runnable, type RunnableProps } from '../Runnable.js';
 
 export interface EmitStepProps extends RunnableProps {
   /** El tipo del evento; admite `{{...}}`. */

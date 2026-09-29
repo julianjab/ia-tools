@@ -1,4 +1,4 @@
-import type { PipelineExecutionContext } from '@ia-tools/agent-engine';
+import type { PipelineExecutionContext } from '../pipeline/Runnable.js';
 
 const WHOLE = /^\{\{\s*([\w.-]+)\s*\}\}$/;
 const EMBEDDED = /\{\{\s*([\w.-]+)\s*\}\}/g;

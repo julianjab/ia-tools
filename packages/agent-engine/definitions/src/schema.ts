@@ -1,6 +1,7 @@
 /**
- * La forma de cada archivo YAML. Los pasos son nodos abiertos (`StepNode`): cada tipo de paso los
- * valida con su propia factory.
+ * El modelo de definiciones: la forma de una fuente, un agente y una pipeline, venga de donde
+ * venga (YAML, SQLite, …). Cada datasource produce estos documentos; `SourceBuilder` los arma.
+ * Los pasos son nodos abiertos (`StepNode`): cada tipo de paso los valida con su propia factory.
  */
 import { z } from 'zod';
 
@@ -92,21 +93,15 @@ const Defaults = {
 };
 
 export const SourceDoc = z.strictObject({
-  /** Default: el nombre de la carpeta. */
+  /** Su id, si el datasource lo lee de la definición (ver `SourceDocs.id`). */
   id: z.string().min(1).optional(),
-  /** Constantes de la fuente: `{{vars.x}}` se sustituye al cargar en cualquier archivo. */
+  /** Constantes de la fuente, si el datasource las sustituye al leer (`{{vars.x}}` en YAML). */
   vars: z.record(z.string(), z.unknown()).optional(),
   /** Van ANTES de los de cada agente de la fuente: el prefijo compartido (y cacheable) de todos. */
   systemPrompts: SystemPromptRefs.optional(),
   ...Defaults,
 });
 export type SourceDoc = z.infer<typeof SourceDoc>;
-
-/** Lo que se lee de `source.yaml` antes de sustituir nada: su id y sus vars. */
-export const SourceVarsDoc = z.looseObject({
-  id: z.string().min(1).optional(),
-  vars: z.record(z.string(), z.unknown()).optional(),
-});
 
 const EventFilterNode = z.strictObject({
   on: z.array(z.string().min(1)).min(1),
@@ -210,51 +205,10 @@ export const PipelineDoc = z.strictObject({
 });
 export type PipelineDoc = z.infer<typeof PipelineDoc>;
 
-/** Claves que un paso creado desde el YAML puede llevar además de las suyas. */
+/** Claves que cualquier paso puede llevar además de las suyas. */
 export const CommonStepShape = {
   id: z.string().min(1).optional(),
   when: ConditionRows.optional(),
   whenText: WhenTextNode.optional(),
   continueOnError: z.boolean().optional(),
 };
-
-/** `engine.yaml`: cómo arma el engine una app. Las rutas son relativas al archivo. */
-export const EngineDoc = z.strictObject({
-  maxEventDepth: z.number().int().positive().optional(),
-  executions: z
-    .strictObject({
-      /** Un driver registrado (`memory` viene incluido; ej. `sqlite` de
-       *  `@ia-tools/agent-engine-sqlite`). */
-      driver: z.string().min(1).default('memory'),
-      path: z.string().min(1).optional(),
-      maxConcurrent: z.number().int().min(1).optional(),
-    })
-    .optional(),
-  /** `dir`: la carpeta de una fuente (`id`: si no, el de su `source.yaml` o el de la carpeta).
-   *  `root`: una carpeta con una fuente por subcarpeta. Puede faltar si la app pasa sus fuentes
-   *  (`options.sources`). */
-  sources: z
-    .array(
-      z.union([
-        z.strictObject({ dir: z.string().min(1), id: z.string().min(1).optional() }),
-        z.strictObject({ root: z.string().min(1) }),
-      ]),
-    )
-    .default([]),
-  /** El texto con el que un evento le llega a un agente que ya corre (`injects`): una plantilla
-   *  contra el payload (`'{{message}}'`). Sin esto, o si queda vacía, el mensaje por default. */
-  formatMessage: z.string().min(1).optional(),
-  /** Cada cuánto vence las pausas (`engine.tick()`). Sin esto, la app lo llama. */
-  tick: z.strictObject({ everyMs: z.number().int().positive() }).optional(),
-  /** El clasificador de los `whenText`: la Messages API de Anthropic. Sin esto (y sin
-   *  `textClassifier` en código), un `whenText` no deja correr nada. */
-  whenText: z
-    .strictObject({
-      /** Default: `claude-haiku-4-5`. */
-      model: z.string().min(1).optional(),
-      /** La env var con la API key. Default: `ANTHROPIC_API_KEY`. */
-      apiKeyEnv: z.string().min(1).optional(),
-    })
-    .optional(),
-});
-export type EngineDoc = z.infer<typeof EngineDoc>;

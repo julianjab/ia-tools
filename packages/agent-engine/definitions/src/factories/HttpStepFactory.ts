@@ -1,10 +1,10 @@
 import { Condition, type PipelineExecutionContext } from '@ia-tools/agent-engine';
+import { hasTemplate, render, renderText, templateRoot } from '@ia-tools/agent-engine';
+import { HttpStep } from '@ia-tools/agent-engine';
 import { z } from 'zod';
+import { type HttpConnection, lookup } from '../Catalogs.js';
 import type { StepBuildContext, StepFactory } from '../StepFactory.js';
-import { hasTemplate, render, renderText, templateRoot } from '../Template.js';
-import { type HttpConnection, lookup } from '../YamlCatalogs.js';
 import { CommonStepShape } from '../schema.js';
-import { HttpStep } from '../steps/HttpStep.js';
 
 const WHOLE_TEMPLATE = /^\{\{[^}]*\}\}$/;
 
