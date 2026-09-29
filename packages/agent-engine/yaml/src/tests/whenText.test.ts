@@ -6,7 +6,7 @@ import {
   type TextClassifier,
   type WhenText,
   createEvent,
-} from '@ia-tools/agent-pipeline';
+} from '@ia-tools/agent-engine';
 import { describe, expect, it, vi } from 'vitest';
 import type { YamlCatalogs } from '../YamlCatalogs.js';
 import { YamlPipelineSource } from '../YamlPipelineSource.js';

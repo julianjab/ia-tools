@@ -3,8 +3,8 @@ import type {
   PipelineExecutionContext,
   ProviderRunContext,
   Tool,
-} from '@ia-tools/agent-pipeline';
-import { createEvent } from '@ia-tools/agent-pipeline';
+} from '@ia-tools/agent-engine';
+import { createEvent } from '@ia-tools/agent-engine';
 import { describe, expect, it, vi } from 'vitest';
 import { AnthropicProvider, parseAnthropicAgentConfig } from '../AnthropicProvider.js';
 

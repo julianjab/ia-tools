@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EventBus, type PipelineExecutionContext, createEvent } from '@ia-tools/agent-pipeline';
+import { EventBus, type PipelineExecutionContext, createEvent } from '@ia-tools/agent-engine';
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkspaceManager } from '../WorkspaceManager.js';
 import {

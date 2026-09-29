@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 
 /** Una carpeta temporal con estos archivos (ruta relativa → contenido). */
 export function projectDir(files: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), 'agent-pipeline-yaml-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agent-engine-yaml-'));
   writeFiles(dir, files);
   return dir;
 }

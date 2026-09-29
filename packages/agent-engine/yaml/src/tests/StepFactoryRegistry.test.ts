@@ -1,4 +1,4 @@
-import { EventBus, FunctionAction, createEvent } from '@ia-tools/agent-pipeline';
+import { EventBus, FunctionAction, createEvent } from '@ia-tools/agent-engine';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { StepFactory } from '../StepFactory.js';

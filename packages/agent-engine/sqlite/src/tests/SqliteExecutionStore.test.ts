@@ -13,14 +13,14 @@ import {
   ProviderRegistry,
   createEvent,
   scopeExecutionKey,
-} from '@ia-tools/agent-pipeline';
-import { executionStoreContract } from '@ia-tools/agent-pipeline/testing';
+} from '@ia-tools/agent-engine';
+import { executionStoreContract } from '@ia-tools/agent-engine/testing';
 import { describe, expect, it } from 'vitest';
 import { SqliteExecutionStore } from '../SqliteExecutionStore.js';
 import { openNodeSqlite } from '../node.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-const dbFile = () => join(mkdtempSync(join(tmpdir(), 'agent-pipeline-sqlite-')), 'executions.db');
+const dbFile = () => join(mkdtempSync(join(tmpdir(), 'agent-engine-sqlite-')), 'executions.db');
 
 executionStoreContract(
   'SqliteExecutionStore',

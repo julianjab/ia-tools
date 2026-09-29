@@ -1,5 +1,5 @@
-import type { EventBus, ProviderRunContext, Tool } from '@ia-tools/agent-pipeline';
-import { createEvent } from '@ia-tools/agent-pipeline';
+import type { EventBus, ProviderRunContext, Tool } from '@ia-tools/agent-engine';
+import { createEvent } from '@ia-tools/agent-engine';
 import { withInheritedAttributes, withSpan } from '@ia-tools/telemetry';
 import { SpanStatusCode, context, trace } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';

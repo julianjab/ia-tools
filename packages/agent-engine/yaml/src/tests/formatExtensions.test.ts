@@ -9,7 +9,7 @@ import {
   type ProviderRunContext,
   StaticPipelineSource,
   createEvent,
-} from '@ia-tools/agent-pipeline';
+} from '@ia-tools/agent-engine';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { ActionRequest, YamlCatalogs } from '../YamlCatalogs.js';

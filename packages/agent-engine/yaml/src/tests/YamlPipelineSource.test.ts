@@ -8,8 +8,8 @@ import {
   ProviderRegistry,
   createEvent,
   scopeExecutionKey,
-} from '@ia-tools/agent-pipeline';
-import { pipelineSourceContract } from '@ia-tools/agent-pipeline/testing';
+} from '@ia-tools/agent-engine';
+import { pipelineSourceContract } from '@ia-tools/agent-engine/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { YamlCatalogs } from '../YamlCatalogs.js';

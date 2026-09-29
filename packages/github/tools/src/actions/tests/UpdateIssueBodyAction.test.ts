@@ -1,4 +1,4 @@
-import { EventBus, type PipelineExecutionContext, createEvent } from '@ia-tools/agent-pipeline';
+import { EventBus, type PipelineExecutionContext, createEvent } from '@ia-tools/agent-engine';
 import { GithubClient } from '@ia-tools/github-api';
 import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { describe, expect, it, vi } from 'vitest';
