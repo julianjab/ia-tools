@@ -9,7 +9,7 @@ import type { ExitDefaults } from '../routing/ExitRoutes.js';
  */
 export interface PipelineSource {
   list(): Promise<Pipeline[]> | Pipeline[];
-  /** Quién es (ej. el id del `Project`): una pausa recuerda de qué fuente es su pipeline, para
+  /** Quién es (ej. el id de un proyecto de la app): una pausa recuerda de qué fuente es su pipeline, para
    *  reanudarla ahí aunque otra fuente tenga una pipeline con el mismo id. */
   readonly id?: string;
   /** Defaults de rutas para todas sus pipelines — el nivel "proyecto" de la cascada. */
@@ -21,9 +21,38 @@ export interface PipelineSource {
   explainMismatch?(event: DomainEvent<any>): string | undefined;
 }
 
-/** El caso común: pipelines definidos en código, fijos para la vida del proceso. */
+export interface StaticPipelineSourceOptions {
+  /** Ver `PipelineSource.id`. */
+  id?: string;
+  /** Ver `PipelineSource.defaults`: el `onError`/`report` de todas sus pipelines. */
+  defaults?: ExitDefaults;
+}
+
+/**
+ * Pipelines fijas para la vida del proceso — armadas en código, o cargadas por quien las lea de
+ * otro lado (ej. una carpeta YAML). Con `id` y `defaults` es lo que una app llama "un proyecto":
+ * el engine no sabe de proyectos, sólo de fuentes.
+ */
 export class StaticPipelineSource implements PipelineSource {
-  constructor(private readonly pipelines: Pipeline[]) {}
+  readonly id?: string;
+  readonly defaults?: ExitDefaults;
+
+  constructor(
+    private readonly pipelines: Pipeline[],
+    options: StaticPipelineSourceOptions = {},
+  ) {
+    const seen = new Set<string>();
+    for (const pipeline of pipelines) {
+      if (seen.has(pipeline.id)) {
+        throw new Error(
+          `${options.id ?? 'StaticPipelineSource'}: dos pipelines con el id "${pipeline.id}"`,
+        );
+      }
+      seen.add(pipeline.id);
+    }
+    if (options.id !== undefined) this.id = options.id;
+    if (options.defaults) this.defaults = options.defaults;
+  }
 
   list(): Pipeline[] {
     return this.pipelines;

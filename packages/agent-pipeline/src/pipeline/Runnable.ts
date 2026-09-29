@@ -20,7 +20,7 @@ export interface PipelineExecutionContext {
   bus: EventBus;
   pipelineId: string;
   /** Defaults del proyecto (`onError`, `report`) — el nivel más general de la cascada de rutas.
-   *  Lo pone el `Engine` a partir de `PipelineSource.defaults` (ver `Project`). */
+   *  Lo pone el `Engine` a partir de `PipelineSource.defaults`. */
   defaults?: ExitDefaults;
   /** El id de la fuente (`PipelineSource.id`) de esta pipeline — lo guarda una pausa. */
   sourceId?: string;

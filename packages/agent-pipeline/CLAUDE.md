@@ -8,7 +8,7 @@ completo; esto es guía específica para trabajar en el código del paquete.
 
 Es **contrato puro, sin I/O**: interfaces y clases (`DomainEvent`, `EventBus`, `Condition`,
 `Runnable`, `Agent`, `Pipeline`, `Engine`, `AgentDefinitionProps`, `Provider`,
-`ProviderRegistry`, `ToolRegistry`, `SchemaTool`, `Action`, `Project`, la cascada de rutas). Las
+`ProviderRegistry`, `ToolRegistry`, `SchemaTool`, `Action`, `PipelineSource`, la cascada de rutas). Las
 dependencias runtime son `zod` — la usan `SchemaTool`, `Action`, el `input` de `Agent` y los
 schemas de `submit_*`; es validación pura en memoria — y `@ia-tools/telemetry` (trazas y logs
 por las APIs de OpenTelemetry; ver "Telemetría" abajo), que sin un SDK registrado es no-op sin
@@ -75,7 +75,7 @@ src/
 │   ├── ExecutionScheduler.ts, KeyedQueue.ts, Semaphore.ts   turno por task + tope global
 │   ├── ExecutionRepository.ts   el puerto de persistencia (síncrono)
 │   ├── InMemoryExecutionRepository.ts, InMemoryExecutionStore.ts
-│   ├── PipelineSource.ts, Project.ts
+│   ├── PipelineSource.ts    la fuente del roster (interfaz) y StaticPipelineSource
 │   ├── tracing.ts           qué deja el despacho en la traza (opciones de @traced/@tagged)
 │   └── tests/               … + tracing.test.ts (la forma de la traza de un evento)
 ├── testing/                 suites de contrato (`@ia-tools/agent-pipeline/testing`) para adaptadores
@@ -232,8 +232,13 @@ agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvi
   Anthropic por default en el YAML) decide si el evento cumple el criterio. Lo evalúan el
   `DispatchPlanner` (el de una pipeline, sólo si ya pasó todo lo barato y ANTES de elegir la
   `exclusive`) y el `StepRunner` (el de un paso). Sin clasificador o sin veredicto, no corre:
-  nunca se adivina. Una llamada por (evento, criterio). Un `Project` lo rechaza (un modelo por
-  evento), y una pausa o unos `injects` no lo evalúan (son sincrónicos).
+  nunca se adivina. Una llamada por (evento, criterio). Una fuente no lo tiene (sería un modelo
+  por evento), y una pausa o unos `injects` no lo evalúan (son sincrónicos).
+- **El engine no sabe de proyectos: sabe de fuentes.** `PipelineSource` (`list`, `id`,
+  `defaults`, `explainMismatch`) es todo lo que el planner necesita; "un proyecto" es cómo una
+  app agrupa pipelines (ej. una carpeta YAML) y lo expone como una fuente — en código,
+  `new StaticPipelineSource(pipelines, { id, defaults })`. El "nivel proyecto" de la cascada de
+  rutas es el `defaults` de la fuente.
 - **Sólo el agente crea salidas** (vocabulario + `when`). Un override de una salida no declarada
   tira: un typo tiene que romper al construir, no quedar como config muerta.
 - **Las rutas base del agente sólo apuntan a acciones.** Encadenar agentes se declara en la

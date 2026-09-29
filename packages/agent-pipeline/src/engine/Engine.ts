@@ -17,7 +17,7 @@ export const DEFAULT_MAX_EVENT_DEPTH = 10;
 
 export interface EngineOptions {
   bus: EventBus;
-  /** Una fuente, o varias (ej. un `Project` por proyecto): cada una con su propio `when` y sus
+  /** Una fuente, o varias (ej. una por proyecto de la app): cada una con su propio filtro y sus
    *  defaults. La prioridad `exclusive`/`position` se decide entre TODAS. */
   pipelines: PipelineSource | PipelineSource[];
   maxEventDepth?: number;

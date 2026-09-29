@@ -94,8 +94,7 @@ export { ExecutionStore } from './engine/ExecutionStore.js';
 export type { InMemoryExecutionStoreOptions } from './engine/InMemoryExecutionStore.js';
 export { InMemoryExecutionStore } from './engine/InMemoryExecutionStore.js';
 export type { PipelineSource } from './engine/PipelineSource.js';
-export type { ProjectProps } from './engine/Project.js';
-export { Project } from './engine/Project.js';
+export type { StaticPipelineSourceOptions } from './engine/PipelineSource.js';
 export { StaticPipelineSource } from './engine/PipelineSource.js';
 
 export type {
