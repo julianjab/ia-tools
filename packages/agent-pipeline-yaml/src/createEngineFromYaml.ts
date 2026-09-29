@@ -1,11 +1,13 @@
 import { dirname, isAbsolute, resolve } from 'node:path';
 import {
+  AnthropicTextClassifier,
   type DomainEvent,
   Engine,
   EventBus,
   type ExecutionStore,
   InMemoryExecutionStore,
   type PipelineSource,
+  type TextClassifier,
 } from '@ia-tools/agent-pipeline';
 import type { YamlCatalogs } from './YamlCatalogs.js';
 import { YamlPipelineSource } from './YamlPipelineSource.js';
@@ -29,6 +31,8 @@ export interface CreateEngineFromYamlOptions {
   sources?: PipelineSource[];
   executionKey?: (event: DomainEvent<any>) => string | undefined;
   formatMessage?: (event: DomainEvent<any>) => string;
+  /** Quién evalúa los `whenText`. Default: el de `engine.yaml` (`whenText:`), si lo declara. */
+  textClassifier?: TextClassifier;
 }
 
 export interface EngineFromYaml {
@@ -54,6 +58,7 @@ const memoryDriver: ExecutionStoreDriver = ({ maxConcurrent }) =>
  * sources:
  *   - root: ./projects
  * tick: { everyMs: 60000 }
+ * whenText: { model: claude-haiku-4-5 }   # el clasificador de los `whenText`
  * ```
  */
 export function createEngineFromYaml(
@@ -80,6 +85,7 @@ export function createEngineFromYaml(
     ...optional('executions', executions),
     ...optional('executionKey', options.executionKey),
     ...optional('formatMessage', options.formatMessage),
+    ...optional('textClassifier', options.textClassifier ?? classifier(doc.whenText)),
   });
   const unsubscribe = engine.start();
   const ticker = doc.tick ? setInterval(() => engine.tick(), doc.tick.everyMs) : undefined;
@@ -117,6 +123,16 @@ function store(
       config.path === undefined || config.path === ':memory:' ? config.path : at(config.path),
     ),
     ...optional('maxConcurrent', config.maxConcurrent),
+  });
+}
+
+/** El clasificador de `engine.yaml`: la Messages API de Anthropic, con la key de su env var. */
+function classifier(config: EngineDoc['whenText']): TextClassifier | undefined {
+  if (!config) return undefined;
+  const env = config.apiKeyEnv ?? 'ANTHROPIC_API_KEY';
+  return new AnthropicTextClassifier({
+    apiKey: () => process.env[env],
+    ...optional('model', config.model),
   });
 }
 

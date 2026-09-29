@@ -1,7 +1,7 @@
 import { type Agent, Condition } from '@ia-tools/agent-pipeline';
 import { z } from 'zod';
 import type { StepBuildContext, StepFactory } from '../StepFactory.js';
-import { ConditionRows } from '../schema.js';
+import { ConditionRows, WhenTextNode } from '../schema.js';
 
 const Node = z.strictObject({
   agent: z.string().min(1),
@@ -9,6 +9,8 @@ const Node = z.strictObject({
   brief: z.string().optional(),
   /** El `when` de este paso. */
   when: ConditionRows.optional(),
+  /** El gate semántico de este paso; gana sobre el del agente. */
+  whenText: WhenTextNode.optional(),
 });
 
 /**
@@ -21,10 +23,13 @@ export class AgentStepFactory implements StepFactory<z.infer<typeof Node>> {
   readonly schema = Node;
 
   create(node: z.infer<typeof Node>, context: StepBuildContext): Agent {
-    if (node.brief === undefined && node.when === undefined) return context.agent(node.agent);
+    if (node.brief === undefined && node.when === undefined && node.whenText === undefined) {
+      return context.agent(node.agent);
+    }
     return context.agent(node.agent, {
       ...(node.brief !== undefined ? { brief: node.brief } : {}),
       ...(node.when ? { when: Condition.fromRows(node.when) } : {}),
+      ...context.whenText(node.whenText),
     });
   }
 }

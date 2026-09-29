@@ -75,6 +75,7 @@ export class HttpStepFactory implements StepFactory<Node> {
       ...(node.select ? { select: node.select } : {}),
       id: node.id,
       when: Condition.fromRows(node.when),
+      ...context.whenText(node.whenText),
       continueOnError: node.continueOnError,
     });
   }

@@ -74,6 +74,13 @@ src/
   fijo sigue siendo `Action.bind`, validado al cargar.
 - **Una función de catálogo con `with`** recibe esos valores como input: así es pura y sirve en
   cualquier pipeline. Sin `with`, recibe `(ctx, undefined)`.
+- **`whenText`** (pipeline, paso, agente): un modelo decide si el evento cumple un criterio,
+  después del `when`. `whenText: <texto>` o `{ text, systemPrompts, model }`; cada system prompt
+  por id (uno del `project.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline
+  (`{ text }`), resueltos AL CARGAR — un id que no existe rompe la carga. El de un paso de agente
+  gana sobre el del agente. El clasificador sale de `engine.yaml` (`whenText: { model,
+  apiKeyEnv }` → `AnthropicTextClassifier`) o de `textClassifier` en código; sin clasificador, o
+  sin veredicto, lo que tiene `whenText` no corre. Un proyecto no admite `whenText`.
 - **Los errores dicen dónde**: `<archivo>: <ruta del campo>: <qué>` (`located`).
 - **Una pausa sobrevive a una recarga** si la pipeline no cambió de forma: el `Checkpoint` compara
   `shape` y falla en vez de seguir en otro paso.

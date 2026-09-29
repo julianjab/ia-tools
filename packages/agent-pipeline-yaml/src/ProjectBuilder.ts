@@ -16,6 +16,7 @@ import {
   type Runnable,
   type Tool,
   type ToolInputSchema,
+  type WhenText,
 } from '@ia-tools/agent-pipeline';
 import { createLogger } from '@ia-tools/telemetry';
 import { z } from 'zod';
@@ -23,7 +24,14 @@ import type { AgentVariant, StepBuildContext } from './StepFactory.js';
 import { StepFactoryRegistry } from './StepFactoryRegistry.js';
 import { type ToolLookup, type YamlCatalogs, lookup } from './YamlCatalogs.js';
 import { located } from './located.js';
-import type { AgentDoc, ErrorRouteNode, ExitRouteNode, PipelineDoc, ProjectDoc } from './schema.js';
+import type {
+  AgentDoc,
+  ErrorRouteNode,
+  ExitRouteNode,
+  PipelineDoc,
+  ProjectDoc,
+  WhenTextNode,
+} from './schema.js';
 
 /** Un documento con el archivo del que salió. */
 export interface Located<T> {
@@ -143,6 +151,9 @@ export class ProjectBuilder {
             mcpServers: this.mcpServers(doc.mcpServers, where('mcpServers')),
             continueOnError: doc.continueOnError,
             when: [...Condition.fromRows(doc.when), ...(variant.when ?? [])],
+            ...(variant.whenText
+              ? { whenText: variant.whenText }
+              : located(where('whenText'), () => this.whenText(doc.whenText))),
             routes: this.exitRoutes(doc.routes, context, where('routes')) as Record<
               string,
               ExitRoute
@@ -185,6 +196,7 @@ export class ProjectBuilder {
           ifRunning: doc.ifRunning,
           ifPaused: doc.ifPaused,
           when: Condition.fromRows(doc.when),
+          ...located(`${path}: whenText`, () => this.whenText(doc.whenText)),
           do: steps,
           routes,
           ...this.defaults(doc, context, path),
@@ -202,6 +214,7 @@ export class ProjectBuilder {
       routeTo: (node, at) => this.routeTo(node, make(at)),
       agent: (id, variant) => located(where, () => this.agent(id, variant)),
       action: (name, options) => this.action(name, agentId, options),
+      whenText: (node) => located(`${where}: whenText`, () => this.whenText(node)),
     });
     return make(path);
   }
@@ -303,6 +316,38 @@ export class ProjectBuilder {
       return (tools as ToolLookup).get(name);
     }
     return lookup(tools as Record<string, Tool> | undefined, name, 'una tool');
+  }
+
+  /**
+   * Un `whenText` del YAML, con sus system prompts resueltos a texto: por id, uno del
+   * `project.yaml` (con ese `id`) o del catálogo; inline, `{ text }`. Un id que no existe rompe la
+   * carga — un gate que corre sin las instrucciones que se le pidieron decidiría otra cosa.
+   */
+  private whenText(node: WhenTextNode | undefined): { whenText?: WhenText } {
+    if (node === undefined) return {};
+    if (typeof node === 'string') return { whenText: { text: node } };
+    const systemPrompts = (node.systemPrompts ?? []).map((ref) =>
+      typeof ref === 'string' ? this.systemPrompt(ref) : ref.text,
+    );
+    return {
+      whenText: {
+        text: node.text,
+        ...(systemPrompts.length > 0 ? { systemPrompts } : {}),
+        ...(node.model ? { model: node.model } : {}),
+      },
+    };
+  }
+
+  private systemPrompt(id: string): string {
+    const own = this.projectSystemPrompts.find((ref) => ref.id === id)?.text;
+    const found = own ?? this.catalogs.systemPrompts?.resolve(id);
+    if (found === undefined) {
+      const declared = this.projectSystemPrompts.flatMap((ref) => (ref.id ? [ref.id] : []));
+      throw new Error(
+        `no hay un system prompt "${id}"${declared.length > 0 ? ` — el proyecto declara: ${declared.join(', ')}` : ''} (ni en el catálogo)`,
+      );
+    }
+    return found;
   }
 
   /** La acción `name` del catálogo — armada para este proyecto y agente si es un `ActionProvider`. */

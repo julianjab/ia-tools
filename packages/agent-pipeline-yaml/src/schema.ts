@@ -32,6 +32,23 @@ export const ConditionRows = z.array(
 );
 
 export const StepNode = z.record(z.string(), z.unknown());
+
+/**
+ * El gate semántico (`whenText`): el criterio en lenguaje natural, o `{ text, systemPrompts, model }`.
+ * Un system prompt se nombra por id —uno del `project.yaml` o del catálogo— o va inline
+ * (`{ text }`); se resuelven al cargar.
+ */
+export const WhenTextNode = z.union([
+  z.string().min(1),
+  z.strictObject({
+    text: z.string().min(1),
+    systemPrompts: z
+      .array(z.union([z.string().min(1), z.strictObject({ text: z.string().min(1) })]))
+      .optional(),
+    model: z.string().min(1).optional(),
+  }),
+]);
+export type WhenTextNode = z.infer<typeof WhenTextNode>;
 export type StepNode = z.infer<typeof StepNode>;
 
 /** `end`, un paso o una lista de pasos. */
@@ -158,6 +175,8 @@ export const AgentDoc = z.strictObject({
     .optional(),
   continueOnError: z.boolean().optional(),
   when: ConditionRows.optional(),
+  /** Donde sea que corra: un modelo decide si el evento le corresponde (ver `WhenTextNode`). */
+  whenText: WhenTextNode.optional(),
   routes: z.record(z.string(), ExitRouteNode).optional(),
   ...Defaults,
 });
@@ -175,6 +194,8 @@ export const PipelineDoc = z.strictObject({
   ifRunning: z.enum(['wait', 'skip']).optional(),
   ifPaused: z.enum(['supersede', 'wait']).optional(),
   when: ConditionRows.optional(),
+  /** Después del `when`: un modelo decide si la pipeline corre (ver `WhenTextNode`). */
+  whenText: WhenTextNode.optional(),
   do: z.array(StepNode).min(1),
   /** Overrides por agente: `routes.<agentId>.routes.<salida>` (`null` la elimina). */
   routes: z
@@ -194,6 +215,7 @@ export type PipelineDoc = z.infer<typeof PipelineDoc>;
 export const CommonStepShape = {
   id: z.string().min(1).optional(),
   when: ConditionRows.optional(),
+  whenText: WhenTextNode.optional(),
   continueOnError: z.boolean().optional(),
 };
 
@@ -220,5 +242,15 @@ export const EngineDoc = z.strictObject({
     .min(1),
   /** Cada cuánto vence las pausas (`engine.tick()`). Sin esto, la app lo llama. */
   tick: z.strictObject({ everyMs: z.number().int().positive() }).optional(),
+  /** El clasificador de los `whenText`: la Messages API de Anthropic. Sin esto (y sin
+   *  `textClassifier` en código), un `whenText` no deja correr nada. */
+  whenText: z
+    .strictObject({
+      /** Default: `claude-haiku-4-5`. */
+      model: z.string().min(1).optional(),
+      /** La env var con la API key. Default: `ANTHROPIC_API_KEY`. */
+      apiKeyEnv: z.string().min(1).optional(),
+    })
+    .optional(),
 });
 export type EngineDoc = z.infer<typeof EngineDoc>;

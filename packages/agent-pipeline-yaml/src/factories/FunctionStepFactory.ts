@@ -28,6 +28,7 @@ export class FunctionStepFactory implements StepFactory<z.infer<typeof Node>> {
       fn: args ? (ctx) => fn(ctx, render(args, templateRoot(ctx)) as Record<string, unknown>) : fn,
       id: node.id ?? node.function,
       when: Condition.fromRows(node.when),
+      ...context.whenText(node.whenText),
       continueOnError: node.continueOnError,
     });
   }

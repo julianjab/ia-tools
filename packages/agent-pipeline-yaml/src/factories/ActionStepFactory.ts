@@ -30,7 +30,11 @@ export class ActionStepFactory implements StepFactory<z.infer<typeof Node>> {
       );
     }
     const templated = node.with !== undefined && hasTemplate(node.with);
-    const own = node.id !== undefined || node.when !== undefined || node.continueOnError;
+    const own =
+      node.id !== undefined ||
+      node.when !== undefined ||
+      node.whenText !== undefined ||
+      node.continueOnError;
     if (!templated && !own) return node.with ? built.bind(node.with as Partial<unknown>) : built;
     const action: Action =
       node.with && !templated ? built.bind(node.with as Partial<unknown>) : built;
@@ -39,6 +43,7 @@ export class ActionStepFactory implements StepFactory<z.infer<typeof Node>> {
       with: templated ? (node.with as Record<string, unknown>) : {},
       id: node.id ?? built.id,
       when: [...built.when, ...Condition.fromRows(node.when)],
+      ...context.whenText(node.whenText),
       continueOnError: node.continueOnError ?? built.continueOnError,
     });
   }

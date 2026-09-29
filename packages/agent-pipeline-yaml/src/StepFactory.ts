@@ -1,6 +1,14 @@
-import type { Action, Agent, Condition, RouteTo, Runnable } from '@ia-tools/agent-pipeline';
+import type {
+  Action,
+  Agent,
+  Condition,
+  RouteTo,
+  Runnable,
+  WhenText,
+} from '@ia-tools/agent-pipeline';
 import type { z } from 'zod';
 import type { YamlCatalogs } from './YamlCatalogs.js';
+import type { WhenTextNode } from './schema.js';
 
 /** Un agente del proyecto ajustado a UN paso de una pipeline. */
 export interface AgentVariant {
@@ -8,6 +16,8 @@ export interface AgentVariant {
   brief?: string;
   /** El `when` del paso: el último nivel de la cascada (proyecto → pipeline → paso). */
   when?: Condition[];
+  /** El `whenText` del paso; gana sobre el del agente. */
+  whenText?: WhenText;
 }
 
 /** Lo que una factory puede pedir mientras arma un paso. */
@@ -26,6 +36,9 @@ export interface StepBuildContext {
   agent(id: string, variant?: AgentVariant): Agent;
   /** La acción del catálogo con ese nombre, armada para este nodo. */
   action(name: string, options?: Record<string, unknown>): Action | Action[];
+  /** Un `whenText` del YAML resuelto (sus system prompts por id, a texto), listo para esparcir
+   *  en las props de un paso: `{ whenText }`, o `{}` si no hay. */
+  whenText(node: WhenTextNode | undefined): { whenText?: WhenText };
 }
 
 /**

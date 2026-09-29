@@ -22,7 +22,7 @@ export class EmitStepFactory implements StepFactory<z.infer<typeof Node>> {
   readonly keyword = 'emit';
   readonly schema = Node;
 
-  create(node: z.infer<typeof Node>, _context: StepBuildContext): EmitStep {
+  create(node: z.infer<typeof Node>, context: StepBuildContext): EmitStep {
     return new EmitStep({
       type: node.emit,
       ...(node.payload !== undefined ? { payload: node.payload } : {}),
@@ -30,6 +30,7 @@ export class EmitStepFactory implements StepFactory<z.infer<typeof Node>> {
       ...(node.forEach ? { forEach: node.forEach } : {}),
       id: node.id,
       when: Condition.fromRows(node.when),
+      ...context.whenText(node.whenText),
       continueOnError: node.continueOnError,
     });
   }

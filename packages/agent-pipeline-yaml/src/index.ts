@@ -20,7 +20,15 @@ export { HttpStep } from './steps/HttpStep.js';
 export type { YamlPipelineSourceOptions } from './YamlPipelineSource.js';
 export { YamlPipelineSource } from './YamlPipelineSource.js';
 export { YamlReader } from './YamlReader.js';
-export { AgentDoc, ConditionRows, EngineDoc, PipelineDoc, ProjectDoc, StepNode } from './schema.js';
+export {
+  AgentDoc,
+  ConditionRows,
+  EngineDoc,
+  PipelineDoc,
+  ProjectDoc,
+  StepNode,
+  WhenTextNode,
+} from './schema.js';
 export type {
   CreateEngineFromYamlOptions,
   EngineFromYaml,
