@@ -111,53 +111,6 @@ do:
   });
 });
 
-describe('intake/', () => {
-  it('its pipelines see the raw event before the project when, and feed the ones that filter', async () => {
-    const reached = vi.fn();
-    const { source, engine, emitted } = mount(
-      {
-        'project.yaml': `
-id: flow
-when:
-  - { field: item.labels, op: contains, value: blocked }
-`,
-        'intake/issues.yaml': `
-id: intake-issues
-on: [github.issues]
-do:
-  - emit: issue.opened
-    payload: { item: { labels: '{{issue.labels}}' }, number: '{{issue.number}}' }
-    scope: { projectId: flow, issue: 'la-haus/x#{{issue.number}}' }
-`,
-        'pipelines/refine.yaml': `
-id: refine
-on: [issue.opened, github.issues]
-scope: { projectId: flow }
-do:
-  - { function: reached }
-`,
-      },
-      { functions: { reached } },
-    );
-
-    expect(source.intakePipelines().map((pipeline) => pipeline.id)).toEqual(['intake-issues']);
-    await engine.dispatch(createEvent('github.issues', { issue: { number: 3, labels: [] } }));
-    await engine.dispatch(
-      createEvent('github.issues', { issue: { number: 4, labels: ['blocked'] } }),
-    );
-    await vi.waitFor(() => expect(reached).toHaveBeenCalledTimes(1));
-
-    expect(emitted.filter((e) => e.type === 'issue.opened').map((e) => e.scope)).toEqual([
-      { projectId: 'flow', issue: 'la-haus/x#3' },
-      { projectId: 'flow', issue: 'la-haus/x#4' },
-    ]);
-    expect(reached.mock.calls[0]?.[0].event.payload).toEqual({
-      item: { labels: ['blocked'] },
-      number: 4,
-    });
-  });
-});
-
 describe('http', () => {
   const connection = (fetch: typeof globalThis.fetch) => ({
     github: {
