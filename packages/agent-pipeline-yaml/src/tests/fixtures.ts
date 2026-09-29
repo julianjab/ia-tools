@@ -21,8 +21,6 @@ export function writeFiles(dir: string, files: Record<string, string>): void {
 export const CI_GATE = {
   'project.yaml': `
 id: flow
-when:
-  - { field: labels, op: notContains, value: blocked }
 onError:
   to: [{ action: addLabel, with: { label: blocked } }]
 `,

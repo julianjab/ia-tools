@@ -53,7 +53,7 @@ pipelineSourceContract('YamlPipelineSource', () => ({
   source: new YamlPipelineSource({ dir: projectDir(CI_GATE), catalogs: catalogs([]) }),
   matching: createEvent('build', { labels: [] }),
   expected: ['build'],
-  nonMatching: createEvent('build', { labels: ['blocked'] }),
+  nonMatching: createEvent('nobody-listens', {}),
 }));
 
 describe('YamlPipelineSource', () => {
@@ -185,5 +185,15 @@ describe('YamlPipelineSource: la carpeta intake/', () => {
       'intake/github.yaml': 'id: intake\non: [github.issues]\ndo:\n  - { emit: x }\n',
     });
     expect(() => new YamlPipelineSource({ dir })).toThrow(/la carpeta intake\/ ya no existe/);
+  });
+});
+
+describe('YamlPipelineSource: project.yaml', () => {
+  it('does not take a when — which events a project owns is up to the app', () => {
+    const dir = projectDir({
+      ...CI_GATE,
+      'project.yaml': 'id: flow\nwhen:\n  - { field: labels, op: notContains, value: blocked }\n',
+    });
+    expect(() => new YamlPipelineSource({ dir })).toThrow(/project\.yaml: inválido/);
   });
 });
