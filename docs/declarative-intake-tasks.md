@@ -47,3 +47,11 @@ Diseño en dos etapas:
 - El `from` de un cambio de Status ya no se recuerda en memoria: sale de
   `changes.field_value.from`. Sin `to`, `task_payload` usa el status actual de la card.
 - Un PR de un webhook se lee siempre (`pulls/{n}`): si no existe, el paso falla y lo loguea.
+
+## Después
+
+- El intake terminó siendo una acción (`resolve_task` en el runner) y no pipelines YAML de dos
+  etapas: `task.resolve`, la conexión `github` y las funciones del catálogo se quitaron del runner.
+- La carpeta `intake/` y `Project.intake` se quitaron del engine: una pipeline de entrada es una
+  pipeline más, y qué cards son de un runner lo decide su acción de entrada (`label` en
+  `runner.yaml`). `ProjectLoader` rechaza una carpeta `intake/` con un mensaje de migración.

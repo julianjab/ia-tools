@@ -60,6 +60,12 @@ export class ProjectLoader {
     if (!existsSync(dir) || !statSync(dir).isDirectory()) {
       throw new Error(`${dir}: no es la carpeta de un proyecto`);
     }
+    // `intake/` existió un tiempo como carpeta de pipelines de entrada; hoy se ignoraría sin aviso.
+    if (existsSync(join(dir, 'intake'))) {
+      throw new Error(
+        `${join(dir, 'intake')}: la carpeta intake/ ya no existe — sus pipelines van en pipelines/, y el filtro de qué eventos son del proyecto, en cada pipeline o en la acción de entrada (el when del proyecto también filtra los webhooks crudos)`,
+      );
+    }
     const files = this.files(dir);
     const projectPath = join(dir, 'project.yaml');
     const under = (folder: string) =>
