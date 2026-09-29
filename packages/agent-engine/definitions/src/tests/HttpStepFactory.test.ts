@@ -39,4 +39,22 @@ describe('http without connection', () => {
     });
     expect(requested).toEqual(['https://api.test/items/%40evil.com%2Fx%3Fy%23z']);
   });
+
+  it('a fixed URL, without templates, goes as written', async () => {
+    const requested: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      requested.push(String(input));
+      return new Response('{}', { headers: { 'content-type': 'application/json' } });
+    });
+    for (const http of ['https://api.test', 'https://api.test/']) {
+      const [pipeline] = source({ http }).list();
+      await pipeline?.execute({
+        event: createEvent('e', {}),
+        steps: {},
+        bus: new EventBus(),
+        pipelineId: 'p',
+      });
+    }
+    expect(requested).toEqual(['https://api.test/', 'https://api.test/']);
+  });
 });
