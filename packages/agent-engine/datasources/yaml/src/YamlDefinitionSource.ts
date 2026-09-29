@@ -57,6 +57,17 @@ const SourceVarsDoc = z.looseObject({
   vars: z.record(z.string(), z.unknown()).optional(),
 });
 
+/** El archivo de `source`, si es una ruta: uno solo — una carpeta o un glob que no dan
+ *  exactamente un archivo rompen la lectura en vez de elegir uno. */
+function sourceFile(spec: YamlSourceSpec): string | undefined {
+  if (typeof spec.source !== 'string') return undefined;
+  const [path, ...rest] = expandPath(spec.source, spec.base, YAML);
+  if (!path || rest.length > 0) {
+    throw new Error(`${spec.source}: source tiene que ser un único archivo`);
+  }
+  return path;
+}
+
 /** El layout de carpeta como spec: lo que haya de `source.yaml`, `agents/` y `pipelines/`. */
 function folderSpec(dir: string): YamlSourceSpec {
   const has = (name: string) => existsSync(join(dir, name));
@@ -132,9 +143,9 @@ export class YamlDefinitionSource implements DefinitionSource {
     const watched = 'dir' in this.options ? '' : signature(this.options.watch ?? []);
     try {
       const spec = this.spec();
-      const own = typeof spec.source === 'string' ? expandPath(spec.source, spec.base, YAML) : [];
+      const own = sourceFile(spec);
       return `${watched}#${signature([
-        ...own,
+        ...(own ? [own] : []),
         ...this.files(spec.agents, spec.base),
         ...this.files(spec.pipelines, spec.base),
       ])}`;
@@ -147,8 +158,7 @@ export class YamlDefinitionSource implements DefinitionSource {
   read(): SourceDocs {
     const spec = this.spec();
     const origin = spec.origin ?? spec.base;
-    const sourcePath =
-      typeof spec.source === 'string' ? expandPath(spec.source, spec.base, YAML)[0] : undefined;
+    const sourcePath = sourceFile(spec);
     const declared = sourcePath
       ? this.reader.read(sourcePath, SourceVarsDoc)
       : this.reader.parse(`${origin}: source`, spec.source ?? {}, SourceVarsDoc);
