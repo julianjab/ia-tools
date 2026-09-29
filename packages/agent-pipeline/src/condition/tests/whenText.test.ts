@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Engine } from '../../engine/Engine.js';
-import { Project } from '../../engine/Project.js';
+import { StaticPipelineSource } from '../../engine/PipelineSource.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { EventBus } from '../../events/EventBus.js';
 import { Pipeline } from '../../pipeline/Pipeline.js';
@@ -8,6 +8,10 @@ import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
 import { AnthropicTextClassifier } from '../AnthropicTextClassifier.js';
 import { Condition } from '../Condition.js';
 import type { TextClassifier, TextVerdict } from '../TextClassifier.js';
+
+/** Las pipelines en una fuente (con el id que tendría un proyecto de la app). */
+const source = ({ id, pipelines }: { id: string; pipelines: Pipeline[] }) =>
+  new StaticPipelineSource(pipelines, { id });
 
 /** Un clasificador que contesta según el criterio: `yes`/`no`/`unsure`. */
 function fakeClassifier(): TextClassifier & { calls: string[] } {
@@ -39,7 +43,7 @@ describe('whenText', () => {
     );
     const engine = new Engine({
       bus: new EventBus(),
-      pipelines: new Project({ id: 'p', pipelines }),
+      pipelines: source({ id: 'p', pipelines }),
       textClassifier: classifier,
     });
 
@@ -54,7 +58,7 @@ describe('whenText', () => {
     const engine = new Engine({
       bus: new EventBus(),
       textClassifier: classifier,
-      pipelines: new Project({
+      pipelines: source({
         id: 'p',
         pipelines: [
           new Pipeline({
@@ -95,7 +99,7 @@ describe('whenText', () => {
     const engine = new Engine({
       bus: new EventBus(),
       textClassifier: classifier,
-      pipelines: new Project({
+      pipelines: source({
         id: 'p',
         pipelines: [
           new Pipeline({
@@ -126,7 +130,7 @@ describe('whenText', () => {
     const engine = new Engine({
       bus: new EventBus(),
       textClassifier: flaky,
-      pipelines: new Project({
+      pipelines: source({
         id: 'p',
         pipelines: [
           new Pipeline({
@@ -159,7 +163,7 @@ describe('whenText', () => {
     const ran: string[] = [];
     const engine = new Engine({
       bus: new EventBus(),
-      pipelines: new Project({
+      pipelines: source({
         id: 'p',
         pipelines: [
           new Pipeline({ id: 'p', on: ['a'], whenText: { text: 'yes' }, do: [step('p', ran)] }),
@@ -169,12 +173,6 @@ describe('whenText', () => {
 
     expect(await engine.select(createEvent('a', {}))).toEqual([]);
     expect(ran).toEqual([]);
-  });
-
-  it('a project does not take one: it would call a model on every event', () => {
-    expect(() => new Project({ id: 'p', pipelines: [], whenText: { text: 'x' } })).toThrow(
-      /un proyecto no admite whenText/,
-    );
   });
 });
 

@@ -14,7 +14,6 @@ describe('package entrypoint', () => {
     expect(lib.SchemaTool).toBeDefined();
     expect(lib.NO_TRANSITION_OUTCOMES).toBeInstanceOf(Set);
     expect(lib.Action).toBeDefined();
-    expect(lib.Project).toBeDefined();
     expect(lib.resolveRoutes).toBeTypeOf('function');
     expect(lib.END).toBeTypeOf('symbol');
     expect(lib.EmitAction).toBeDefined();

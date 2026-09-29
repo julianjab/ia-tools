@@ -10,7 +10,6 @@ import { PauseAction } from '../../pipeline/actions/PauseAction.js';
 import { Engine, scopeExecutionKey } from '../Engine.js';
 import { InMemoryExecutionStore } from '../InMemoryExecutionStore.js';
 import { StaticPipelineSource } from '../PipelineSource.js';
-import { Project } from '../Project.js';
 
 const TASK = { projectId: 'p', issue: 7 };
 const event = (type: string, payload: Record<string, unknown> = {}): DomainEvent =>
@@ -639,8 +638,8 @@ describe('Engine with pauses', () => {
     const engine = new Engine({
       bus: new EventBus(),
       pipelines: [
-        new Project({ id: 'a', pipelines: [build('a')] }),
-        new Project({ id: 'b', pipelines: [build('b')] }),
+        new StaticPipelineSource([build('a')], { id: 'a' }),
+        new StaticPipelineSource([build('b')], { id: 'b' }),
       ],
       executions: new InMemoryExecutionStore(),
     });

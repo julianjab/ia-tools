@@ -1,11 +1,9 @@
-import { Condition } from '../../condition/Condition.js';
 import { createEvent } from '../../events/DomainEvent.js';
 import { Pipeline } from '../../pipeline/Pipeline.js';
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js';
 import { executionStoreContract, pipelineSourceContract } from '../../testing/index.js';
 import { InMemoryExecutionStore } from '../InMemoryExecutionStore.js';
 import { StaticPipelineSource } from '../PipelineSource.js';
-import { Project } from '../Project.js';
 
 const noop = () => new FunctionAction({ fn: () => undefined });
 
@@ -22,13 +20,12 @@ pipelineSourceContract('StaticPipelineSource', () => ({
   nonMatching: createEvent('nobody', {}),
 }));
 
-pipelineSourceContract('Project', () => ({
-  source: new Project({
+pipelineSourceContract('StaticPipelineSource with an id and defaults', () => ({
+  source: new StaticPipelineSource([new Pipeline({ id: 'build', on: ['build'], do: [noop()] })], {
     id: 'p',
-    when: [new Condition({ field: 'labels', op: 'notContains', value: 'blocked' })],
-    pipelines: [new Pipeline({ id: 'build', on: ['build'], do: [noop()] })],
+    defaults: { report: null },
   }),
-  matching: createEvent('build', { labels: [] }),
+  matching: createEvent('build', {}),
   expected: ['build'],
-  nonMatching: createEvent('build', { labels: ['blocked'] }),
+  nonMatching: createEvent('nobody', {}),
 }));
