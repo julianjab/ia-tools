@@ -6,17 +6,20 @@ import {
   type PipelineExecutionContext,
   createEvent,
 } from '@ia-tools/agent-engine';
+import { render } from '@ia-tools/agent-engine';
+import { ActionStep } from '@ia-tools/agent-engine';
+import type { Catalogs } from '@ia-tools/agent-engine-definitions';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { render } from '../Template.js';
-import type { YamlCatalogs } from '../YamlCatalogs.js';
-import { YamlPipelineSource } from '../YamlPipelineSource.js';
-import { ActionStep } from '../steps/ActionStep.js';
-import { sourceDir } from './fixtures.js';
+import { sourceDir, yamlSource } from './fixtures.js';
 
 /** La fuente en un engine escuchando su bus; `emitted` junta lo que publican sus pasos. */
-function mount(files: Record<string, string>, catalogs: YamlCatalogs = {}) {
-  const source = new YamlPipelineSource({ dir: sourceDir(files), catalogs });
+function mount(
+  files: Record<string, string>,
+  catalogs: Catalogs = {},
+  vars?: Record<string, unknown>,
+) {
+  const source = yamlSource({ dir: sourceDir(files), catalogs, ...(vars ? { vars } : {}) });
   const bus = new EventBus();
   const engine = new Engine({ bus, pipelines: source });
   engine.start();
@@ -69,13 +72,15 @@ do:
   };
 
   it('are substituted on load — also in a when — from source.yaml over the app ones', async () => {
-    const { engine, emitted } = mount(files, {
-      sourceVars: (sourceId) => ({
-        repos: sourceId === 'flow' ? ['la-haus/x'] : [],
+    const { engine, emitted } = mount(
+      files,
+      {},
+      {
+        repos: ['la-haus/x'],
         prefix: 'pisado/',
         board: { owner: 'la-haus', number: 119 },
-      }),
-    });
+      },
+    );
 
     await engine.dispatch(createEvent('a', { repo: 'la-haus/y', number: 1 }));
     await engine.dispatch(createEvent('a', { repo: 'la-haus/x', number: 2 }));
@@ -93,19 +98,19 @@ position: '{{vars.position}}'
 do:
   - { emit: b }
 `;
-    const vars = () => ({ events: ['a', 'c'], position: 5, board: { number: 119 } });
-    const { source } = mount({ 'pipelines/p.yaml': pipeline('p') }, { sourceVars: vars });
+    const vars = { events: ['a', 'c'], position: 5, board: { number: 119 } };
+    const { source } = mount({ 'pipelines/p.yaml': pipeline('p') }, {}, vars);
     const [loaded] = source.list();
     expect(loaded?.on).toEqual(['a', 'c']);
     expect(loaded?.position).toBe(5);
 
-    expect(() =>
-      mount({ 'pipelines/p.yaml': pipeline("'{{vars.board}}'") }, { sourceVars: vars }),
-    ).toThrow(/pipelines\/p\.yaml: inválido/);
+    expect(() => mount({ 'pipelines/p.yaml': pipeline("'{{vars.board}}'") }, {}, vars)).toThrow(
+      /pipelines\/p\.yaml: inválido/,
+    );
   });
 
   it('a var nobody declares breaks the load', () => {
-    expect(() => mount(files, { sourceVars: () => ({ board: 1 }) })).toThrow(
+    expect(() => mount(files, {}, { board: 1 })).toThrow(
       /pipelines\/p\.yaml: no hay una var "repos"/,
     );
   });

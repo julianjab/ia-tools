@@ -1,21 +1,21 @@
-import { join } from 'node:path';
 import {
   Action,
   type Agent,
   EventBus,
   type PauseAction,
-  Pipeline,
+  type Pipeline,
   ProviderRegistry,
   type ProviderRunContext,
-  StaticPipelineSource,
   createEvent,
 } from '@ia-tools/agent-engine';
-import { describe, expect, it, vi } from 'vitest';
+import type {
+  ActionRequest,
+  Catalogs,
+  DefinitionPipelineSource,
+} from '@ia-tools/agent-engine-definitions';
+import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { ActionRequest, YamlCatalogs } from '../YamlCatalogs.js';
-import { YamlPipelineSource } from '../YamlPipelineSource.js';
-import { createEngineFromYaml } from '../createEngineFromYaml.js';
-import { sourceDir } from './fixtures.js';
+import { sourceDir, yamlSource } from './fixtures.js';
 
 class Named extends Action {
   readonly description: string;
@@ -53,11 +53,11 @@ provider: fake
 prompt: Escribí el PRD.
 `;
 
-function load(files: Record<string, string>, catalogs: YamlCatalogs): YamlPipelineSource {
-  return new YamlPipelineSource({ dir: sourceDir(files), catalogs });
+function load(files: Record<string, string>, catalogs: Catalogs): DefinitionPipelineSource {
+  return yamlSource({ dir: sourceDir(files), catalogs });
 }
 
-const pipelineOf = (source: YamlPipelineSource, id = 'p') =>
+const pipelineOf = (source: DefinitionPipelineSource, id = 'p') =>
   source.list().find((pipeline) => pipeline.id === id) as Pipeline;
 
 const run = (pipeline: Pipeline, payload: Record<string, unknown> = {}) =>
@@ -202,23 +202,5 @@ do:
         {},
       ),
     ).toThrow(/`after` o `afterMs`/);
-  });
-
-  it('createEngineFromYaml mounts sources built in code before the YAML ones', async () => {
-    const root = sourceDir({
-      'engine.yaml': 'sources:\n  - dir: ./sources/flow\n',
-      'sources/flow/pipelines/p.yaml': 'id: from-yaml\non: [e]\ndo:\n  - { function: noop }\n',
-    });
-    const intake = new Pipeline({ id: 'intake', on: ['e'], do: [new Named('noop-action')] });
-    const noop = vi.fn();
-    const { engine, stop } = createEngineFromYaml(join(root, 'engine.yaml'), {
-      catalogs: { functions: { noop } },
-      sources: [new StaticPipelineSource([intake])],
-    });
-    expect((await engine.select(createEvent('e', {}))).map((pipeline) => pipeline.id)).toEqual([
-      'intake',
-      'from-yaml',
-    ]);
-    stop();
   });
 });

@@ -1,9 +1,9 @@
 import { EventBus, FunctionAction, createEvent } from '@ia-tools/agent-engine';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { DefinitionPipelineSource } from '../DefinitionSource.js';
 import type { StepFactory } from '../StepFactory.js';
-import { YamlPipelineSource } from '../YamlPipelineSource.js';
-import { sourceDir } from './fixtures.js';
+import { MemorySource, pipelineDoc } from './memory.js';
 
 const Node = z.strictObject({ log: z.string() });
 
@@ -17,14 +17,20 @@ class LogStepFactory implements StepFactory<z.infer<typeof Node>> {
   }
 }
 
+const source = (step: Record<string, unknown>) =>
+  new MemorySource({
+    id: 's',
+    agents: [],
+    pipelines: [pipelineDoc({ id: 'p', on: ['e'], do: [step] })],
+  });
+
 describe('custom step types', () => {
-  it('a registered factory adds a step keyword without touching the loader', async () => {
+  it('a registered factory adds a step keyword without touching the builder', async () => {
     const lines: string[] = [];
-    const source = new YamlPipelineSource({
-      dir: sourceDir({ 'pipelines/p.yaml': 'id: p\non: [e]\ndo:\n  - { log: hola }\n' }),
-      catalogs: { steps: [new LogStepFactory(lines)] },
+    const built = new DefinitionPipelineSource(source({ log: 'hola' }), {
+      steps: [new LogStepFactory(lines)],
     });
-    const [pipeline] = source.list();
+    const [pipeline] = built.list();
     await pipeline?.execute({
       event: createEvent('e', {}),
       steps: {},
@@ -35,13 +41,8 @@ describe('custom step types', () => {
   });
 
   it('validates a step against its factory schema', () => {
-    expect(
-      () =>
-        new YamlPipelineSource({
-          dir: sourceDir({
-            'pipelines/p.yaml': 'id: p\non: [e]\ndo:\n  - { emit: x, typo: 1 }\n',
-          }),
-        }),
-    ).toThrow(/do\[0\]: emit inválido/);
+    expect(() => new DefinitionPipelineSource(source({ emit: 'x', typo: 1 }))).toThrow(
+      /mem:pipelines\/p: do\[0\]: emit inválido/,
+    );
   });
 });

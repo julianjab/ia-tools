@@ -9,12 +9,12 @@ import {
   createEvent,
   scopeExecutionKey,
 } from '@ia-tools/agent-engine';
+import type { Catalogs } from '@ia-tools/agent-engine-definitions';
 import { pipelineSourceContract } from '@ia-tools/agent-engine/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { YamlCatalogs } from '../YamlCatalogs.js';
-import { YamlPipelineSource } from '../YamlPipelineSource.js';
-import { CI_GATE, sourceDir, writeFiles } from './fixtures.js';
+import { YamlDefinitionSource } from '../YamlDefinitionSource.js';
+import { CI_GATE, sourceDir, writeFiles, yamlSource } from './fixtures.js';
 
 class Recorded extends Action {
   readonly description: string;
@@ -34,7 +34,7 @@ class Recorded extends Action {
   }
 }
 
-function catalogs(ran: string[]): YamlCatalogs {
+function catalogs(ran: string[]): Catalogs {
   return {
     providers: new ProviderRegistry().register({
       id: 'done',
@@ -49,17 +49,17 @@ function catalogs(ran: string[]): YamlCatalogs {
   };
 }
 
-pipelineSourceContract('YamlPipelineSource', () => ({
-  source: new YamlPipelineSource({ dir: sourceDir(CI_GATE), catalogs: catalogs([]) }),
+pipelineSourceContract('YamlDefinitionSource + DefinitionPipelineSource', () => ({
+  source: yamlSource({ dir: sourceDir(CI_GATE), catalogs: catalogs([]) }),
   matching: createEvent('build', { labels: [] }),
   expected: ['build'],
   nonMatching: createEvent('nobody-listens', {}),
 }));
 
-describe('YamlPipelineSource', () => {
+describe('YAML → pipelines', () => {
   it('drives the Engine through the CI gate: implementer, PR, pause, green, review', async () => {
     const ran: string[] = [];
-    const source = new YamlPipelineSource({ dir: sourceDir(CI_GATE), catalogs: catalogs(ran) });
+    const source = yamlSource({ dir: sourceDir(CI_GATE), catalogs: catalogs(ran) });
     const store = new InMemoryExecutionStore();
     const engine = new Engine({ bus: new EventBus(), pipelines: source, executions: store });
     const TASK = { issue: 7 };
@@ -82,14 +82,14 @@ describe('YamlPipelineSource', () => {
 
   it('the source onError applies to its agents', async () => {
     const ran: string[] = [];
-    const failing: YamlCatalogs = {
+    const failing: Catalogs = {
       ...catalogs(ran),
       providers: new ProviderRegistry().register({
         id: 'done',
         run: async () => ({ outcome: 'error', summary: 'sin acceso' }),
       }),
     };
-    const source = new YamlPipelineSource({ dir: sourceDir(CI_GATE), catalogs: failing });
+    const source = yamlSource({ dir: sourceDir(CI_GATE), catalogs: failing });
     await new Engine({ bus: new EventBus(), pipelines: source }).dispatch(
       createEvent('build', { issue: 1, labels: [] }),
     );
@@ -98,7 +98,7 @@ describe('YamlPipelineSource', () => {
 
   it('reloads when a file changes, and keeps the last good version when the new one is broken', () => {
     const dir = sourceDir(CI_GATE);
-    const source = new YamlPipelineSource({ dir, catalogs: catalogs([]) });
+    const source = yamlSource({ dir, catalogs: catalogs([]) });
     const error = vi.spyOn(source.log, 'error').mockImplementation(() => {});
     const touch = (relative: string) => {
       const later = new Date(Date.now() + 5_000);
@@ -122,7 +122,7 @@ describe('YamlPipelineSource', () => {
 
   it('fails the first load saying which file and what is wrong', () => {
     const broken = (files: Record<string, string>) => () =>
-      new YamlPipelineSource({ dir: sourceDir(files), catalogs: catalogs([]) });
+      yamlSource({ dir: sourceDir(files), catalogs: catalogs([]) });
 
     expect(broken({ 'pipelines/a.yaml': 'id: a\non: [x]\ndo:\n  - { nope: 1 }\n' })).toThrow(
       /pipelines\/a\.yaml: do\[0\]: no es un paso conocido/,
@@ -162,7 +162,7 @@ routes:
       done: { to: [{ ref: after }] }
 `,
     });
-    const source = new YamlPipelineSource({ dir, catalogs: catalogs(ran) });
+    const source = yamlSource({ dir, catalogs: catalogs(ran) });
     await new Engine({ bus: new EventBus(), pipelines: source }).dispatch(createEvent('e', {}));
     // `after` es destino de la salida: no corre en orden, sólo cuando triage elige `done`.
     expect(ran).toEqual(['implementer:p', 'review:e']);
@@ -174,16 +174,19 @@ routes:
       'a/source.yaml': 'id: a\n',
       'not-a-source/readme.md': 'x',
     });
-    expect(YamlPipelineSource.fromRoot(root).map((source) => source.id)).toEqual(['a', 'b']);
+    expect(YamlDefinitionSource.fromRoot(root).map((source) => source.read().id)).toEqual([
+      'a',
+      'b',
+    ]);
   });
 
   it('a folder with only pipelines/ is a source too, named after the folder', () => {
     const root = sourceDir({ 'c/pipelines/p.yaml': 'id: p\non: [e]\ndo:\n  - { emit: x }\n' });
-    expect(YamlPipelineSource.fromRoot(root).map((source) => source.id)).toEqual(['c']);
+    expect(YamlDefinitionSource.fromRoot(root).map((source) => source.read().id)).toEqual(['c']);
   });
 
   it('takes its id from whoever mounts it, over the one in source.yaml', () => {
-    const source = new YamlPipelineSource({
+    const source = yamlSource({
       dir: sourceDir(CI_GATE),
       id: 'mounted',
       catalogs: catalogs([]),
@@ -192,22 +195,12 @@ routes:
   });
 });
 
-describe('YamlPipelineSource: la carpeta intake/', () => {
-  it('rejects it with a migration message instead of ignoring its pipelines', () => {
-    const dir = sourceDir({
-      ...CI_GATE,
-      'intake/github.yaml': 'id: intake\non: [github.issues]\ndo:\n  - { emit: x }\n',
-    });
-    expect(() => new YamlPipelineSource({ dir })).toThrow(/la carpeta intake\/ ya no existe/);
-  });
-});
-
-describe('YamlPipelineSource: source.yaml', () => {
+describe('YAML → pipelines: source.yaml', () => {
   it('does not take a when — which events a source gets is up to whoever mounts it', () => {
     const dir = sourceDir({
       ...CI_GATE,
       'source.yaml': 'id: flow\nwhen:\n  - { field: labels, op: notContains, value: blocked }\n',
     });
-    expect(() => new YamlPipelineSource({ dir })).toThrow(/source\.yaml: inválido/);
+    expect(() => yamlSource({ dir })).toThrow(/source\.yaml: inválido/);
   });
 });

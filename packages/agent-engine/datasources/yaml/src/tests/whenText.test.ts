@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import {
   Engine,
   EventBus,
@@ -7,11 +6,9 @@ import {
   type WhenText,
   createEvent,
 } from '@ia-tools/agent-engine';
+import type { Catalogs } from '@ia-tools/agent-engine-definitions';
 import { describe, expect, it, vi } from 'vitest';
-import type { YamlCatalogs } from '../YamlCatalogs.js';
-import { YamlPipelineSource } from '../YamlPipelineSource.js';
-import { createEngineFromYaml } from '../createEngineFromYaml.js';
-import { sourceDir } from './fixtures.js';
+import { sourceDir, yamlSource } from './fixtures.js';
 
 /** Dice que sí a los criterios que empiezan con `yes`, y guarda qué le preguntaron. */
 function recordingClassifier() {
@@ -32,10 +29,10 @@ systemPrompts:
     text: Un cambio es algo que alguien tiene que hacer en el código o el PRD.
 `;
 
-function mount(files: Record<string, string>, catalogs: YamlCatalogs = {}) {
+function mount(files: Record<string, string>, catalogs: Catalogs = {}) {
   const { asked, classifier } = recordingClassifier();
   const ran = vi.fn();
-  const source = new YamlPipelineSource({
+  const source = yamlSource({
     dir: sourceDir({ 'source.yaml': SOURCE, ...files }),
     catalogs: {
       functions: { ran: (ctx) => ran(ctx.pipelineId) },
@@ -132,37 +129,5 @@ do:
     ).toThrow(
       /pipelines\/p\.yaml: whenText.*no hay un system prompt "no-existe" — la fuente declara: criterio-pr/,
     );
-  });
-
-  it('engine.yaml whenText: builds the Anthropic classifier; a textClassifier option wins', async () => {
-    const dir = sourceDir({
-      'engine.yaml': `
-sources: [{ root: ./sources }]
-whenText: { model: claude-haiku-4-5, apiKeyEnv: SOME_UNSET_KEY }
-`,
-      'sources/flow/source.yaml': 'id: flow',
-      'sources/flow/pipelines/p.yaml': `
-id: p
-on: [a]
-whenText: yes
-do:
-  - { function: ran }
-`,
-    });
-    const ran = vi.fn();
-    const functions = { ran: () => ran() };
-
-    // Sin la key, el clasificador de Anthropic no decide: no corre.
-    const anthropic = createEngineFromYaml(join(dir, 'engine.yaml'), { catalogs: { functions } });
-    expect(await anthropic.engine.select(createEvent('a', {}))).toEqual([]);
-    anthropic.stop();
-
-    const { classifier } = recordingClassifier();
-    const own = createEngineFromYaml(join(dir, 'engine.yaml'), {
-      catalogs: { functions },
-      textClassifier: classifier,
-    });
-    expect((await own.engine.select(createEvent('a', {}))).map((p) => p.id)).toEqual(['p']);
-    own.stop();
   });
 });

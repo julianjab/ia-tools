@@ -1,6 +1,17 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { type Catalogs, DefinitionPipelineSource } from '@ia-tools/agent-engine-definitions';
+import { YamlDefinitionSource, type YamlDefinitionSourceOptions } from '../YamlDefinitionSource.js';
+
+/** Una carpeta de YAML traducida (este paquete) y armada (`agent-engine-definitions`): lo que el
+ *  engine ve de ella. */
+export function yamlSource(
+  options: YamlDefinitionSourceOptions & { catalogs?: Catalogs },
+): DefinitionPipelineSource {
+  const { catalogs, ...datasource } = options;
+  return new DefinitionPipelineSource(new YamlDefinitionSource(datasource), catalogs);
+}
 
 /** Una carpeta temporal con estos archivos (ruta relativa → contenido). */
 export function sourceDir(files: Record<string, string>): string {
