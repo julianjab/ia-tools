@@ -115,6 +115,7 @@ function fixedOrigin(template: string): string {
 /** La URL de un paso sin `connection`: cada valor que se inserta va codificado, y el origin tiene
  *  que quedar el que escribió el YAML. */
 function plainUrl(template: string, root: Record<string, unknown>): URL {
+  if (!hasTemplate(template)) return new URL(template);
   const origin = fixedOrigin(template);
   const target = new URL(renderText(template, root, encodeURIComponent));
   if (target.origin !== origin) throw new Error(`http: "${target.href}" sale de ${origin}`);
