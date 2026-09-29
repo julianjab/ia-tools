@@ -43,6 +43,8 @@ export class HttpStepFactory implements StepFactory<Node> {
       ? lookup(context.catalogs.connections, node.connection, 'una conexión')
       : undefined;
     if (!connection && !hasTemplate(node.http)) new URL(node.http);
+    // Sin connection, el host lo escribe el YAML: una plantilla sólo puede ir después de él.
+    if (!connection && hasTemplate(node.http)) fixedOrigin(node.http);
     // Con credencial, qué endpoint se pide lo decide el YAML: el evento sólo completa valores.
     if (connection && WHOLE_TEMPLATE.test(node.http.trim())) {
       throw new Error(
@@ -85,7 +87,7 @@ function url(node: Node, connection: HttpConnection | undefined, ctx: PipelineEx
   const root = templateRoot(ctx);
   const target = connection
     ? connectionUrl(node.http, connection, root)
-    : new URL(String(render(node.http, root)));
+    : plainUrl(node.http, root);
   for (const [key, value] of Object.entries(node.query ?? {})) {
     const rendered = render(value, root);
     if (rendered !== undefined && rendered !== null && rendered !== '') {
@@ -93,6 +95,30 @@ function url(node: Node, connection: HttpConnection | undefined, ctx: PipelineEx
     }
   }
   return target.href;
+}
+
+const FIXED_ORIGIN = /^(https?:\/\/[^/?#{}]+)\//;
+
+/** El origin que escribe el YAML antes de la primera plantilla: sin él, un valor del evento
+ *  podría elegir el host (y llevarse los headers, que pueden tener un secreto de `vars`). */
+function fixedOrigin(template: string): string {
+  const prefix = template.slice(0, template.indexOf('{{'));
+  const match = FIXED_ORIGIN.exec(prefix);
+  if (!match?.[1]) {
+    throw new Error(
+      `http: sin \`connection\` el host va escrito y las {{...}} sólo después ("https://host/…{{x}}"), no en "${template}"`,
+    );
+  }
+  return new URL(match[1]).origin;
+}
+
+/** La URL de un paso sin `connection`: cada valor que se inserta va codificado, y el origin tiene
+ *  que quedar el que escribió el YAML. */
+function plainUrl(template: string, root: Record<string, unknown>): URL {
+  const origin = fixedOrigin(template);
+  const target = new URL(renderText(template, root, encodeURIComponent));
+  if (target.origin !== origin) throw new Error(`http: "${target.href}" sale de ${origin}`);
+  return target;
 }
 
 /**

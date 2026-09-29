@@ -67,7 +67,9 @@ Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`r
   `.`/`..` se rechaza: lo que trae un webhook no lleva el token a otro endpoint. Un path que es
   entero una plantilla (`http: '{{path}}'`) no carga: el endpoint lo escribe el YAML. La query va en
   `query:`; un path con `?`/`#` falla.
-  Sin `connection`, `http` es una URL y no lleva secretos. `graphql` hace el POST y lee `data`
+  Sin `connection`, `http` es una URL cuyo host escribe la definición: las `{{...}}` sólo van después
+  de él (una antes no carga), cada valor se inserta con `encodeURIComponent` y el origin se verifica
+  al correr — un valor del evento no puede mandar los `headers` a otro host. `graphql` hace el POST y lee `data`
   (con `errors`, falla); `select` es el dot path de lo que queda como output.
 - **Una acción con `with` en plantilla** (`{ action: x, with: { n: '{{issue.number}}' } }`) se
   resuelve en cada corrida y la acción la valida como cualquier input (`ActionStep`); un `with`
