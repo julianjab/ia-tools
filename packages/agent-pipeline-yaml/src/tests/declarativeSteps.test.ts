@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { render } from '../Template.js';
 import type { YamlCatalogs } from '../YamlCatalogs.js';
 import { YamlPipelineSource } from '../YamlPipelineSource.js';
+import { ActionStep } from '../steps/ActionStep.js';
 import { projectDir } from './fixtures.js';
 
 /** El proyecto en un engine escuchando su bus; `emitted` junta lo que publican sus pasos. */
@@ -326,6 +327,31 @@ do:
     expect(
       await failure(engine.dispatch(createEvent('a', { issue: { number: 1 }, note: 5 }))),
     ).toMatch(/echo: input inválido/);
+  });
+});
+
+describe('ActionStep', () => {
+  it('merges the input it is given (a route, an onError) with its with, which wins', async () => {
+    const execute = vi.fn((input: unknown) => input);
+    class Take extends Action {
+      readonly description = 'toma';
+      readonly input = z.strictObject({ reason: z.string(), label: z.string() });
+      execute(input: z.infer<typeof this.input>) {
+        return execute(input);
+      }
+    }
+    const step = new ActionStep({ action: new Take({ id: 'take' }), with: { label: '{{kind}}' } });
+    const ctx = {
+      event: createEvent('a', { kind: 'blocked' }),
+      steps: {},
+      bus: new EventBus(),
+      pipelineId: 'p',
+    };
+
+    expect(await step.run(ctx, { reason: 'falló', label: 'pisado' })).toEqual({
+      reason: 'falló',
+      label: 'blocked',
+    });
   });
 });
 

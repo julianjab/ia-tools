@@ -113,6 +113,48 @@ describe('whenText', () => {
     expect(classifier.calls).toEqual(['yes', 'no']);
   });
 
+  it('a classifier that throws only keeps its own pipeline from running, and "unsure" is asked again', async () => {
+    let calls = 0;
+    const flaky: TextClassifier = {
+      classify: async ({ whenText }) => {
+        calls++;
+        if (whenText.text === 'boom') throw new Error('ECONNRESET');
+        return { matches: null, reason: '529' };
+      },
+    };
+    const ran: string[] = [];
+    const engine = new Engine({
+      bus: new EventBus(),
+      textClassifier: flaky,
+      pipelines: new Project({
+        id: 'p',
+        pipelines: [
+          new Pipeline({
+            id: 'gated',
+            on: ['a'],
+            whenText: { text: 'boom' },
+            do: [step('gated', ran)],
+          }),
+          new Pipeline({
+            id: 'free',
+            on: ['a'],
+            do: [
+              step('free', ran),
+              step('unsure-1', ran, 'unsure'),
+              step('unsure-2', ran, 'unsure'),
+            ],
+          }),
+        ],
+      }),
+    });
+
+    await engine.dispatch(createEvent('a', {}));
+
+    expect(ran).toEqual(['free']);
+    // boom + las dos preguntas "unsure": un sin-veredicto no queda en la cache.
+    expect(calls).toBe(3);
+  });
+
   it('without a classifier, a whenText never lets through', async () => {
     const ran: string[] = [];
     const engine = new Engine({
