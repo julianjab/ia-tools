@@ -1,36 +1,79 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { substituteVars } from '@ia-tools/agent-engine';
 import {
   AgentDoc,
   type DefinitionSource,
+  type Located,
   PipelineDoc,
   SourceDoc,
   type SourceDocs,
 } from '@ia-tools/agent-engine-definitions';
 import { z } from 'zod';
 import { YamlReader } from './YamlReader.js';
+import { expandPath, signature } from './paths.js';
 
 const YAML = /\.ya?ml$/;
 
-/** Lo que se lee de `source.yaml` antes de sustituir nada: su id y sus vars. */
+/** Una entrada: la ruta a un archivo, un directorio o un glob (`./pipelines/*.yaml`) — relativa a
+ *  `base` —, o el documento inline. */
+export type YamlEntry = string | Record<string, unknown>;
+/** Una entrada sola o una lista. */
+export type YamlEntries = YamlEntry | YamlEntry[];
+
+/** Qué documentos forman una fuente, declarados en un índice (ej. el `runner.yaml` de una app). */
+export interface YamlSourceSpec {
+  /** Contra qué se resuelven las rutas (la carpeta del índice). */
+  base: string;
+  /** Dónde se declaró (para los errores de un documento inline). Default: `base`. */
+  origin?: string;
+  /** Los defaults de la fuente: un archivo o inline. */
+  source?: YamlEntry;
+  agents?: YamlEntries;
+  pipelines?: YamlEntries;
+}
+
+export type YamlDefinitionSourceOptions = {
+  /** Su id; si no, el de su `source`, y si no, el nombre de `base`. */
+  id?: string;
+  /** `vars` además de las de `source`, que ganan. Se sustituyen al leer: `{{vars.x}}`. */
+  vars?: Record<string, unknown>;
+} & (
+  | {
+      /** El layout de carpeta: `source.yaml`, `agents/` y `pipelines/` dentro de `dir`. */
+      dir: string;
+    }
+  | {
+      /** Las entradas; una función se vuelve a leer cuando cambia algún archivo de `watch`. */
+      spec: YamlSourceSpec | (() => YamlSourceSpec);
+      /** El índice que declara `spec`: si cambia, se vuelve a leer y la fuente se recarga. */
+      watch?: string[];
+    }
+);
+
+/** Lo que se lee de `source` antes de sustituir nada: su id y sus vars. */
 const SourceVarsDoc = z.looseObject({
   id: z.string().min(1).optional(),
   vars: z.record(z.string(), z.unknown()).optional(),
 });
 
-export interface YamlDefinitionSourceOptions {
-  /** La carpeta de la fuente. */
-  dir: string;
-  /** Su id; si no, el de su `source.yaml`, y si no, el nombre de la carpeta. */
-  id?: string;
-  /** `vars` además de las de `source.yaml`, que ganan. Se sustituyen al leer: `{{vars.x}}`. */
-  vars?: Record<string, unknown>;
+/** El layout de carpeta como spec: lo que haya de `source.yaml`, `agents/` y `pipelines/`. */
+function folderSpec(dir: string): YamlSourceSpec {
+  const has = (name: string) => existsSync(join(dir, name));
+  return {
+    base: dir,
+    ...(has('source.yaml') ? { source: 'source.yaml' } : {}),
+    ...(has('agents') ? { agents: 'agents' } : {}),
+    ...(has('pipelines') ? { pipelines: 'pipelines' } : {}),
+  };
 }
 
 /**
- * Una carpeta de YAML traducida a definiciones (`SourceDocs`): nada más. Armarlas es de
+ * Una fuente en YAML traducida a definiciones (`SourceDocs`): nada más. Armarlas es de
  * `@ia-tools/agent-engine-definitions` (`DefinitionPipelineSource`).
+ *
+ * Sus documentos se declaran en un `spec` —cada lista acepta un directorio, un archivo, un glob o
+ * el documento inline, sola o en lista— o con el layout de carpeta (`dir`):
  *
  * ```
  * <dir>/
@@ -44,6 +87,7 @@ export interface YamlDefinitionSourceOptions {
  */
 export class YamlDefinitionSource implements DefinitionSource {
   private readonly reader = new YamlReader();
+  private cached?: { watched: string; spec: YamlSourceSpec };
 
   constructor(private readonly options: YamlDefinitionSourceOptions) {}
 
@@ -61,51 +105,92 @@ export class YamlDefinitionSource implements DefinitionSource {
       .map((name) => new YamlDefinitionSource({ dir: join(root, name) }));
   }
 
-  /** Los archivos que forman la fuente, en el orden en que se leen. */
-  files(): string[] {
-    const { dir } = this.options;
-    const inFolder = (folder: string) => {
-      const path = join(dir, folder);
-      if (!existsSync(path)) return [];
-      return readdirSync(path)
-        .filter((name) => YAML.test(name))
-        .sort()
-        .map((name) => join(path, name));
-    };
-    const own = join(dir, 'source.yaml');
-    return [...(existsSync(own) ? [own] : []), ...inFolder('agents'), ...inFolder('pipelines')];
+  /** El spec vigente: el de carpeta se recalcula (una carpeta nueva cuenta), el de una función
+   *  se vuelve a pedir sólo si cambió el índice que la declara. */
+  private spec(): YamlSourceSpec {
+    const { options } = this;
+    if ('dir' in options) {
+      if (!existsSync(options.dir))
+        throw new Error(`${options.dir}: no es la carpeta de una fuente`);
+      return folderSpec(options.dir);
+    }
+    if (typeof options.spec !== 'function') return options.spec;
+    const watched = signature(options.watch ?? []);
+    if (this.cached?.watched !== watched) this.cached = { watched, spec: options.spec() };
+    return this.cached.spec;
   }
 
-  /** Cambia si cambió cualquiera de sus archivos (o se agregó o sacó uno). */
+  /** Los archivos de una lista de entradas (las inline no tienen). */
+  private files(entries: YamlEntries | undefined, base: string): string[] {
+    return [entries ?? []]
+      .flat()
+      .flatMap((entry) => (typeof entry === 'string' ? expandPath(entry, base, YAML) : []));
+  }
+
+  /** Cambia si cambió el índice o cualquier archivo que declara (o se agregó o sacó uno). */
   version(): string {
-    return this.files()
-      .map((path) => {
-        const { mtimeMs, size } = statSync(path);
-        return `${path}:${mtimeMs}:${size}`;
-      })
-      .join('|');
+    const watched = 'dir' in this.options ? '' : signature(this.options.watch ?? []);
+    try {
+      const spec = this.spec();
+      const own = typeof spec.source === 'string' ? expandPath(spec.source, spec.base, YAML) : [];
+      return `${watched}#${signature([
+        ...own,
+        ...this.files(spec.agents, spec.base),
+        ...this.files(spec.pipelines, spec.base),
+      ])}`;
+    } catch (error) {
+      // Un índice o una referencia rota: `read()` dice por qué, y la fuente sigue la anterior.
+      return `${watched}#roto:${(error as Error).message}`;
+    }
   }
 
   read(): SourceDocs {
-    const { dir } = this.options;
-    if (!existsSync(dir) || !statSync(dir).isDirectory()) {
-      throw new Error(`${dir}: no es la carpeta de una fuente`);
-    }
-    const files = this.files();
-    const sourcePath = join(dir, 'source.yaml');
-    const under = (folder: string) =>
-      files.filter((path) => path.startsWith(join(dir, folder, '/')));
-    const declared = existsSync(sourcePath) ? this.reader.read(sourcePath, SourceVarsDoc) : {};
+    const spec = this.spec();
+    const origin = spec.origin ?? spec.base;
+    const sourcePath =
+      typeof spec.source === 'string' ? expandPath(spec.source, spec.base, YAML)[0] : undefined;
+    const declared = sourcePath
+      ? this.reader.read(sourcePath, SourceVarsDoc)
+      : this.reader.parse(`${origin}: source`, spec.source ?? {}, SourceVarsDoc);
     const vars = { ...this.options.vars, ...declared.vars };
-    const read = <T>(path: string, schema: z.ZodType<T>) => ({
-      path,
-      doc: this.reader.read(path, schema, (raw) => substituteVars(raw, vars, path)),
-    });
+    const substitute = (where: string) => (raw: unknown) => substituteVars(raw, vars, where);
+
+    const docs = <T>(entries: YamlEntries | undefined, field: string, schema: z.ZodType<T>) =>
+      [entries ?? []].flat().flatMap((entry, i): Located<T>[] =>
+        typeof entry === 'string'
+          ? expandPath(entry, spec.base, YAML).map((path) => ({
+              path,
+              doc: this.reader.read(path, schema, substitute(path)),
+            }))
+          : [
+              {
+                path: `${origin}: ${field}[${i}]`,
+                doc: this.reader.parse(
+                  `${origin}: ${field}[${i}]`,
+                  entry,
+                  schema,
+                  substitute(origin),
+                ),
+              },
+            ],
+      );
+
+    const source: Located<SourceDoc> = sourcePath
+      ? { path: sourcePath, doc: this.reader.read(sourcePath, SourceDoc, substitute(sourcePath)) }
+      : {
+          path: `${origin}: source`,
+          doc: this.reader.parse(
+            `${origin}: source`,
+            spec.source ?? {},
+            SourceDoc,
+            substitute(origin),
+          ),
+        };
     return {
-      id: this.options.id ?? declared.id ?? basename(dir),
-      source: existsSync(sourcePath) ? read(sourcePath, SourceDoc) : { path: sourcePath, doc: {} },
-      agents: under('agents').map((path) => read(path, AgentDoc)),
-      pipelines: under('pipelines').map((path) => read(path, PipelineDoc)),
+      id: this.options.id ?? declared.id ?? basename(spec.base),
+      source,
+      agents: docs(spec.agents, 'agents', AgentDoc),
+      pipelines: docs(spec.pipelines, 'pipelines', PipelineDoc),
     };
   }
 }
