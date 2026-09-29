@@ -3,11 +3,11 @@ import type { z } from 'zod';
 import type { YamlCatalogs } from './YamlCatalogs.js';
 import type { WhenTextNode } from './schema.js';
 
-/** Un agente del proyecto ajustado a UN paso de una pipeline. */
+/** Un agente de la fuente ajustado a UN paso de una pipeline. */
 export interface AgentVariant {
   /** Se antepone a su prompt: por qué corre en este paso. */
   brief?: string;
-  /** El `when` del paso: el último nivel de la cascada (proyecto → pipeline → paso). */
+  /** El `when` del paso: el último nivel de la cascada (pipeline → paso). */
   when?: Condition[];
   /** El `whenText` del paso; gana sobre el del agente. */
   whenText?: WhenText;
@@ -16,7 +16,7 @@ export interface AgentVariant {
 /** Lo que una factory puede pedir mientras arma un paso. */
 export interface StepBuildContext {
   readonly catalogs: YamlCatalogs;
-  readonly projectId: string;
+  readonly sourceId: string;
   /** El agente dueño de este nodo (su `onStart`, sus rutas, su `report`), si hay. */
   readonly agentId?: string;
   /** Dónde está el nodo (archivo y ruta), para los errores. */
@@ -25,7 +25,7 @@ export interface StepBuildContext {
   step(node: unknown, where: string): Runnable;
   /** Arma un `to`: `end`, un paso o una lista de pasos. */
   routeTo(node: unknown, where: string): RouteTo | undefined;
-  /** El agente del proyecto con ese id — el compartido, o uno propio de este paso si hay `variant`. */
+  /** El agente de la fuente con ese id — el compartido, o uno propio de este paso si hay `variant`. */
   agent(id: string, variant?: AgentVariant): Agent;
   /** La acción del catálogo con ese nombre, armada para este nodo. */
   action(name: string, options?: Record<string, unknown>): Action | Action[];

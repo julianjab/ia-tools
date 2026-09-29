@@ -2,33 +2,33 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { StaticPipelineSource } from '@ia-tools/agent-engine';
 import type { z } from 'zod';
-import { ProjectBuilder } from './ProjectBuilder.js';
+import { SourceBuilder } from './SourceBuilder.js';
 import { substituteVars } from './Template.js';
 import type { YamlCatalogs } from './YamlCatalogs.js';
 import { YamlReader } from './YamlReader.js';
-import { AgentDoc, PipelineDoc, ProjectDoc, ProjectVarsDoc } from './schema.js';
+import { AgentDoc, PipelineDoc, SourceDoc, SourceVarsDoc } from './schema.js';
 
 const YAML = /\.ya?ml$/;
 
 /**
- * Lee la carpeta de un proyecto y lo arma:
+ * Lee la carpeta de una fuente y lo arma:
  *
  * ```
  * <dir>/
- *   project.yaml        id, vars, systemPrompts, onError, report   (opcional)
+ *   source.yaml        id, vars, systemPrompts, onError, report   (opcional)
  *   agents/*.yaml       un agente por archivo
  *   pipelines/*.yaml    una pipeline por archivo, en orden de nombre
  * ```
  *
- * Las `vars` (las de `project.yaml` sobre las de `YamlCatalogs.projectVars`) se sustituyen en
+ * Las `vars` (las de `source.yaml` sobre las de `YamlCatalogs.sourceVars`) se sustituyen en
  * todos los documentos antes de armarlos.
  */
-export class ProjectLoader {
+export class SourceLoader {
   private readonly reader = new YamlReader();
 
   constructor(private readonly catalogs: YamlCatalogs = {}) {}
 
-  /** Los archivos que forman el proyecto, en el orden en que se leen. */
+  /** Los archivos que forman la fuente, en el orden en que se leen. */
   files(dir: string): string[] {
     const inFolder = (folder: string) => {
       const path = join(dir, folder);
@@ -38,12 +38,8 @@ export class ProjectLoader {
         .sort()
         .map((name) => join(path, name));
     };
-    const project = join(dir, 'project.yaml');
-    return [
-      ...(existsSync(project) ? [project] : []),
-      ...inFolder('agents'),
-      ...inFolder('pipelines'),
-    ];
+    const own = join(dir, 'source.yaml');
+    return [...(existsSync(own) ? [own] : []), ...inFolder('agents'), ...inFolder('pipelines')];
   }
 
   /** Cambia si cambió cualquiera de sus archivos (o se agregó o sacó uno). */
@@ -56,36 +52,36 @@ export class ProjectLoader {
       .join('|');
   }
 
-  load(dir: string): StaticPipelineSource {
+  /** `id`: el que le da quien la monta; si no, el de `source.yaml`, y si no, el nombre de la carpeta. */
+  load(dir: string, id?: string): StaticPipelineSource {
     if (!existsSync(dir) || !statSync(dir).isDirectory()) {
-      throw new Error(`${dir}: no es la carpeta de un proyecto`);
+      throw new Error(`${dir}: no es la carpeta de una fuente`);
     }
     // `intake/` existió un tiempo como carpeta de pipelines de entrada; hoy se ignoraría sin aviso.
     if (existsSync(join(dir, 'intake'))) {
       throw new Error(
-        `${join(dir, 'intake')}: la carpeta intake/ ya no existe — sus pipelines van en pipelines/, y el filtro de qué eventos son del proyecto, en cada pipeline o en la acción de entrada (el when del proyecto también filtra los webhooks crudos)`,
+        `${join(dir, 'intake')}: la carpeta intake/ ya no existe — sus pipelines van en pipelines/`,
       );
     }
     const files = this.files(dir);
-    const projectPath = join(dir, 'project.yaml');
+    const sourcePath = join(dir, 'source.yaml');
     const under = (folder: string) =>
       files.filter((path) => path.startsWith(join(dir, folder, '/')));
     // Las vars se leen primero (sin sustituir nada); después cada documento se lee con ellas
     // sustituidas en el YAML crudo, así el schema valida el valor real y no `'{{vars.x}}'`.
-    const declared = existsSync(projectPath) ? this.reader.read(projectPath, ProjectVarsDoc) : {};
+    const declared = existsSync(sourcePath) ? this.reader.read(sourcePath, SourceVarsDoc) : {};
     const vars = {
-      ...this.catalogs.projectVars?.(declared.id ?? basename(dir)),
+      ...this.catalogs.sourceVars?.(id ?? declared.id ?? basename(dir)),
       ...declared.vars,
     };
     const read = <T>(path: string, schema: z.ZodType<T>) => ({
       path,
       doc: this.reader.read(path, schema, (raw) => substituteVars(raw, vars, path)),
     });
-    return new ProjectBuilder(this.catalogs).build({
+    return new SourceBuilder(this.catalogs).build({
       dir,
-      project: existsSync(projectPath)
-        ? read(projectPath, ProjectDoc)
-        : { path: projectPath, doc: {} },
+      ...(id !== undefined ? { id } : {}),
+      source: existsSync(sourcePath) ? read(sourcePath, SourceDoc) : { path: sourcePath, doc: {} },
       agents: under('agents').map((path) => read(path, AgentDoc)),
       pipelines: under('pipelines').map((path) => read(path, PipelineDoc)),
     });

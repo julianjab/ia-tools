@@ -11,7 +11,7 @@ import type { StepFactory } from './StepFactory.js';
 
 /** Para quién se arma una acción que depende de dónde se usa. */
 export interface ActionRequest {
-  projectId: string;
+  sourceId: string;
   /** El agente que la recibe como tool, o dueño del paso (su `onStart`, sus rutas, su `report`). */
   agentId?: string;
   /** Las `options` de la entrada en el YAML. */
@@ -19,7 +19,7 @@ export interface ActionRequest {
 }
 
 /**
- * Una acción que se arma a pedido: por proyecto (un board distinto), por agente (un comentario con
+ * Una acción que se arma a pedido: por fuente (un board distinto), por agente (un comentario con
  * su nombre) o con opciones propias (qué comandos puede correr). Varias acciones de una entrada
  * sólo tienen sentido como tools de un agente.
  */
@@ -66,9 +66,9 @@ export interface YamlCatalogs {
   /** Las conexiones que nombra un paso `http` (`connection: github`): a qué host va y con qué
    *  credencial. El secreto vive acá, en código; el YAML sólo pone el path. */
   connections?: Record<string, HttpConnection>;
-  /** Las `vars` que la app le da a un proyecto (ej. su board, leído de otra config), además de
-   *  las de su `project.yaml` — que ganan. Se sustituyen al cargar: `{{vars.board}}`. */
-  projectVars?: (projectId: string) => Record<string, unknown>;
+  /** Las `vars` que la app le da a una fuente (ej. su board, leído de otra config), además de
+   *  las de su `source.yaml` — que ganan. Se sustituyen al cargar: `{{vars.board}}`. */
+  sourceVars?: (sourceId: string) => Record<string, unknown>;
   /** Tipos de paso propios, además de los incluidos (`agent`, `action`, `emit`, `http`, `pause`,
    *  `function`). */
   steps?: StepFactory[];

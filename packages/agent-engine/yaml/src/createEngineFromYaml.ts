@@ -9,6 +9,8 @@ import {
   type PipelineSource,
   type TextClassifier,
 } from '@ia-tools/agent-engine';
+import { z } from 'zod';
+import { renderText } from './Template.js';
 import type { YamlCatalogs } from './YamlCatalogs.js';
 import { YamlPipelineSource } from './YamlPipelineSource.js';
 import { YamlReader } from './YamlReader.js';
@@ -21,13 +23,16 @@ export type ExecutionStoreDriver = (options: {
 }) => ExecutionStore;
 
 export interface CreateEngineFromYamlOptions {
+  /** La clave del archivo donde está la config del engine (ej. `engine` en el `runner.yaml` de
+   *  una app). Sin esto, el archivo entero es la config. */
+  section?: string;
   /** Default: un `EventBus` nuevo. */
   bus?: EventBus;
   catalogs?: YamlCatalogs;
   /** Drivers además de `memory` (ej. `{ sqlite: sqliteStoreDriver }`). */
   drivers?: Record<string, ExecutionStoreDriver>;
   /** Fuentes armadas en código, además de las del YAML (ej. las pipelines que traducen un webhook
-   *  a los eventos que escuchan los proyectos). Van primero. */
+   *  a los eventos que escuchan las demás fuentes). Van primero. */
   sources?: PipelineSource[];
   executionKey?: (event: DomainEvent<any>) => string | undefined;
   formatMessage?: (event: DomainEvent<any>) => string;
@@ -56,7 +61,7 @@ const memoryDriver: ExecutionStoreDriver = ({ maxConcurrent }) =>
  * maxEventDepth: 10
  * executions: { driver: sqlite, path: ./data/executions.db, maxConcurrent: 4 }
  * sources:
- *   - root: ./projects
+ *   - root: ./sources
  * tick: { everyMs: 60000 }
  * whenText: { model: claude-haiku-4-5 }   # el clasificador de los `whenText`
  * ```
@@ -65,16 +70,29 @@ export function createEngineFromYaml(
   path: string,
   options: CreateEngineFromYamlOptions = {},
 ): EngineFromYaml {
-  const doc = new YamlReader().read(path, EngineDoc);
+  const schema = options.section
+    ? z
+        .looseObject({ [options.section]: EngineDoc })
+        .transform((file) => file[options.section as string] as EngineDoc)
+    : EngineDoc;
+  const doc: EngineDoc = new YamlReader().read(path, schema);
   const base = dirname(resolve(path));
   const at = (relative: string) => (isAbsolute(relative) ? relative : resolve(base, relative));
 
   const sources = doc.sources.flatMap((entry) =>
     'dir' in entry
-      ? [new YamlPipelineSource({ dir: at(entry.dir), ...optional('catalogs', options.catalogs) })]
+      ? [
+          new YamlPipelineSource({
+            dir: at(entry.dir),
+            ...optional('id', entry.id),
+            ...optional('catalogs', options.catalogs),
+          }),
+        ]
       : YamlPipelineSource.fromRoot(at(entry.root), options.catalogs),
   );
-  if (sources.length === 0) throw new Error(`${path}: sources no tiene ningún proyecto`);
+  if (sources.length === 0 && !options.sources?.length) {
+    throw new Error(`${path}: no hay ninguna fuente — ni en sources ni en options.sources`);
+  }
 
   const executions = doc.executions ? store(path, doc.executions, options.drivers, at) : undefined;
   const bus = options.bus ?? new EventBus();
@@ -84,7 +102,7 @@ export function createEngineFromYaml(
     ...optional('maxEventDepth', doc.maxEventDepth),
     ...optional('executions', executions),
     ...optional('executionKey', options.executionKey),
-    ...optional('formatMessage', options.formatMessage),
+    ...optional('formatMessage', options.formatMessage ?? messageTemplate(doc.formatMessage)),
     ...optional('textClassifier', options.textClassifier ?? classifier(doc.whenText)),
   });
   const unsubscribe = engine.start();
@@ -125,6 +143,19 @@ function store(
     ...optional('maxConcurrent', config.maxConcurrent),
   });
 }
+
+/** `formatMessage` del YAML: la plantilla contra el payload; vacía, el mensaje por default. */
+export function messageTemplate(template: string | undefined): EngineOptionsFormat | undefined {
+  if (!template) return undefined;
+  return (event) => {
+    const payload = event.payload;
+    const root = typeof payload === 'object' && payload !== null ? payload : {};
+    const text = renderText(template, root as Record<string, unknown>).trim();
+    return text || `Evento ${event.type}: ${JSON.stringify(event.payload)}`;
+  };
+}
+
+type EngineOptionsFormat = (event: DomainEvent<any>) => string;
 
 /** El clasificador de `engine.yaml`: la Messages API de Anthropic, con la key de su env var. */
 function classifier(config: EngineDoc['whenText']): TextClassifier | undefined {

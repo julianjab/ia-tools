@@ -70,7 +70,7 @@ export function substituteVars<T>(doc: T, vars: Record<string, unknown>, where: 
     if (found === undefined) {
       const available = Object.keys(vars);
       throw new Error(
-        `${where}: no hay una var "${path}"${available.length > 0 ? ` — hay: ${available.join(', ')}` : ' (el proyecto no declara ninguna)'}`,
+        `${where}: no hay una var "${path}"${available.length > 0 ? ` — hay: ${available.join(', ')}` : ' (la fuente no declara ninguna)'}`,
       );
     }
     return found;

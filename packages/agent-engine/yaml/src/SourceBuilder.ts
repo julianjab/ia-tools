@@ -29,7 +29,7 @@ import type {
   ErrorRouteNode,
   ExitRouteNode,
   PipelineDoc,
-  ProjectDoc,
+  SourceDoc,
   WhenTextNode,
 } from './schema.js';
 
@@ -39,10 +39,12 @@ export interface Located<T> {
   doc: T;
 }
 
-/** Lo que se leyó de la carpeta de un proyecto. */
-export interface ProjectDocs {
+/** Lo que se leyó de la carpeta de una fuente. */
+export interface SourceDocs {
   dir: string;
-  project: Located<ProjectDoc>;
+  /** El id que le da quien la monta; gana sobre el de `source.yaml`. */
+  id?: string;
+  source: Located<SourceDoc>;
   agents: Located<AgentDoc>[];
   pipelines: Located<PipelineDoc>[];
 }
@@ -55,17 +57,17 @@ type DefaultsNode = {
 };
 
 /**
- * Arma un proyecto —la fuente de pipelines de una carpeta (`StaticPipelineSource` con su id y sus
- * defaults)— a partir de sus documentos: agentes (uno por id, compartido por todas las
- * pipelines del proyecto), pipelines y los defaults del proyecto. Cada paso lo arma su factory
+ * Arma la fuente de pipelines de una carpeta (`StaticPipelineSource` con su id y sus
+ * defaults) a partir de sus documentos: agentes (uno por id, compartido por todas las
+ * pipelines de la fuente), pipelines y los defaults de la fuente. Cada paso lo arma su factory
  * (`StepFactoryRegistry`); `{ ref: <id> }` reusa un paso ya declarado antes en el `do` de la
  * misma pipeline. Se usa una vez por carga.
  */
-export class ProjectBuilder {
+export class SourceBuilder {
   readonly log = createLogger('agent-engine.yaml');
   private readonly steps: StepFactoryRegistry;
-  private projectId = '';
-  private projectSystemPrompts: NonNullable<ProjectDoc['systemPrompts']> = [];
+  private sourceId = '';
+  private sourceSystemPrompts: NonNullable<SourceDoc['systemPrompts']> = [];
   private readonly agentDocs = new Map<string, Located<AgentDoc>>();
   private readonly agents = new Map<string, Agent>();
   private readonly building = new Set<string>();
@@ -74,9 +76,9 @@ export class ProjectBuilder {
     this.steps = new StepFactoryRegistry(catalogs.steps);
   }
 
-  build(docs: ProjectDocs): StaticPipelineSource {
-    this.projectId = docs.project.doc.id ?? basename(docs.dir);
-    this.projectSystemPrompts = docs.project.doc.systemPrompts ?? [];
+  build(docs: SourceDocs): StaticPipelineSource {
+    this.sourceId = docs.id ?? docs.source.doc.id ?? basename(docs.dir);
+    this.sourceSystemPrompts = docs.source.doc.systemPrompts ?? [];
     for (const located of docs.agents) {
       const existing = this.agentDocs.get(located.doc.id);
       if (existing) {
@@ -87,19 +89,19 @@ export class ProjectBuilder {
       this.agentDocs.set(located.doc.id, located);
     }
     const pipelines = docs.pipelines.map((located) => this.pipeline(located));
-    const { path, doc } = docs.project;
+    const { path, doc } = docs.source;
     const context = this.context(path, new Map());
     return located(
       path,
       () =>
         new StaticPipelineSource(pipelines, {
-          id: this.projectId,
+          id: this.sourceId,
           defaults: this.defaults(doc, context, path),
         }),
     );
   }
 
-  /** El agente del proyecto: el compartido, o una instancia propia de un paso (`variant`). */
+  /** El agente de la fuente: el compartido, o una instancia propia de un paso (`variant`). */
   private agent(id: string, variant?: AgentVariant): Agent {
     const built = variant ? undefined : this.agents.get(id);
     if (built) return built;
@@ -131,7 +133,7 @@ export class ProjectBuilder {
             provider: doc.provider,
             prompt: variant.brief ? `${variant.brief.trim()}\n\n${doc.prompt}` : doc.prompt,
             ...(doc.input ? { input: this.input(doc.input) } : {}),
-            systemPrompts: [...this.projectSystemPrompts, ...(doc.systemPrompts ?? [])],
+            systemPrompts: [...this.sourceSystemPrompts, ...(doc.systemPrompts ?? [])],
             variables: doc.variables,
             tools: doc.tools?.map((name) => this.tool(name)),
             actions: doc.actions?.flatMap((entry) =>
@@ -203,7 +205,7 @@ export class ProjectBuilder {
   private context(path: string, local: Map<string, Runnable>, agentId?: string): StepBuildContext {
     const make = (where: string): StepBuildContext => ({
       catalogs: this.catalogs,
-      projectId: this.projectId,
+      sourceId: this.sourceId,
       ...(agentId !== undefined ? { agentId } : {}),
       where,
       step: (node, at) => this.step(node, at, local, make(at)),
@@ -316,7 +318,7 @@ export class ProjectBuilder {
 
   /**
    * Un `whenText` del YAML, con sus system prompts resueltos a texto: por id, uno del
-   * `project.yaml` (con ese `id`) o del catálogo; inline, `{ text }`. Un id que no existe rompe la
+   * `source.yaml` (con ese `id`) o del catálogo; inline, `{ text }`. Un id que no existe rompe la
    * carga — un gate que corre sin las instrucciones que se le pidieron decidiría otra cosa.
    */
   private whenText(node: WhenTextNode | undefined): { whenText?: WhenText } {
@@ -335,18 +337,18 @@ export class ProjectBuilder {
   }
 
   private systemPrompt(id: string): string {
-    const own = this.projectSystemPrompts.find((ref) => ref.id === id)?.text;
+    const own = this.sourceSystemPrompts.find((ref) => ref.id === id)?.text;
     const found = own ?? this.catalogs.systemPrompts?.resolve(id);
     if (found === undefined) {
-      const declared = this.projectSystemPrompts.flatMap((ref) => (ref.id ? [ref.id] : []));
+      const declared = this.sourceSystemPrompts.flatMap((ref) => (ref.id ? [ref.id] : []));
       throw new Error(
-        `no hay un system prompt "${id}"${declared.length > 0 ? ` — el proyecto declara: ${declared.join(', ')}` : ''} (ni en el catálogo)`,
+        `no hay un system prompt "${id}"${declared.length > 0 ? ` — la fuente declara: ${declared.join(', ')}` : ''} (ni en el catálogo)`,
       );
     }
     return found;
   }
 
-  /** La acción `name` del catálogo — armada para este proyecto y agente si es un `ActionProvider`. */
+  /** La acción `name` del catálogo — armada para esta fuente y agente si es un `ActionProvider`. */
   private action(
     name: string,
     agentId: string | undefined,
@@ -355,7 +357,7 @@ export class ProjectBuilder {
     const entry = lookup(this.catalogs.actions, name, 'una acción');
     if (typeof entry === 'function') {
       return entry({
-        projectId: this.projectId,
+        sourceId: this.sourceId,
         ...(agentId !== undefined ? { agentId } : {}),
         options: options ?? {},
       });

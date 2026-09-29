@@ -1,15 +1,20 @@
 # @ia-tools/agent-engine-yaml
 
-Proyectos, agentes y pipelines de `@ia-tools/agent-engine` escritos en YAML, y el `Engine`
-armado desde un `engine.yaml`. Hace I/O (lee archivos): por eso vive fuera del core.
+Fuentes de pipelines de `@ia-tools/agent-engine` escritas en YAML (una carpeta con `agents/`,
+`pipelines/` y un `source.yaml` opcional), y el `Engine` armado desde un `engine.yaml`. Hace I/O
+(lee archivos): por eso vive fuera del core. No sabe de proyectos: una fuente es una carpeta, y
+qué eventos le tocan lo decide quien la monta (una app puede envolverla con su propio
+`explainMismatch`).
 
 ## Qué es este paquete
 
-- **`YamlPipelineSource`** — un `PipelineSource` por carpeta de proyecto, leído en vivo: el engine
+- **`YamlPipelineSource`** — un `PipelineSource` por carpeta, leído en vivo. Su id: el que le da
+  quien la monta (`id`), si no el de `source.yaml`, y si no el nombre de la carpeta. Leída en vivo: el engine
   llama `list()` en cada evento y, si cambió algún archivo (fecha, tamaño, uno nuevo o borrado), se
   recarga. Una versión inválida se loguea y sigue la última buena; la primera carga tira.
-- **`createEngineFromYaml`** — la raíz de composición (acepta además `sources` armadas en código):
-  lee `engine.yaml`, arma fuentes, store y
+- **`createEngineFromYaml`** — la raíz de composición (acepta además `sources` armadas en código;
+  con ellas, `sources` del archivo puede faltar): lee `engine.yaml` —o una sección de un archivo
+  más grande, `{ section: 'engine' }`—, arma fuentes, store y
   `Engine`, lo suscribe al bus y vence pausas con `tick.everyMs`. El store se elige por nombre de
   driver: `memory` viene incluido, el resto se inyecta (`drivers: { sqlite: sqliteStoreDriver }`)
   — este paquete no depende de `@ia-tools/agent-engine-sqlite` (sólo en tests).
@@ -19,10 +24,10 @@ armado desde un `engine.yaml`. Hace I/O (lee archivos): por eso vive fuera del c
 ```
 src/
 ├── YamlPipelineSource.ts    la fuente: caché por firma de archivos + recarga
-├── ProjectLoader.ts         qué archivos forman un proyecto, y leerlos
-├── ProjectBuilder.ts        documentos → StaticPipelineSource (agentes compartidos, pipelines, defaults, refs)
+├── SourceLoader.ts         qué archivos forman una fuente, y leerlos
+├── SourceBuilder.ts        documentos → StaticPipelineSource (agentes compartidos, pipelines, defaults, refs)
 ├── YamlReader.ts            leer + validar un archivo contra su schema (errores con archivo)
-├── schema.ts                la forma de cada archivo (zod): project, agent, pipeline, engine
+├── schema.ts                la forma de cada archivo (zod): source, agent, pipeline, engine
 ├── StepFactory.ts           el contrato de un tipo de paso (keyword + schema + create)
 ├── StepFactoryRegistry.ts   qué factory arma cada nodo (la primera clave registrada)
 ├── factories/               una por tipo incluido: agent, action, emit, http, pause, function
@@ -40,22 +45,22 @@ src/
   `onError` (`input`/`report` a partir del error), providers y system prompts se nombran en el YAML
   y se registran en `YamlCatalogs`.
 - **Una acción que depende de dónde se usa es un `ActionProvider`** en `catalogs.actions`: una
-  función que recibe `{ projectId, agentId?, options }` (las `options` de la entrada del YAML) y
-  arma la acción — un board por proyecto, un comentario con el nombre del agente, una shell con
+  función que recibe `{ sourceId, agentId?, options }` (las `options` de la entrada del YAML) y
+  arma la acción — un board por fuente, un comentario con el nombre del agente, una shell con
   sus comandos permitidos. Como tool de un agente puede armar varias; como paso, una sola.
 - **`allowWrites: true` en un agente** habilita todas sus acciones aunque escriban: listarlas ya
   es la decisión del operador. Sin eso, cada una que escribe lleva `allowWrite: true`.
 - **Un paso de agente con `brief` o `when`** es una instancia propia de ese paso (el `brief` se
-  antepone al prompt). Sin ellos, el agente es uno por proyecto, compartido.
-- **`systemPrompts` del proyecto** van antes de los de cada agente: el prefijo compartido.
+  antepone al prompt). Sin ellos, el agente es uno por fuente, compartido.
+- **`systemPrompts` de la fuente** van antes de los de cada agente: el prefijo compartido.
 - **MCP por id** salen de `catalogs.mcpServers`; un id que no está se omite con un aviso (un
   servidor que no respondió al arrancar) y el agente corre sin él.
 - **Un tipo de paso nuevo es una `StepFactory`** en `catalogs.steps`: no se toca el loader.
 - **`{ ref: <id> }`** reusa un paso declarado ANTES en el `do` de la misma pipeline (ej. como
-  destino de una ruta). Un agente (`{ agent: <id> }`) es uno por proyecto, compartido.
+  destino de una ruta). Un agente (`{ agent: <id> }`) es uno por fuente, compartido.
 - **Dos momentos de plantilla.** `{{vars.x}}` se sustituye AL CARGAR en cualquier archivo (también
   en un `when`, que no se resuelve al correr); una var que no existe rompe la carga. Las vars salen
-  de `project.yaml` sobre `catalogs.projectVars(projectId)`. El resto de los `{{...}}` de `http`,
+  de `source.yaml` sobre `catalogs.sourceVars(sourceId)`. El resto de los `{{...}}` de `http`,
   `emit` y `function.with` se resuelven AL CORRER contra el payload (en la raíz, como un `when`) y
   `steps` — y `item` dentro de un `forEach`. Un valor que es SÓLO `{{x}}` conserva su tipo.
 - **Un paso `http` con `connection`** va al host de esa conexión (`catalogs.connections`) con su
@@ -76,11 +81,13 @@ src/
   en vez de una por variante.
 - **`whenText`** (pipeline, paso, agente): un modelo decide si el evento cumple un criterio,
   después del `when`. `whenText: <texto>` o `{ text, systemPrompts, model }`; cada system prompt
-  por id (uno del `project.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline
+  por id (uno del `source.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline
   (`{ text }`), resueltos AL CARGAR — un id que no existe rompe la carga. El de un paso de agente
   gana sobre el del agente. El clasificador sale de `engine.yaml` (`whenText: { model,
   apiKeyEnv }` → `AnthropicTextClassifier`) o de `textClassifier` en código; sin clasificador, o
-  sin veredicto, lo que tiene `whenText` no corre. Un proyecto no tiene filtro (`when`/`whenText`): qué eventos son suyos lo decide la app.
+  sin veredicto, lo que tiene `whenText` no corre. Una fuente no tiene filtro (`when`/`whenText`) ni sabe de proyectos: qué eventos le tocan lo decide quien la monta (`PipelineSource.explainMismatch`).
+- **`formatMessage: '{{message}}'`** en `engine.yaml`: el texto con el que un evento le llega a un
+  agente que ya corre, como plantilla contra el payload. Vacía, el mensaje por default.
 - **Los errores dicen dónde**: `<archivo>: <ruta del campo>: <qué>` (`located`).
 - **Una pausa sobrevive a una recarga** si la pipeline no cambió de forma: el `Checkpoint` compara
   `shape` y falla en vez de seguir en otro paso.

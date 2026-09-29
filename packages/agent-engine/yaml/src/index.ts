@@ -1,6 +1,6 @@
-export type { Located, ProjectDocs } from './ProjectBuilder.js';
-export { ProjectBuilder } from './ProjectBuilder.js';
-export { ProjectLoader } from './ProjectLoader.js';
+export type { Located, SourceDocs } from './SourceBuilder.js';
+export { SourceBuilder } from './SourceBuilder.js';
+export { SourceLoader } from './SourceLoader.js';
 export type { AgentVariant, StepBuildContext, StepFactory } from './StepFactory.js';
 export { StepFactoryRegistry } from './StepFactoryRegistry.js';
 export type {
@@ -25,7 +25,7 @@ export {
   ConditionRows,
   EngineDoc,
   PipelineDoc,
-  ProjectDoc,
+  SourceDoc,
   StepNode,
   WhenTextNode,
 } from './schema.js';

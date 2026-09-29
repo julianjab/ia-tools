@@ -14,9 +14,9 @@ const Node = z.strictObject({
 });
 
 /**
- * `{ agent: implementer }`: el agente del proyecto (`agents/*.yaml`) con ese id. Con `brief` o
+ * `{ agent: implementer }`: el agente de la fuente (`agents/*.yaml`) con ese id. Con `brief` o
  * `when`, una instancia propia de este paso (el mismo agente, con eso agregado); sin ellos, la
- * compartida por todo el proyecto.
+ * compartida por toda la fuente.
  */
 export class AgentStepFactory implements StepFactory<z.infer<typeof Node>> {
   readonly keyword = 'agent';

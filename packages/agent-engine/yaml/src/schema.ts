@@ -35,7 +35,7 @@ export const StepNode = z.record(z.string(), z.unknown());
 
 /**
  * El gate semántico (`whenText`): el criterio en lenguaje natural, o `{ text, systemPrompts, model }`.
- * Un system prompt se nombra por id —uno del `project.yaml` o del catálogo— o va inline
+ * Un system prompt se nombra por id —uno del `source.yaml` o del catálogo— o va inline
  * (`{ text }`); se resuelven al cargar.
  */
 export const WhenTextNode = z.union([
@@ -91,19 +91,19 @@ const Defaults = {
   report: StepNode.nullable().optional(),
 };
 
-export const ProjectDoc = z.strictObject({
+export const SourceDoc = z.strictObject({
   /** Default: el nombre de la carpeta. */
   id: z.string().min(1).optional(),
-  /** Constantes del proyecto: `{{vars.x}}` se sustituye al cargar en cualquier archivo. */
+  /** Constantes de la fuente: `{{vars.x}}` se sustituye al cargar en cualquier archivo. */
   vars: z.record(z.string(), z.unknown()).optional(),
-  /** Van ANTES de los de cada agente del proyecto: el prefijo compartido (y cacheable) de todos. */
+  /** Van ANTES de los de cada agente de la fuente: el prefijo compartido (y cacheable) de todos. */
   systemPrompts: SystemPromptRefs.optional(),
   ...Defaults,
 });
-export type ProjectDoc = z.infer<typeof ProjectDoc>;
+export type SourceDoc = z.infer<typeof SourceDoc>;
 
-/** Lo que se lee de `project.yaml` antes de sustituir nada: su id y sus vars. */
-export const ProjectVarsDoc = z.looseObject({
+/** Lo que se lee de `source.yaml` antes de sustituir nada: su id y sus vars. */
+export const SourceVarsDoc = z.looseObject({
   id: z.string().min(1).optional(),
   vars: z.record(z.string(), z.unknown()).optional(),
 });
@@ -230,15 +230,20 @@ export const EngineDoc = z.strictObject({
       maxConcurrent: z.number().int().min(1).optional(),
     })
     .optional(),
-  /** `dir`: la carpeta de un proyecto. `root`: una carpeta con un proyecto por subcarpeta. */
+  /** `dir`: la carpeta de una fuente (`id`: si no, el de su `source.yaml` o el de la carpeta).
+   *  `root`: una carpeta con una fuente por subcarpeta. Puede faltar si la app pasa sus fuentes
+   *  (`options.sources`). */
   sources: z
     .array(
       z.union([
-        z.strictObject({ dir: z.string().min(1) }),
+        z.strictObject({ dir: z.string().min(1), id: z.string().min(1).optional() }),
         z.strictObject({ root: z.string().min(1) }),
       ]),
     )
-    .min(1),
+    .default([]),
+  /** El texto con el que un evento le llega a un agente que ya corre (`injects`): una plantilla
+   *  contra el payload (`'{{message}}'`). Sin esto, o si queda vacía, el mensaje por default. */
+  formatMessage: z.string().min(1).optional(),
   /** Cada cuánto vence las pausas (`engine.tick()`). Sin esto, la app lo llama. */
   tick: z.strictObject({ everyMs: z.number().int().positive() }).optional(),
   /** El clasificador de los `whenText`: la Messages API de Anthropic. Sin esto (y sin
