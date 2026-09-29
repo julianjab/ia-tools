@@ -40,6 +40,7 @@ src/
 │   └── tests/
 ├── condition/
 │   ├── Condition.ts, Conditional.ts, EventFilter.ts
+│   ├── TextClassifier.ts, AnthropicTextClassifier.ts   el gate semántico (`whenText`)
 │   └── tests/
 ├── events/
 │   ├── DomainEvent.ts, EventBus.ts
@@ -223,6 +224,12 @@ SALIDA con una tool `submit_<salida>`, cuyo schema es el input de los pasos a lo
 `submitSchemaFor`. Qué salidas hay y a dónde llevan se resuelve en cascada, **paso > pipeline >
 agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvias al leer el código:
 
+- **`whenText` es un gate impuro, aparte del `when`.** Un modelo (`TextClassifier`; el de
+  Anthropic por default en el YAML) decide si el evento cumple el criterio. Lo evalúan el
+  `DispatchPlanner` (el de una pipeline, sólo si ya pasó todo lo barato y ANTES de elegir la
+  `exclusive`) y el `StepRunner` (el de un paso). Sin clasificador o sin veredicto, no corre:
+  nunca se adivina. Una llamada por (evento, criterio). Un `Project` lo rechaza (un modelo por
+  evento), y una pausa o unos `injects` no lo evalúan (son sincrónicos).
 - **Sólo el agente crea salidas** (vocabulario + `when`). Un override de una salida no declarada
   tira: un typo tiene que romper al construir, no quedar como config muerta.
 - **Las rutas base del agente sólo apuntan a acciones.** Encadenar agentes se declara en la
