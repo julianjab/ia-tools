@@ -1,4 +1,5 @@
 import { createLogger, traced } from '@ia-tools/telemetry';
+import type { TextClassifier } from '../condition/TextClassifier.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus, Unsubscribe } from '../events/EventBus.js';
 import type { Pipeline } from '../pipeline/Pipeline.js';
@@ -34,6 +35,9 @@ export interface EngineOptions {
   executionKey?: (event: DomainEvent<any>) => string | undefined;
   /** Cómo se lee un evento inyectado en la conversación del agente. Default: tipo + payload. */
   formatMessage?: (event: DomainEvent<any>) => string;
+  /** Quién evalúa los `whenText` (ej. `AnthropicTextClassifier`). Sin esto, una pipeline o un
+   *  paso con `whenText` no corre. */
+  textClassifier?: TextClassifier;
 }
 
 /** La task de un evento: su `scope` con las claves ordenadas — dos eventos de la misma task
@@ -70,7 +74,7 @@ export class Engine {
   constructor(opts: EngineOptions) {
     this.bus = opts.bus;
     this.maxEventDepth = opts.maxEventDepth ?? DEFAULT_MAX_EVENT_DEPTH;
-    this.planner = new DispatchPlanner([opts.pipelines].flat());
+    this.planner = new DispatchPlanner([opts.pipelines].flat(), opts.textClassifier);
     this.launcher = new RunLauncher();
     this.coordinator = new ExecutionCoordinator({
       bus: opts.bus,
@@ -80,6 +84,7 @@ export class Engine {
       executionKey: opts.executionKey ?? scopeExecutionKey,
       formatMessage: opts.formatMessage ?? defaultMessage,
       redispatch: (unread, executionId) => this.redelivery.redispatch(unread, executionId),
+      ...(opts.textClassifier ? { classifier: opts.textClassifier } : {}),
     });
     this.redelivery = new Redelivery({
       planner: this.planner,

@@ -1,6 +1,7 @@
 import { createLogger, traced } from '@ia-tools/telemetry';
 import type { Agent } from '../agent/Agent.js';
 import type { ConditionalProps } from '../condition/Conditional.js';
+import type { TextClassifier, WhenText } from '../condition/TextClassifier.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type {
   ExitDefaults,
@@ -135,6 +136,7 @@ export class Pipeline {
     this.trigger = new PipelineTrigger({
       on: props.on,
       when: props.when,
+      ...(props.whenText ? { whenText: props.whenText } : {}),
       scope: props.scope,
       enabled: props.enabled,
     });
@@ -152,6 +154,18 @@ export class Pipeline {
     });
     this.runner = new StepRunner(this.id, this.graph, this.defaults);
     this.checkpoints = new Checkpoints(this.id, this.do, this.graph);
+  }
+
+  /** El gate semántico de la pipeline, si tiene. */
+  get whenText(): WhenText | undefined {
+    return this.trigger.whenText;
+  }
+
+  /** Por qué su `whenText` no la deja correr para `event` (ver `Conditional.explainText`). */
+  explainText(event: DomainEvent<any>, classifier: TextClassifier | undefined) {
+    const payload =
+      typeof event.payload === 'object' && event.payload !== null ? event.payload : {};
+    return this.trigger.explainText(payload, classifier, event);
   }
 
   /** Tipos de DomainEvent que escucha. */

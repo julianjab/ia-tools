@@ -1,8 +1,16 @@
 import { Condition } from './Condition.js';
+import type { TextClassifier, TextVerdict, WhenText } from './TextClassifier.js';
 
 export interface ConditionalProps {
   when?: Condition[];
+  /** El gate semántico: un modelo decide si el evento cumple el criterio. Lo evalúan el planner
+   *  (el de una pipeline) y el `StepRunner` (el de un paso), después del `when`. */
+  whenText?: WhenText;
 }
+
+/** Un veredicto por (evento, criterio): el planner y los pasos que preguntan lo mismo sobre el
+ *  mismo evento hacen UNA llamada. `WeakMap` sobre el evento: muere con él. */
+const verdicts = new WeakMap<object, Map<string, Promise<TextVerdict>>>();
 
 /**
  * Base para cualquier entidad que matchea contra un `when` — antes de esto, `Pipeline` y
@@ -15,9 +23,11 @@ export interface ConditionalProps {
  */
 export abstract class Conditional {
   readonly when: Condition[];
+  readonly whenText?: WhenText;
 
   constructor(props: ConditionalProps) {
     this.when = props.when ?? [];
+    if (props.whenText) this.whenText = props.whenText;
   }
 
   matchesConditions(subject: unknown): boolean {
@@ -30,5 +40,33 @@ export abstract class Conditional {
     if (this.matchesConditions(subject)) return undefined;
     const failed = this.when.filter((condition) => !condition.evaluate(subject));
     return `no cumple: ${failed.map((condition) => condition.describe(subject)).join('; ')}`;
+  }
+
+  /**
+   * Por qué el `whenText` no deja pasar (lo que dijo el clasificador), o `undefined` si pasa o no
+   * hay. Sin clasificador, o sin veredicto, NO pasa: nunca se adivina. `key` es el objeto al que
+   * se ata la cache — el evento.
+   */
+  async explainText(
+    subject: Record<string, unknown>,
+    classifier: TextClassifier | undefined,
+    key: object,
+  ): Promise<string | undefined> {
+    const whenText = this.whenText;
+    if (!whenText) return undefined;
+    if (!classifier) return 'whenText sin clasificador: no corre';
+    const criterion = JSON.stringify(whenText);
+    const cached = verdicts.get(key) ?? new Map<string, Promise<TextVerdict>>();
+    verdicts.set(key, cached);
+    let pending = cached.get(criterion);
+    if (!pending) {
+      pending = classifier.classify({ whenText, subject });
+      cached.set(criterion, pending);
+    }
+    const verdict = await pending;
+    if (verdict.matches === true) return undefined;
+    return verdict.matches === false
+      ? `whenText: no — ${verdict.reason}`
+      : `whenText sin veredicto — ${verdict.reason}`;
   }
 }

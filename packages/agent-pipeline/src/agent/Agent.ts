@@ -55,6 +55,7 @@ export class Agent extends Runnable {
     super({
       id: definition.id,
       when: definition.when,
+      ...(definition.whenText ? { whenText: definition.whenText } : {}),
       continueOnError: definition.continueOnError,
     });
     this.definition = definition;

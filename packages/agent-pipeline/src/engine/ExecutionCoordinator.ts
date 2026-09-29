@@ -1,4 +1,5 @@
 import { createLogger, inFreshContext, taggedSync, traced } from '@ia-tools/telemetry';
+import type { TextClassifier } from '../condition/TextClassifier.js';
 import { type DomainEvent, createEvent } from '../events/DomainEvent.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { Resumption } from '../pipeline/Pipeline.js';
@@ -52,6 +53,8 @@ export interface ExecutionCoordinatorOptions {
   formatMessage: (event: DomainEvent<any>) => string;
   /** Qué hacer con lo inyectado que nadie leyó cuando una ejecución cierra o se pausa. */
   redispatch: (unread: DomainEvent<any>[], executionId: string) => void;
+  /** Quién evalúa los `whenText` de los pasos. */
+  classifier?: TextClassifier;
 }
 
 /**
@@ -63,6 +66,7 @@ export class ExecutionCoordinator {
   readonly log = createLogger('agent-pipeline.engine');
   private readonly bus: EventBus;
   private readonly planner: DispatchPlanner;
+  private readonly classifier?: TextClassifier;
   private readonly launcher: RunLauncher;
   readonly executions?: ExecutionStore;
   private readonly executionKey: (event: DomainEvent<any>) => string | undefined;
@@ -83,6 +87,7 @@ export class ExecutionCoordinator {
     this.executionKey = opts.executionKey;
     this.formatMessage = opts.formatMessage;
     this.redispatch = opts.redispatch;
+    this.classifier = opts.classifier;
   }
 
   /**
@@ -276,6 +281,7 @@ export class ExecutionCoordinator {
         pipelineId: pipeline.id,
         defaults: source.defaults,
         ...(source.id !== undefined ? { sourceId: source.id } : {}),
+        ...(this.classifier ? { classifier: this.classifier } : {}),
         ...(execution ? { execution } : {}),
       },
       from,

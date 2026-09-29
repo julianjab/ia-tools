@@ -1,4 +1,5 @@
 import { createLogger, tagged } from '@ia-tools/telemetry';
+import type { TextClassifier } from '../condition/TextClassifier.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { Checkpoint, Pipeline } from '../pipeline/Pipeline.js';
 import type { PipelineSource } from './PipelineSource.js';
@@ -26,7 +27,11 @@ export interface DispatchPlan {
 export class DispatchPlanner {
   readonly log = createLogger('agent-pipeline.engine');
 
-  constructor(private readonly sources: PipelineSource[]) {}
+  constructor(
+    private readonly sources: PipelineSource[],
+    /** Quién evalúa el `whenText` de una pipeline. */
+    private readonly classifier?: TextClassifier,
+  ) {}
 
   /**
    * Las pipelines que corren para `event`, en el mismo orden y con el mismo criterio que
@@ -44,7 +49,8 @@ export class DispatchPlanner {
 
   /**
    * La cascada de filtros: primero el `when` de cada fuente (el proyecto) — si no pasa, ninguna
-   * de sus pipelines se evalúa, salvo las de entrada —, después cada pipeline (`on`, scope, `when`). Entre las que
+   * de sus pipelines se evalúa, salvo las de entrada —, después cada pipeline (`on`, scope, `when`)
+   * y, para las que pasaron, su `whenText`. Entre las que
    * pasan, corren TODAS las no-exclusive; si alguna es `exclusive`, sólo la de mayor prioridad
    * (menor `position`) entre las exclusive, MÁS cualquier otra de prioridad todavía mayor. El
    * `when` de cada paso se evalúa después, al correr la pipeline.
@@ -58,6 +64,16 @@ export class DispatchPlanner {
         candidates.push({ pipeline, source, ...(mismatch ? { mismatch } : {}) });
       }
     }
+    // El gate semántico, sólo sobre las que ya pasaron todo lo barato, y antes de elegir la
+    // exclusive: una que el modelo descarta no tapa a otra.
+    await Promise.all(
+      candidates
+        .filter((candidate) => !candidate.mismatch && candidate.pipeline.whenText)
+        .map(async (candidate) => {
+          const mismatch = await candidate.pipeline.explainText(event, this.classifier);
+          if (mismatch) candidate.mismatch = mismatch;
+        }),
+    );
     const matched = candidates.filter((candidate) => !candidate.mismatch);
     const winningExclusive = matched
       .map(({ pipeline }) => pipeline)

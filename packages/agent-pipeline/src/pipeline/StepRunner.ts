@@ -35,6 +35,13 @@ export class StepRunner {
     handleErrors = true,
   ): Promise<Pause | undefined> {
     if (!step.shouldRun(ctx)) return undefined;
+    const payload = ctx.event.payload;
+    const subject = typeof payload === 'object' && payload !== null ? payload : {};
+    const textMismatch = await step.explainText(subject, ctx.classifier, ctx.event);
+    if (textMismatch) {
+      this.log.info(`${this.pipelineId}: ${step.id ?? 'paso'} no corre — ${textMismatch}`);
+      return undefined;
+    }
     const run = await this.runDue(step, input, ctx, via, handleErrors);
     return 'paused' in run ? run.paused : undefined;
   }

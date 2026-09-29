@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ToolInputSchema } from '../agent/SchemaTool.js';
 import { Conditional, type ConditionalProps } from '../condition/Conditional.js';
+import type { TextClassifier } from '../condition/TextClassifier.js';
 import type { DomainEvent } from '../events/DomainEvent.js';
 import type { EventBus } from '../events/EventBus.js';
 import type {
@@ -32,6 +33,9 @@ export interface PipelineExecutionContext {
    *  `onError`: si tira, el error sube a quien lo pidió — ej. el `onStart` de un agente. Lo pone
    *  `Pipeline.execute`; un paso que corre suelto no lo tiene. */
   runStep?: (step: Runnable, via: string) => Promise<void>;
+  /** Quién evalúa los `whenText` (el del paso y el de la pipeline). Sin esto, un paso con
+   *  `whenText` no corre. Lo pone el `Engine`. */
+  classifier?: TextClassifier;
 }
 
 /** `agent`: un paso respaldado por un modelo (su span es `agent <id>`). El resto, `action`. */

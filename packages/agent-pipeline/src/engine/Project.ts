@@ -42,6 +42,11 @@ export class Project extends Conditional implements PipelineSource {
 
   constructor(props: ProjectProps) {
     super(props);
+    if (props.whenText) {
+      throw new Error(
+        `Project(${props.id}): un proyecto no admite whenText — correría un modelo por cada evento; va en una pipeline o en un paso`,
+      );
+    }
     const seen = new Set<string>();
     for (const pipeline of [...(props.intake ?? []), ...props.pipelines]) {
       if (seen.has(pipeline.id)) {
