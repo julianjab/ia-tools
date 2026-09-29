@@ -27,7 +27,9 @@ export class ActionStep extends Runnable {
     this.args = props.with;
   }
 
-  run(ctx: PipelineExecutionContext): Promise<unknown> {
-    return this.action.run(ctx, render(this.args, templateRoot(ctx)));
+  /** `input` es lo que le da quien lo corre (una ruta, un `onError`); el `with` lo completa. */
+  run(ctx: PipelineExecutionContext, input?: unknown): Promise<unknown> {
+    const given = typeof input === 'object' && input !== null ? input : {};
+    return this.action.run(ctx, { ...given, ...(render(this.args, templateRoot(ctx)) as object) });
   }
 }

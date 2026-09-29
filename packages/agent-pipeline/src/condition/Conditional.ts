@@ -8,6 +8,20 @@ export interface ConditionalProps {
   whenText?: WhenText;
 }
 
+/** El veredicto, sin tirar nunca: un clasificador que falla es uno que no pudo decidir — ni
+ *  tumba el despacho de las demás pipelines ni se saltea el manejo de errores de un paso. */
+async function classify(
+  classifier: TextClassifier,
+  whenText: WhenText,
+  subject: Record<string, unknown>,
+): Promise<TextVerdict> {
+  try {
+    return await classifier.classify({ whenText, subject });
+  } catch (error) {
+    return { matches: null, reason: `el clasificador falló: ${(error as Error).message}` };
+  }
+}
+
 /** Un veredicto por (evento, criterio): el planner y los pasos que preguntan lo mismo sobre el
  *  mismo evento hacen UNA llamada. `WeakMap` sobre el evento: muere con él. */
 const verdicts = new WeakMap<object, Map<string, Promise<TextVerdict>>>();
@@ -60,10 +74,12 @@ export abstract class Conditional {
     verdicts.set(key, cached);
     let pending = cached.get(criterion);
     if (!pending) {
-      pending = classifier.classify({ whenText, subject });
+      pending = classify(classifier, whenText, subject);
       cached.set(criterion, pending);
     }
     const verdict = await pending;
+    // Sólo un sí o un no queda: un "no pude decidir" (timeout, 429) se vuelve a preguntar.
+    if (verdict.matches === null && cached.get(criterion) === pending) cached.delete(criterion);
     if (verdict.matches === true) return undefined;
     return verdict.matches === false
       ? `whenText: no — ${verdict.reason}`
