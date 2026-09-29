@@ -224,6 +224,10 @@ SALIDA con una tool `submit_<salida>`, cuyo schema es el input de los pasos a lo
 `submitSchemaFor`. Qué salidas hay y a dónde llevan se resuelve en cascada, **paso > pipeline >
 agente > proyecto**, con `resolveRoutes` (pura, sin I/O). Reglas que no son obvias al leer el código:
 
+- **`firstMatch: true` hace de `do` una lista de alternativas.** Corre sólo el primer paso cuyo
+  `when`/`whenText` pasa, y al reanudar una pausa de ese paso no sigue con los demás (el checkpoint
+  guarda `resumeAt = do.length`). Sin esto, los pasos corren en orden y una pausa reanudada sigue
+  con los siguientes — con condiciones evaluadas contra el evento que la despertó.
 - **`whenText` es un gate impuro, aparte del `when`.** Un modelo (`TextClassifier`; el de
   Anthropic por default en el YAML) decide si el evento cumple el criterio. Lo evalúan el
   `DispatchPlanner` (el de una pipeline, sólo si ya pasó todo lo barato y ANTES de elegir la

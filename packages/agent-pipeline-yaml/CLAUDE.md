@@ -74,6 +74,9 @@ src/
   fijo sigue siendo `Action.bind`, validado al cargar.
 - **Una función de catálogo con `with`** recibe esos valores como input: así es pura y sirve en
   cualquier pipeline. Sin `with`, recibe `(ctx, undefined)`.
+- **`firstMatch: true`** en una pipeline: sus pasos son alternativas (ej. un agente por columna o
+  repo), corre el primero cuyo `when` pasa. Es lo que permite una pipeline por momento del flujo
+  en vez de una por variante.
 - **`whenText`** (pipeline, paso, agente): un modelo decide si el evento cumple un criterio,
   después del `when`. `whenText: <texto>` o `{ text, systemPrompts, model }`; cada system prompt
   por id (uno del `project.yaml` con ese `id`, o de `catalogs.systemPrompts`) o inline

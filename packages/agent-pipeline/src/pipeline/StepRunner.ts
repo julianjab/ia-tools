@@ -34,16 +34,28 @@ export class StepRunner {
     via: StepVia,
     handleErrors = true,
   ): Promise<Pause | undefined> {
-    if (!step.shouldRun(ctx)) return undefined;
+    return (await this.attempt(step, input, ctx, via, handleErrors)).paused;
+  }
+
+  /** Como `run`, y además si el paso corrió o su `when`/`whenText` lo salteó — lo que necesita
+   *  una pipeline `firstMatch` para saber cuándo cortar. */
+  async attempt(
+    step: Runnable,
+    input: unknown,
+    ctx: PipelineExecutionContext,
+    via: StepVia,
+    handleErrors = true,
+  ): Promise<{ ran: boolean; paused?: Pause }> {
+    if (!step.shouldRun(ctx)) return { ran: false };
     const payload = ctx.event.payload;
     const subject = typeof payload === 'object' && payload !== null ? payload : {};
     const textMismatch = await step.explainText(subject, ctx.classifier, ctx.event);
     if (textMismatch) {
       this.log.info(`${this.pipelineId}: ${step.id ?? 'paso'} no corre — ${textMismatch}`);
-      return undefined;
+      return { ran: false };
     }
     const run = await this.runDue(step, input, ctx, via, handleErrors);
-    return 'paused' in run ? run.paused : undefined;
+    return 'paused' in run && run.paused ? { ran: true, paused: run.paused } : { ran: true };
   }
 
   @traced(stepTrace)

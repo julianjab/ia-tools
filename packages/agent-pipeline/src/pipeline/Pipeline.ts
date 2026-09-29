@@ -77,6 +77,10 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
   position?: number;
   /** Si matchea, impide que corran los pipelines de menor prioridad para este evento. */
   exclusive?: boolean;
+  /** Los pasos de `do` son ALTERNATIVAS: corre sólo el primero cuyo `when`/`whenText` pasa, y al
+   *  reanudar una pausa de ese paso no sigue con los demás. Para una pipeline que elige un agente
+   *  por paso (uno por columna, tipo o repo) sin que dos corran para el mismo evento. */
+  firstMatch?: boolean;
   /**
    * Qué hacer si la task del evento ya tiene una ejecución corriendo (una task nunca corre dos a
    * la vez) y su paso activo no aceptó el evento (`AgentDefinitionProps.injects`). Sólo aplica a
@@ -123,6 +127,7 @@ export class Pipeline {
   readonly trigger: PipelineTrigger;
   readonly position: number;
   readonly exclusive: boolean;
+  readonly firstMatch: boolean;
   readonly ifRunning: IfRunning;
   readonly ifPaused: IfPaused;
   readonly do: Runnable[];
@@ -142,6 +147,7 @@ export class Pipeline {
     });
     this.position = props.position ?? 0;
     this.exclusive = props.exclusive ?? false;
+    this.firstMatch = props.firstMatch ?? false;
     this.ifRunning = props.ifRunning ?? 'wait';
     this.ifPaused = props.ifPaused ?? 'supersede';
     this.do = props.do;
@@ -238,8 +244,12 @@ export class Pipeline {
     for (let index = resumeAt; index < this.do.length; index++) {
       const step = this.do[index] as Runnable;
       if (this.graph.routed.has(step)) continue;
-      const paused = await this.runner.run(step, undefined, runCtx, 'do');
-      if (paused) return this.checkpoints.save(runCtx, paused, index + 1);
+      const { ran, paused } = await this.runner.attempt(step, undefined, runCtx, 'do');
+      // `firstMatch`: lo que sigue a una alternativa que corrió no corre, tampoco al reanudarla.
+      if (paused) {
+        return this.checkpoints.save(runCtx, paused, this.firstMatch ? this.do.length : index + 1);
+      }
+      if (ran && this.firstMatch) break;
     }
     return runCtx.steps;
   }

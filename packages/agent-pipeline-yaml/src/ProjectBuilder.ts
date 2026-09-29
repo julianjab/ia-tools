@@ -193,6 +193,7 @@ export class ProjectBuilder {
           enabled: doc.enabled,
           position: doc.position,
           exclusive: doc.exclusive,
+          firstMatch: doc.firstMatch,
           ifRunning: doc.ifRunning,
           ifPaused: doc.ifPaused,
           when: Condition.fromRows(doc.when),

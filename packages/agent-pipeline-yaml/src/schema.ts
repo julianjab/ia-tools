@@ -191,6 +191,8 @@ export const PipelineDoc = z.strictObject({
   enabled: z.boolean().optional(),
   position: z.number().optional(),
   exclusive: z.boolean().optional(),
+  /** Los pasos son alternativas: corre sólo el primero cuyo `when` pasa (ver `Pipeline`). */
+  firstMatch: z.boolean().optional(),
   ifRunning: z.enum(['wait', 'skip']).optional(),
   ifPaused: z.enum(['supersede', 'wait']).optional(),
   when: ConditionRows.optional(),
