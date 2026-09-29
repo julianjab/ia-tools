@@ -49,7 +49,7 @@ export class DispatchPlanner {
 
   /**
    * La cascada de filtros: primero el `when` de cada fuente (el proyecto) — si no pasa, ninguna
-   * de sus pipelines se evalúa, salvo las de entrada —, después cada pipeline (`on`, scope, `when`)
+   * de sus pipelines se evalúa —, después cada pipeline (`on`, scope, `when`)
    * y, para las que pasaron, su `whenText`. Entre las que
    * pasan, corren TODAS las no-exclusive; si alguna es `exclusive`, sólo la de mayor prioridad
    * (menor `position`) entre las exclusive, MÁS cualquier otra de prioridad todavía mayor. El
@@ -58,9 +58,9 @@ export class DispatchPlanner {
   async plan(event: DomainEvent<any>): Promise<DispatchPlan> {
     const candidates: Candidate[] = [];
     for (const source of this.sources) {
+      const sourceMismatch = source.explainMismatch?.(event);
       for (const pipeline of await source.list()) {
-        const mismatch =
-          source.explainMismatch?.(event, pipeline) ?? pipeline.explainMismatch(event);
+        const mismatch = sourceMismatch ?? pipeline.explainMismatch(event);
         candidates.push({ pipeline, source, ...(mismatch ? { mismatch } : {}) });
       }
     }

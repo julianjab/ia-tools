@@ -38,11 +38,8 @@ export function pipelineSourceContract(name: string, makeFixture: PipelineSource
     });
 
     it('lets through the event it is built for', async () => {
-      const { source, matching, expected } = await makeFixture();
-      for (const pipeline of await source.list()) {
-        if (!expected.includes(pipeline.id)) continue;
-        expect(source.explainMismatch?.(matching, pipeline)).toBeUndefined();
-      }
+      const { source, matching } = await makeFixture();
+      expect(source.explainMismatch?.(matching)).toBeUndefined();
     });
 
     it('an Engine selects its pipelines for a matching event', async () => {

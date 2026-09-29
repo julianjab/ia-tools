@@ -17,7 +17,6 @@ const YAML = /\.ya?ml$/;
  * <dir>/
  *   project.yaml        id, when, vars, onError, report   (opcional)
  *   agents/*.yaml       un agente por archivo
- *   intake/*.yaml       pipelines de ENTRADA: ven el evento antes del `when` del proyecto
  *   pipelines/*.yaml    una pipeline por archivo, en orden de nombre
  * ```
  *
@@ -43,7 +42,6 @@ export class ProjectLoader {
     return [
       ...(existsSync(project) ? [project] : []),
       ...inFolder('agents'),
-      ...inFolder('intake'),
       ...inFolder('pipelines'),
     ];
   }
@@ -83,7 +81,6 @@ export class ProjectLoader {
         ? read(projectPath, ProjectDoc)
         : { path: projectPath, doc: {} },
       agents: under('agents').map((path) => read(path, AgentDoc)),
-      intake: under('intake').map((path) => read(path, PipelineDoc)),
       pipelines: under('pipelines').map((path) => read(path, PipelineDoc)),
     });
   }

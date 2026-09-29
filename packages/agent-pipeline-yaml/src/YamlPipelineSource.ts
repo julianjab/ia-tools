@@ -64,15 +64,8 @@ export class YamlPipelineSource implements PipelineSource {
     return this.refresh().list();
   }
 
-  /** Las pipelines de `intake/`, como están ahora. */
-  intakePipelines(): Pipeline[] {
-    return this.refresh().intakePipelines();
-  }
-
-  /** Contra la versión que devolvió el último `list()` (el engine lo llama justo antes, por evento):
-   *  sin volver a mirar los archivos por cada pipeline, y sin mezclar dos versiones en un evento. */
-  explainMismatch(event: DomainEvent<any>, pipeline: Pipeline): string | undefined {
-    return this.current.explainMismatch(event, pipeline);
+  explainMismatch(event: DomainEvent<any>): string | undefined {
+    return this.refresh().explainMismatch(event);
   }
 
   private refresh(): Project {

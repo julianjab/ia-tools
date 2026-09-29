@@ -15,10 +15,10 @@ export interface PipelineSource {
   /** Defaults de rutas para todas sus pipelines — el nivel "proyecto" de la cascada. */
   readonly defaults?: ExitDefaults;
   /**
-   * El primer filtro de la cascada de `when` (fuente → pipeline → paso): por qué `pipeline` no
-   * corre para `event` por la fuente, o `undefined` si pasa. Ausente = deja pasar todo.
+   * El primer filtro de la cascada de `when` (fuente → pipeline → paso): por qué NINGUNA de sus
+   * pipelines corre para `event`, o `undefined` si el evento pasa. Ausente = deja pasar todo.
    */
-  explainMismatch?(event: DomainEvent<any>, pipeline: Pipeline): string | undefined;
+  explainMismatch?(event: DomainEvent<any>): string | undefined;
 }
 
 /** El caso común: pipelines definidos en código, fijos para la vida del proceso. */

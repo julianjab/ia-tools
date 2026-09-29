@@ -58,9 +58,6 @@ src/
   de `project.yaml` sobre `catalogs.projectVars(projectId)`. El resto de los `{{...}}` de `http`,
   `emit` y `function.with` se resuelven AL CORRER contra el payload (en la raíz, como un `when`) y
   `steps` — y `item` dentro de un `forEach`. Un valor que es SÓLO `{{x}}` conserva su tipo.
-- **`intake/`** son las pipelines de entrada del proyecto: ven el evento antes del `when` del
-  proyecto. Son las que convierten un evento crudo (un webhook) en los que escuchan `pipelines/`
-  — con scope, para que corran como ejecución de su task.
 - **Un paso `http` con `connection`** va al host de esa conexión (`catalogs.connections`) con su
   credencial; el path tiene que empezar con `/` y no puede cambiar el host. Cada valor que una
   plantilla inserta en el path va con `encodeURIComponent` (no agrega segmentos ni una query) y un

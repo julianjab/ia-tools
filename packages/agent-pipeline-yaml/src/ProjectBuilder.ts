@@ -44,8 +44,6 @@ export interface ProjectDocs {
   dir: string;
   project: Located<ProjectDoc>;
   agents: Located<AgentDoc>[];
-  /** Las pipelines de entrada (`intake/`): ven el evento antes del `when` del proyecto. */
-  intake?: Located<PipelineDoc>[];
   pipelines: Located<PipelineDoc>[];
 }
 
@@ -87,7 +85,6 @@ export class ProjectBuilder {
       }
       this.agentDocs.set(located.doc.id, located);
     }
-    const intake = (docs.intake ?? []).map((located) => this.pipeline(located));
     const pipelines = docs.pipelines.map((located) => this.pipeline(located));
     const { path, doc } = docs.project;
     const context = this.context(path, new Map());
@@ -97,7 +94,6 @@ export class ProjectBuilder {
         new Project({
           id: this.projectId,
           when: Condition.fromRows(doc.when),
-          intake,
           pipelines,
           ...this.defaults(doc, context, path),
         }),

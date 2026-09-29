@@ -94,8 +94,7 @@ const Defaults = {
 export const ProjectDoc = z.strictObject({
   /** Default: el nombre de la carpeta. */
   id: z.string().min(1).optional(),
-  /** El filtro del proyecto: lo cumplen los eventos de `pipelines/`, no los de `intake/` (que
-   *  son los que arman esos eventos a partir de uno crudo). */
+  /** El filtro del proyecto: una pipeline recibe sólo los eventos que lo cumplen. */
   when: ConditionRows.optional(),
   /** Constantes del proyecto: `{{vars.x}}` se sustituye al cargar en cualquier archivo. */
   vars: z.record(z.string(), z.unknown()).optional(),
