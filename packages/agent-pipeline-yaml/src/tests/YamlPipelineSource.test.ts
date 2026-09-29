@@ -177,3 +177,13 @@ routes:
     expect(YamlPipelineSource.fromRoot(root).map((source) => source.id)).toEqual(['a', 'b']);
   });
 });
+
+describe('YamlPipelineSource: la carpeta intake/', () => {
+  it('rejects it with a migration message instead of ignoring its pipelines', () => {
+    const dir = projectDir({
+      ...CI_GATE,
+      'intake/github.yaml': 'id: intake\non: [github.issues]\ndo:\n  - { emit: x }\n',
+    });
+    expect(() => new YamlPipelineSource({ dir })).toThrow(/la carpeta intake\/ ya no existe/);
+  });
+});
