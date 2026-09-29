@@ -4,8 +4,9 @@ import { sqliteStoreDriver } from '@ia-tools/agent-engine-sqlite/node';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { YamlCatalogs } from '../YamlCatalogs.js';
-import { createEngineFromYaml } from '../createEngineFromYaml.js';
-import { CI_GATE, projectDir } from './fixtures.js';
+import { YamlPipelineSource } from '../YamlPipelineSource.js';
+import { createEngineFromYaml, messageTemplate } from '../createEngineFromYaml.js';
+import { CI_GATE, sourceDir } from './fixtures.js';
 
 class Recorded extends Action {
   readonly description = 'registra';
@@ -37,12 +38,12 @@ function catalogs(ran: string[]): YamlCatalogs {
   };
 }
 
-/** Una app: `engine.yaml` + `projects/flow/…`. */
+/** Una app: `engine.yaml` + `sources/flow/…`. */
 function app(engineYaml: string): string {
-  return projectDir({
+  return sourceDir({
     'engine.yaml': engineYaml,
     ...Object.fromEntries(
-      Object.entries(CI_GATE).map(([file, content]) => [`projects/flow/${file}`, content]),
+      Object.entries(CI_GATE).map(([file, content]) => [`sources/flow/${file}`, content]),
     ),
   });
 }
@@ -59,7 +60,7 @@ describe('createEngineFromYaml', () => {
 maxEventDepth: 5
 executions: { driver: sqlite, path: ./data.db, maxConcurrent: 2 }
 sources:
-  - root: ./projects
+  - root: ./sources
 `);
     const path = join(root, 'engine.yaml');
     const options = { catalogs: catalogs(ran), drivers: { sqlite: sqliteStoreDriver } };
@@ -81,12 +82,12 @@ sources:
   });
 
   it('defaults to no executions, and uses the memory driver when asked', () => {
-    const root = app('sources:\n  - dir: ./projects/flow\n');
+    const root = app('sources:\n  - dir: ./sources/flow\n');
     const plain = createEngineFromYaml(join(root, 'engine.yaml'), { catalogs: catalogs([]) });
     expect(plain.executions).toBeUndefined();
     plain.stop();
 
-    const withMemory = app('executions: { driver: memory }\nsources:\n  - dir: ./projects/flow\n');
+    const withMemory = app('executions: { driver: memory }\nsources:\n  - dir: ./sources/flow\n');
     const memory = createEngineFromYaml(join(withMemory, 'engine.yaml'), {
       catalogs: catalogs([]),
     });
@@ -95,7 +96,7 @@ sources:
   });
 
   it('ticks on its own when tick.everyMs is set, until stopped', async () => {
-    const root = app('tick: { everyMs: 5 }\nsources:\n  - dir: ./projects/flow\n');
+    const root = app('tick: { everyMs: 5 }\nsources:\n  - dir: ./sources/flow\n');
     const { engine, stop } = createEngineFromYaml(join(root, 'engine.yaml'), {
       catalogs: catalogs([]),
     });
@@ -109,9 +110,53 @@ sources:
   });
 
   it('refuses a driver nobody registered, saying which ones there are', () => {
-    const root = app('executions: { driver: postgres }\nsources:\n  - dir: ./projects/flow\n');
+    const root = app('executions: { driver: postgres }\nsources:\n  - dir: ./sources/flow\n');
     expect(() =>
       createEngineFromYaml(join(root, 'engine.yaml'), { catalogs: catalogs([]) }),
     ).toThrow(/executions.driver "postgres" no está registrado — hay: memory/);
+  });
+
+  it('reads its config from a section of a bigger file (e.g. the engine: of an app runner.yaml)', () => {
+    const root = app(`
+settings: { port: 3001 }
+engine:
+  maxEventDepth: 3
+  sources:
+    - dir: ./sources/flow
+      id: mounted
+`);
+    const mounted = createEngineFromYaml(join(root, 'engine.yaml'), {
+      section: 'engine',
+      catalogs: catalogs([]),
+    });
+    expect(mounted.engine.maxEventDepth).toBe(3);
+    expect(mounted.sources.map((source) => source.id)).toEqual(['mounted']);
+    mounted.stop();
+    expect(() =>
+      createEngineFromYaml(join(root, 'engine.yaml'), { section: 'nope', catalogs: catalogs([]) }),
+    ).toThrow(/engine\.yaml: inválido/);
+  });
+
+  it('takes no sources from the file when the app passes its own, and needs one or the other', async () => {
+    const root = app('maxEventDepth: 3\n');
+    const own = createEngineFromYaml(join(root, 'engine.yaml'), {
+      sources: [
+        new YamlPipelineSource({ dir: join(root, 'sources/flow'), catalogs: catalogs([]) }),
+      ],
+    });
+    expect((await own.engine.select(event('build', {}))).map((p) => p.id)).toEqual(['build']);
+    own.stop();
+    expect(() => createEngineFromYaml(join(root, 'engine.yaml'))).toThrow(/no hay ninguna fuente/);
+  });
+});
+
+describe('formatMessage template', () => {
+  it('renders against the payload; empty, falls back to the default message', () => {
+    const format = messageTemplate('{{message}}') as (e: ReturnType<typeof createEvent>) => string;
+    expect(format(createEvent('issue_comment', { message: 'Comentario de @ana' }))).toBe(
+      'Comentario de @ana',
+    );
+    expect(format(createEvent('x', { n: 1 }))).toBe('Evento x: {"n":1}');
+    expect(messageTemplate(undefined)).toBeUndefined();
   });
 });

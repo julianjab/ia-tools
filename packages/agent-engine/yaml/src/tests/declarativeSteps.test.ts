@@ -12,11 +12,11 @@ import { render } from '../Template.js';
 import type { YamlCatalogs } from '../YamlCatalogs.js';
 import { YamlPipelineSource } from '../YamlPipelineSource.js';
 import { ActionStep } from '../steps/ActionStep.js';
-import { projectDir } from './fixtures.js';
+import { sourceDir } from './fixtures.js';
 
-/** El proyecto en un engine escuchando su bus; `emitted` junta lo que publican sus pasos. */
+/** La fuente en un engine escuchando su bus; `emitted` junta lo que publican sus pasos. */
 function mount(files: Record<string, string>, catalogs: YamlCatalogs = {}) {
-  const source = new YamlPipelineSource({ dir: projectDir(files), catalogs });
+  const source = new YamlPipelineSource({ dir: sourceDir(files), catalogs });
   const bus = new EventBus();
   const engine = new Engine({ bus, pipelines: source });
   engine.start();
@@ -53,7 +53,7 @@ describe('templates', () => {
 
 describe('vars', () => {
   const files = {
-    'project.yaml': `
+    'source.yaml': `
 id: flow
 vars:
   prefix: ia-flow/
@@ -68,10 +68,10 @@ do:
 `,
   };
 
-  it('are substituted on load — also in a when — from project.yaml over the app ones', async () => {
+  it('are substituted on load — also in a when — from source.yaml over the app ones', async () => {
     const { engine, emitted } = mount(files, {
-      projectVars: (projectId) => ({
-        repos: projectId === 'flow' ? ['la-haus/x'] : [],
+      sourceVars: (sourceId) => ({
+        repos: sourceId === 'flow' ? ['la-haus/x'] : [],
         prefix: 'pisado/',
         board: { owner: 'la-haus', number: 119 },
       }),
@@ -94,18 +94,18 @@ do:
   - { emit: b }
 `;
     const vars = () => ({ events: ['a', 'c'], position: 5, board: { number: 119 } });
-    const { source } = mount({ 'pipelines/p.yaml': pipeline('p') }, { projectVars: vars });
+    const { source } = mount({ 'pipelines/p.yaml': pipeline('p') }, { sourceVars: vars });
     const [loaded] = source.list();
     expect(loaded?.on).toEqual(['a', 'c']);
     expect(loaded?.position).toBe(5);
 
     expect(() =>
-      mount({ 'pipelines/p.yaml': pipeline("'{{vars.board}}'") }, { projectVars: vars }),
+      mount({ 'pipelines/p.yaml': pipeline("'{{vars.board}}'") }, { sourceVars: vars }),
     ).toThrow(/pipelines\/p\.yaml: inválido/);
   });
 
   it('a var nobody declares breaks the load', () => {
-    expect(() => mount(files, { projectVars: () => ({ board: 1 }) })).toThrow(
+    expect(() => mount(files, { sourceVars: () => ({ board: 1 }) })).toThrow(
       /pipelines\/p\.yaml: no hay una var "repos"/,
     );
   });

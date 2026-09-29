@@ -15,7 +15,7 @@ import { z } from 'zod';
 import type { ActionRequest, YamlCatalogs } from '../YamlCatalogs.js';
 import { YamlPipelineSource } from '../YamlPipelineSource.js';
 import { createEngineFromYaml } from '../createEngineFromYaml.js';
-import { projectDir } from './fixtures.js';
+import { sourceDir } from './fixtures.js';
 
 class Named extends Action {
   readonly description: string;
@@ -54,7 +54,7 @@ prompt: Escribí el PRD.
 `;
 
 function load(files: Record<string, string>, catalogs: YamlCatalogs): YamlPipelineSource {
-  return new YamlPipelineSource({ dir: projectDir(files), catalogs });
+  return new YamlPipelineSource({ dir: sourceDir(files), catalogs });
 }
 
 const pipelineOf = (source: YamlPipelineSource, id = 'p') =>
@@ -69,11 +69,11 @@ const run = (pipeline: Pipeline, payload: Record<string, unknown> = {}) =>
   });
 
 describe('YAML format extensions', () => {
-  it('an ActionProvider is built per project and agent, with its options; an agent may take several', () => {
+  it('an ActionProvider is built per source and agent, with its options; an agent may take several', () => {
     const requests: ActionRequest[] = [];
     const source = load(
       {
-        'project.yaml': 'id: flow\n',
+        'source.yaml': 'id: flow\n',
         'agents/writer.yaml': `${AGENT}actions:
   - { action: body, options: { write: [prd] } }
   - fixed
@@ -97,7 +97,7 @@ report: { action: comment }
     const agent = pipelineOf(source).do[0] as Agent;
     expect(agent.toolset.names).toEqual(['update_prd', 'check_prd', 'fixed']);
     expect(requests).toEqual([
-      { projectId: 'flow', agentId: 'writer', options: { write: ['prd'] } },
+      { sourceId: 'flow', agentId: 'writer', options: { write: ['prd'] } },
     ]);
     expect(agent.definition.report?.id).toBe('comment_by_writer');
   });
@@ -120,11 +120,11 @@ report: { action: comment }
     ).toThrow(/arma 2 acciones: como paso tiene que ser una sola/);
   });
 
-  it('project system prompts go before each agent’s; inline input fields become its schema', async () => {
+  it('source system prompts go before each agent’s; inline input fields become its schema', async () => {
     const { runs, providers } = recording();
     const source = load(
       {
-        'project.yaml': 'systemPrompts:\n  - text: Compartido.\n',
+        'source.yaml': 'systemPrompts:\n  - text: Compartido.\n',
         'agents/writer.yaml': `${AGENT}systemPrompts:
   - text: Propio.
 input:
@@ -205,9 +205,9 @@ do:
   });
 
   it('createEngineFromYaml mounts sources built in code before the YAML ones', async () => {
-    const root = projectDir({
-      'engine.yaml': 'sources:\n  - dir: ./projects/flow\n',
-      'projects/flow/pipelines/p.yaml': 'id: from-yaml\non: [e]\ndo:\n  - { function: noop }\n',
+    const root = sourceDir({
+      'engine.yaml': 'sources:\n  - dir: ./sources/flow\n',
+      'sources/flow/pipelines/p.yaml': 'id: from-yaml\non: [e]\ndo:\n  - { function: noop }\n',
     });
     const intake = new Pipeline({ id: 'intake', on: ['e'], do: [new Named('noop-action')] });
     const noop = vi.fn();

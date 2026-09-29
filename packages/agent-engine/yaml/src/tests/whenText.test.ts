@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { YamlCatalogs } from '../YamlCatalogs.js';
 import { YamlPipelineSource } from '../YamlPipelineSource.js';
 import { createEngineFromYaml } from '../createEngineFromYaml.js';
-import { projectDir } from './fixtures.js';
+import { sourceDir } from './fixtures.js';
 
 /** Dice que sí a los criterios que empiezan con `yes`, y guarda qué le preguntaron. */
 function recordingClassifier() {
@@ -25,7 +25,7 @@ function recordingClassifier() {
   return { asked, classifier };
 }
 
-const PROJECT = `
+const SOURCE = `
 id: flow
 systemPrompts:
   - id: criterio-pr
@@ -36,7 +36,7 @@ function mount(files: Record<string, string>, catalogs: YamlCatalogs = {}) {
   const { asked, classifier } = recordingClassifier();
   const ran = vi.fn();
   const source = new YamlPipelineSource({
-    dir: projectDir({ 'project.yaml': PROJECT, ...files }),
+    dir: sourceDir({ 'source.yaml': SOURCE, ...files }),
     catalogs: {
       functions: { ran: (ctx) => ran(ctx.pipelineId) },
       systemPrompts: { resolve: (id) => (id === 'del-catalogo' ? 'Del catálogo.' : undefined) },
@@ -48,7 +48,7 @@ function mount(files: Record<string, string>, catalogs: YamlCatalogs = {}) {
 }
 
 describe('whenText in YAML', () => {
-  it('a pipeline gate with system prompts by id — the project ones and the catalog ones — and inline', async () => {
+  it('a pipeline gate with system prompts by id — the source ones and the catalog ones — and inline', async () => {
     const { engine, asked, ran } = mount({
       'pipelines/yes.yaml': `
 id: yes
@@ -130,18 +130,18 @@ do:
 `,
       }),
     ).toThrow(
-      /pipelines\/p\.yaml: whenText.*no hay un system prompt "no-existe" — el proyecto declara: criterio-pr/,
+      /pipelines\/p\.yaml: whenText.*no hay un system prompt "no-existe" — la fuente declara: criterio-pr/,
     );
   });
 
   it('engine.yaml whenText: builds the Anthropic classifier; a textClassifier option wins', async () => {
-    const dir = projectDir({
+    const dir = sourceDir({
       'engine.yaml': `
-sources: [{ root: ./projects }]
+sources: [{ root: ./sources }]
 whenText: { model: claude-haiku-4-5, apiKeyEnv: SOME_UNSET_KEY }
 `,
-      'projects/flow/project.yaml': 'id: flow',
-      'projects/flow/pipelines/p.yaml': `
+      'sources/flow/source.yaml': 'id: flow',
+      'sources/flow/pipelines/p.yaml': `
 id: p
 on: [a]
 whenText: yes

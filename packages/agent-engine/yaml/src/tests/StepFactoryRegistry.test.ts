@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { StepFactory } from '../StepFactory.js';
 import { YamlPipelineSource } from '../YamlPipelineSource.js';
-import { projectDir } from './fixtures.js';
+import { sourceDir } from './fixtures.js';
 
 const Node = z.strictObject({ log: z.string() });
 
@@ -21,7 +21,7 @@ describe('custom step types', () => {
   it('a registered factory adds a step keyword without touching the loader', async () => {
     const lines: string[] = [];
     const source = new YamlPipelineSource({
-      dir: projectDir({ 'pipelines/p.yaml': 'id: p\non: [e]\ndo:\n  - { log: hola }\n' }),
+      dir: sourceDir({ 'pipelines/p.yaml': 'id: p\non: [e]\ndo:\n  - { log: hola }\n' }),
       catalogs: { steps: [new LogStepFactory(lines)] },
     });
     const [pipeline] = source.list();
@@ -38,7 +38,7 @@ describe('custom step types', () => {
     expect(
       () =>
         new YamlPipelineSource({
-          dir: projectDir({
+          dir: sourceDir({
             'pipelines/p.yaml': 'id: p\non: [e]\ndo:\n  - { emit: x, typo: 1 }\n',
           }),
         }),

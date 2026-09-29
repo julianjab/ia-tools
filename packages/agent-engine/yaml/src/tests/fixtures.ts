@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 /** Una carpeta temporal con estos archivos (ruta relativa → contenido). */
-export function projectDir(files: Record<string, string>): string {
+export function sourceDir(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'agent-engine-yaml-'));
   writeFiles(dir, files);
   return dir;
@@ -19,7 +19,7 @@ export function writeFiles(dir: string, files: Record<string, string>): void {
 
 /** El gate de CI: el implementer termina, se asegura el PR y espera el CI; verde → review. */
 export const CI_GATE = {
-  'project.yaml': `
+  'source.yaml': `
 id: flow
 onError:
   to: [{ action: addLabel, with: { label: blocked } }]
