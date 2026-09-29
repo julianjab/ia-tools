@@ -20,7 +20,7 @@ armado desde un `engine.yaml`. Hace I/O (lee archivos): por eso vive fuera del c
 src/
 ├── YamlPipelineSource.ts    la fuente: caché por firma de archivos + recarga
 ├── ProjectLoader.ts         qué archivos forman un proyecto, y leerlos
-├── ProjectBuilder.ts        documentos → Project (agentes compartidos, pipelines, defaults, refs)
+├── ProjectBuilder.ts        documentos → StaticPipelineSource (agentes compartidos, pipelines, defaults, refs)
 ├── YamlReader.ts            leer + validar un archivo contra su schema (errores con archivo)
 ├── schema.ts                la forma de cada archivo (zod): project, agent, pipeline, engine
 ├── StepFactory.ts           el contrato de un tipo de paso (keyword + schema + create)
@@ -80,7 +80,7 @@ src/
   (`{ text }`), resueltos AL CARGAR — un id que no existe rompe la carga. El de un paso de agente
   gana sobre el del agente. El clasificador sale de `engine.yaml` (`whenText: { model,
   apiKeyEnv }` → `AnthropicTextClassifier`) o de `textClassifier` en código; sin clasificador, o
-  sin veredicto, lo que tiene `whenText` no corre. Un proyecto no admite `whenText`.
+  sin veredicto, lo que tiene `whenText` no corre. Un proyecto no tiene filtro (`when`/`whenText`): qué eventos son suyos lo decide la app.
 - **Los errores dicen dónde**: `<archivo>: <ruta del campo>: <qué>` (`located`).
 - **Una pausa sobrevive a una recarga** si la pipeline no cambió de forma: el `Checkpoint` compara
   `shape` y falla en vez de seguir en otro paso.

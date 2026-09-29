@@ -10,10 +10,10 @@ import {
   type ExitRoute,
   type McpServerRef,
   Pipeline,
-  Project,
   type RouteTarget,
   type RouteTo,
   type Runnable,
+  StaticPipelineSource,
   type Tool,
   type ToolInputSchema,
   type WhenText,
@@ -55,7 +55,8 @@ type DefaultsNode = {
 };
 
 /**
- * Arma un `Project` a partir de sus documentos: agentes (uno por id, compartido por todas las
+ * Arma un proyecto —la fuente de pipelines de una carpeta (`StaticPipelineSource` con su id y sus
+ * defaults)— a partir de sus documentos: agentes (uno por id, compartido por todas las
  * pipelines del proyecto), pipelines y los defaults del proyecto. Cada paso lo arma su factory
  * (`StepFactoryRegistry`); `{ ref: <id> }` reusa un paso ya declarado antes en el `do` de la
  * misma pipeline. Se usa una vez por carga.
@@ -73,7 +74,7 @@ export class ProjectBuilder {
     this.steps = new StepFactoryRegistry(catalogs.steps);
   }
 
-  build(docs: ProjectDocs): Project {
+  build(docs: ProjectDocs): StaticPipelineSource {
     this.projectId = docs.project.doc.id ?? basename(docs.dir);
     this.projectSystemPrompts = docs.project.doc.systemPrompts ?? [];
     for (const located of docs.agents) {
@@ -91,11 +92,9 @@ export class ProjectBuilder {
     return located(
       path,
       () =>
-        new Project({
+        new StaticPipelineSource(pipelines, {
           id: this.projectId,
-          when: Condition.fromRows(doc.when),
-          pipelines,
-          ...this.defaults(doc, context, path),
+          defaults: this.defaults(doc, context, path),
         }),
     );
   }

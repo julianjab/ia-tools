@@ -1,11 +1,10 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
-  DomainEvent,
   ExitDefaults,
   Pipeline,
   PipelineSource,
-  Project,
+  StaticPipelineSource,
 } from '@ia-tools/agent-pipeline';
 import { createLogger } from '@ia-tools/telemetry';
 import { ProjectLoader } from './ProjectLoader.js';
@@ -30,7 +29,7 @@ export class YamlPipelineSource implements PipelineSource {
   readonly log = createLogger('agent-pipeline.yaml');
   readonly dir: string;
   private readonly loader: ProjectLoader;
-  private current: Project;
+  private current: StaticPipelineSource;
   private loadedSignature: string;
 
   constructor(options: YamlPipelineSourceOptions) {
@@ -53,22 +52,18 @@ export class YamlPipelineSource implements PipelineSource {
   }
 
   get id(): string {
-    return this.refresh().id;
+    return this.refresh().id as string;
   }
 
   get defaults(): ExitDefaults {
-    return this.refresh().defaults;
+    return this.refresh().defaults ?? {};
   }
 
   list(): Pipeline[] {
     return this.refresh().list();
   }
 
-  explainMismatch(event: DomainEvent<any>): string | undefined {
-    return this.refresh().explainMismatch(event);
-  }
-
-  private refresh(): Project {
+  private refresh(): StaticPipelineSource {
     const signature = this.loader.signature(this.dir);
     if (signature === this.loadedSignature) return this.current;
     // Se marca antes de cargar: una versión rota se loguea una vez, no en cada evento.

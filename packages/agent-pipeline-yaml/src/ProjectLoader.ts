@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { Project } from '@ia-tools/agent-pipeline';
+import type { StaticPipelineSource } from '@ia-tools/agent-pipeline';
 import type { z } from 'zod';
 import { ProjectBuilder } from './ProjectBuilder.js';
 import { substituteVars } from './Template.js';
@@ -15,7 +15,7 @@ const YAML = /\.ya?ml$/;
  *
  * ```
  * <dir>/
- *   project.yaml        id, when, vars, onError, report   (opcional)
+ *   project.yaml        id, vars, systemPrompts, onError, report   (opcional)
  *   agents/*.yaml       un agente por archivo
  *   pipelines/*.yaml    una pipeline por archivo, en orden de nombre
  * ```
@@ -56,7 +56,7 @@ export class ProjectLoader {
       .join('|');
   }
 
-  load(dir: string): Project {
+  load(dir: string): StaticPipelineSource {
     if (!existsSync(dir) || !statSync(dir).isDirectory()) {
       throw new Error(`${dir}: no es la carpeta de un proyecto`);
     }
