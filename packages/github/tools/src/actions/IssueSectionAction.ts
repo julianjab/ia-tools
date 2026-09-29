@@ -2,7 +2,7 @@ import {
   Action,
   type PipelineExecutionContext,
   type ToolInputSchema,
-} from '@ia-tools/agent-pipeline';
+} from '@ia-tools/agent-engine';
 import type { GithubClient } from '@ia-tools/github-api';
 import type { z } from 'zod';
 import { issuePath } from '../shared.js';

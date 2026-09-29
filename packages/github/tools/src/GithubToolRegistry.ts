@@ -1,10 +1,10 @@
-import { type ToolConstructor, ToolRegistry } from '@ia-tools/agent-pipeline';
+import { type ToolConstructor, ToolRegistry } from '@ia-tools/agent-engine';
 import type { GithubClient } from '@ia-tools/github-api';
 import { AddLabelsTool, CommentIssueTool, GetIssueTool, SearchIssuesTool } from './tools/index.js';
 
 /**
  * Le da acceso a un `Agent` a las tools de GitHub por NOMBRE (`"github_get_issue"`, no un
- * método/import por tool). Auto-instanciación por clase vía `ToolRegistry` (agent-pipeline):
+ * método/import por tool). Auto-instanciación por clase vía `ToolRegistry` (agent-engine):
  * agregar una tool nueva es crear el archivo (extiende `GithubTool`) y sumar UNA línea
  * `GithubToolRegistry.register(SuClase)` acá abajo — nunca se toca el constructor de esta
  * clase ni `ToolRegistry`.

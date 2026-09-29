@@ -1,6 +1,6 @@
 # @ia-tools/fs-tools
 
-`Tool[]` de [`@ia-tools/agent-pipeline`](../agent-pipeline) para que un agente lea, liste,
+`Tool[]` de [`@ia-tools/agent-engine`](../agent-engine) para que un agente lea, liste,
 busque, escriba y edite archivos — contenidas SIEMPRE a un `baseDir` (típicamente un worktree).
 Réplica acotada de `fs_read`/`fs_list`/`fs_grep`/`fs_write`/`fs_edit` del roster real de
 `ai-development-flow` (ver `examples/apps/ai-development-flow-runner.ts`).
@@ -15,7 +15,7 @@ pnpm --filter @ia-tools/fs-tools test
 ## Uso
 
 ```ts
-import { Agent } from '@ia-tools/agent-pipeline';
+import { Agent } from '@ia-tools/agent-engine';
 import { FsToolRegistry } from '@ia-tools/fs-tools';
 
 const fsTools = new FsToolRegistry('/path/al/worktree');

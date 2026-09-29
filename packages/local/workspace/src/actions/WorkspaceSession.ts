@@ -1,4 +1,4 @@
-import type { DomainEvent, PipelineExecutionContext } from '@ia-tools/agent-pipeline';
+import type { DomainEvent, PipelineExecutionContext } from '@ia-tools/agent-engine';
 import type { CloneableRepo, WorkspaceManager } from '../WorkspaceManager.js';
 import type { WorktreeNameSource } from '../layout.js';
 

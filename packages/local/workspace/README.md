@@ -2,7 +2,7 @@
 
 El checkout donde corre un agente: un clone persistente por repo y un `git worktree` por task,
 con locks, reuso seguro y limpieza. Port de `@ia-flow/workspace` (ia-flow), más las piezas que lo
-enchufan a [`@ia-tools/agent-pipeline`](../../agent-pipeline).
+enchufan a [`@ia-tools/agent-engine`](../../agent-engine).
 
 ## Dos capas
 
@@ -20,7 +20,7 @@ enchufan a [`@ia-tools/agent-pipeline`](../../agent-pipeline).
 ## Uso
 
 ```ts
-import { Agent } from '@ia-tools/agent-pipeline';
+import { Agent } from '@ia-tools/agent-engine';
 import { NodeShellRunner, WorkspaceManager, WorkspaceSession, workspaceAction } from '@ia-tools/workspace';
 
 const manager = new WorkspaceManager(new NodeShellRunner(), {

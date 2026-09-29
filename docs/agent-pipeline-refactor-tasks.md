@@ -61,14 +61,14 @@ adaptadores en paquetes aparte.
 - [x] limpiar
 - [x] commit
 
-## B1 — YAML (paquete `@ia-tools/agent-pipeline-yaml`)
+## B1 — YAML (paquete `@ia-tools/agent-engine-yaml`)
 - [x] schemas zod: project, agent, pipeline, steps, condiciones
 - [x] `StepFactoryRegistry` (agent, emit, http, pause, action) + catálogos (actions, tools, mappers, providers)
 - [x] `YamlPipelineSource` (un Project por carpeta, caché por mtime, conserva la última versión buena)
 - [x] pasa `pipelineSourceContract`; fixture equivalente a un test del engine
 - [x] commit `feat(agent-pipeline-yaml): …`
 
-## B2 — SQLite (paquete `@ia-tools/agent-pipeline-sqlite`)
+## B2 — SQLite (paquete `@ia-tools/agent-engine-sqlite`)
 - [x] migraciones (`schema_version`), WAL
 - [x] `SqliteExecutionRepository` síncrono
 - [x] pasa `executionStoreContract`
@@ -82,7 +82,7 @@ adaptadores en paquetes aparte.
 - [x] commit
 
 ## Cierre
-- [x] actualizar `packages/agent-pipeline/CLAUDE.md` (estructura, ejecuciones, repositorio)
+- [x] actualizar `packages/agent-engine/core/CLAUDE.md` (estructura, ejecuciones, repositorio)
 - [x] actualizar `docs/agent-pipeline.mmd`
 - [x] repasar exports de `index.ts` (nada muerto)
 - [x] `pnpm lint` (0 errores), `pnpm typecheck`, `pnpm build` en el root; tests de los 12 paquetes y de examples

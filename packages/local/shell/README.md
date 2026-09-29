@@ -1,6 +1,6 @@
 # @ia-tools/shell-tools
 
-`Tool` `bash_run` de [`@ia-tools/agent-pipeline`](../agent-pipeline) — ejecuta un comando SIN
+`Tool` `bash_run` de [`@ia-tools/agent-engine`](../agent-engine) — ejecuta un comando SIN
 shell (sin pipes, redirecciones ni expansión) contra una policy allow/deny posicional. Réplica
 acotada del `bash_run` de `ai-development-flow` (ver `examples/apps/ai-development-flow-runner.ts`
 y `20-implementer.yaml` en ese repo).
@@ -15,7 +15,7 @@ pnpm --filter @ia-tools/shell-tools test
 ## Uso
 
 ```ts
-import { Agent } from '@ia-tools/agent-pipeline';
+import { Agent } from '@ia-tools/agent-engine';
 import { BashRunTool, DEFAULT_DENY_PATTERNS } from '@ia-tools/shell-tools';
 
 const bashRun = new BashRunTool({

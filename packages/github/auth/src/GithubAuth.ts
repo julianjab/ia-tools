@@ -3,7 +3,7 @@
  * consigue el token, nunca cómo se usa. `GithubTokenAuth` (login de usuario: un PAT o un OAuth
  * user token ya emitido) y `GithubAppAuth` (login de GitHub App: PEM → installation token) son
  * intercambiables detrás de esto — cualquier caller que necesite un token (un `GithubClient`
- * propio, el `authorizationToken` de un `McpServerRef` de `@ia-tools/agent-pipeline`, un
+ * propio, el `authorizationToken` de un `McpServerRef` de `@ia-tools/agent-engine`, un
  * `fetch` a mano) recibe un `GithubAuth`, nunca sabe cuál de las dos implementaciones tiene
  * enfrente.
  */

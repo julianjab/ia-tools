@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { SchemaTool } from '@ia-tools/agent-pipeline';
+import { SchemaTool } from '@ia-tools/agent-engine';
 import { z } from 'zod';
 import { type BashPolicy, isAllowed, isDenied } from './BashPolicy.js';
 import { tokenize } from './tokenize.js';

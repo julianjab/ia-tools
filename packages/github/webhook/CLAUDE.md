@@ -2,12 +2,12 @@
 
 Ver `README.md` para el contrato de uso; esto es guía específica para trabajar en el código.
 
-## No depende de `@ia-tools/agent-pipeline`, a propósito
+## No depende de `@ia-tools/agent-engine`, a propósito
 
 Lo único que "presta" hacia afuera es un objeto con la forma de `DomainEvent`
 (`GithubWebhookEvent` — mismos campos: `type`, `payload`, `scope?`, `occurredAt`, `depth`), y esa
 forma la declara ACÁ, sin importar el tipo real. TypeScript lo acepta en cualquier sitio tipado
-`DomainEvent<any>` por matching estructural. Si `agent-pipeline` cambia la forma de
+`DomainEvent<any>` por matching estructural. Si `agent-engine` cambia la forma de
 `DomainEvent`, este paquete NO se entera en tiempo de compilación — trade-off consciente: la
 ganancia de ser 100% standalone (usable por cualquier engine) pesa más que la sincronía en
 compile-time.

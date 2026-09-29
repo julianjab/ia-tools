@@ -1,16 +1,16 @@
 # @ia-tools/provider-anthropic
 
-`Provider` de Anthropic para `@ia-tools/agent-pipeline`, portado de
+`Provider` de Anthropic para `@ia-tools/agent-engine`, portado de
 `ia-flow/packages/ai-providers/src/anthropic-api`. Ver `README.md` para el contrato de uso;
 esto es guía específica para trabajar en el código del paquete.
 
 ## Qué es este paquete
 
-Es infra CONCRETA (a diferencia de `agent-pipeline`, que es contrato puro): hace `fetch` real
+Es infra CONCRETA (a diferencia de `agent-engine`, que es contrato puro): hace `fetch` real
 contra `https://api.anthropic.com`, lee `process.env`, maneja retries de red. Depende de
-`@ia-tools/agent-pipeline` (implementa su `Provider`), nunca al revés — si algún día hiciera
-falta que `agent-pipeline` supiera algo de este paquete, es señal de que ese algo pertenece en
-`agent-pipeline/src/` como contrato, no acá.
+`@ia-tools/agent-engine` (implementa su `Provider`), nunca al revés — si algún día hiciera
+falta que `agent-engine` supiera algo de este paquete, es señal de que ese algo pertenece en
+`agent-engine/src/` como contrato, no acá.
 
 ## Estructura
 
@@ -36,7 +36,7 @@ src/
 protocol (headers, retry, SSE). Es la pieza que usaría cualquier OTRO caller que necesite pegarle
 a la API sin todo el aparato de `AnthropicProvider` (ej. un clasificador liviano de una sola
 vuelta, sin tools). `AnthropicProvider` es la que sabe de `ProviderRunContext`/`ProviderRunOutput`
-(el contrato de `agent-pipeline`) y arma el loop de tool_use sobre ese `AnthropicClient`.
+(el contrato de `agent-engine`) y arma el loop de tool_use sobre ese `AnthropicClient`.
 
 Si necesitás agregar algo que es puramente "cómo le hablamos a la API" (un header nuevo, un modo
 de retry distinto), va en `AnthropicClient`. Si es "cómo interpretamos la respuesta para un
@@ -67,17 +67,17 @@ agente sin plumbing:
 
 `onToolCall`/`onToolResult` siguen existiendo para un caller sin OTel (ej. imprimir en consola).
 
-## Ciclo de dependencias con `agent-pipeline` — por qué los examples NO viven acá ni ahí
+## Ciclo de dependencias con `agent-engine` — por qué los examples NO viven acá ni ahí
 
-Este paquete depende de `@ia-tools/agent-pipeline` (implementa su `Provider`). Si
-`agent-pipeline` a su vez dependiera de este paquete —aunque sea sólo en `devDependencies`, para
+Este paquete depende de `@ia-tools/agent-engine` (implementa su `Provider`). Si
+`agent-engine` a su vez dependiera de este paquete —aunque sea sólo en `devDependencies`, para
 sus propios examples— `pnpm` lo marca como dependencia cíclica entre workspaces, lo que rompe el
 orden de `pnpm -r build`. Por eso las apps de ejemplo que combinan los dos paquetes
 (`github-issue-triage.ts`, `slack-support-reply.ts`, `travel-planner.ts`) viven en
 `ia-tools/examples/` (raíz del monorepo, gitignoreado, ver `.gitignore` y `pnpm-workspace.yaml`)
 — un tercer lugar que depende de ambos sin que ninguno de los dos dependa del otro.
 
-## Tests — mismo esquema que `agent-pipeline`
+## Tests — mismo esquema que `agent-engine`
 
 `src/*/tests/` al lado de lo que prueban (acá todo vive en `src/tests/` porque no hay
 subcarpetas). `vitest.config.ts` mira `src/**/tests/**/*.test.ts`.
@@ -95,7 +95,7 @@ pnpm --filter @ia-tools/provider-anthropic test
 pnpm --filter @ia-tools/provider-anthropic build
 ```
 
-`pnpm build` importa igual que en `agent-pipeline`: `tsconfig.build.json` excluye
+`pnpm build` importa igual que en `agent-engine`: `tsconfig.build.json` excluye
 `src/**/tests/**`, así que un `dist/` viejo con archivos de un módulo renombrado/borrado hay que
 limpiarlo a mano antes de rebuildear (`tsc` no borra outputs huérfanos):
 `find dist -type f -delete && find dist -type d -empty -delete`.

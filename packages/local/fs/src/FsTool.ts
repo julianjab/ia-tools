@@ -1,4 +1,4 @@
-import { SchemaTool, type ToolInputSchema } from '@ia-tools/agent-pipeline';
+import { SchemaTool, type ToolInputSchema } from '@ia-tools/agent-engine';
 import { resolveSafePath } from './shared.js';
 
 /** Base de las 5 fs_* tools — comparte `this.baseDir` y `this.resolveSafePath(...)` (delegado a

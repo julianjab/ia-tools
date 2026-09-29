@@ -1,7 +1,7 @@
 {
   "name": "@ia-tools/workspace",
   "version": "0.1.0",
-  "description": "Ciclo de vida del checkout donde corre un agente (clone + git worktree por task, locks, limpieza) — port de @ia-flow/workspace — más las Actions que lo enchufan a agent-pipeline",
+  "description": "Ciclo de vida del checkout donde corre un agente (clone + git worktree por task, locks, limpieza) — port de @ia-flow/workspace — más las Actions que lo enchufan a agent-engine",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +20,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ia-tools/agent-pipeline": "workspace:*",
+    "@ia-tools/agent-engine": "workspace:*",
     "@ia-tools/fs-tools": "workspace:*",
     "@ia-tools/shell-tools": "workspace:*",
     "zod": "^4.3.6"

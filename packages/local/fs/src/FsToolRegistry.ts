@@ -1,9 +1,9 @@
-import { type ToolConstructor, ToolRegistry } from '@ia-tools/agent-pipeline';
+import { type ToolConstructor, ToolRegistry } from '@ia-tools/agent-engine';
 import { FsEditTool, FsGrepTool, FsListTool, FsReadTool, FsWriteTool } from './tools/index.js';
 
 /**
  * Acceso por nombre a las 5 fs_* tools, todas contenidas al mismo `baseDir`. Mismo diseño que
- * `GithubToolRegistry` (`@ia-tools/github-tools`): extiende `ToolRegistry` de agent-pipeline,
+ * `GithubToolRegistry` (`@ia-tools/github-tools`): extiende `ToolRegistry` de agent-engine,
  * registro centralizado acá (no en cada archivo de tool) para evitar el ciclo ESM/TDZ — ver la
  * nota en `GithubToolRegistry.ts` para el porqué completo.
  */

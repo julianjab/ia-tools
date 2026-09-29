@@ -1,5 +1,5 @@
 /**
- * Un evento crudo — misma FORMA que `DomainEvent` de `@ia-tools/agent-pipeline` (`type`,
+ * Un evento crudo — misma FORMA que `DomainEvent` de `@ia-tools/agent-engine` (`type`,
  * `payload`, `scope?`, `occurredAt`, `depth`), pero SIN importar ese paquete (ver CLAUDE.md:
  * este package es standalone). Cualquier consumidor que tipe sus eventos como
  * `DomainEvent<any>` acepta este objeto tal cual por matching estructural.

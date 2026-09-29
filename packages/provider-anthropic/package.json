@@ -1,7 +1,7 @@
 {
   "name": "@ia-tools/provider-anthropic",
   "version": "0.1.0",
-  "description": "Provider de Anthropic (Messages API) para @ia-tools/agent-pipeline — streaming, retries, extended thinking, task budgets, MCP remoto y checkpointing, portado de ia-flow",
+  "description": "Provider de Anthropic (Messages API) para @ia-tools/agent-engine — streaming, retries, extended thinking, task budgets, MCP remoto y checkpointing, portado de ia-flow",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +20,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ia-tools/agent-pipeline": "workspace:*",
+    "@ia-tools/agent-engine": "workspace:*",
     "@ia-tools/telemetry": "workspace:*"
   },
   "devDependencies": {

@@ -14,7 +14,7 @@ pnpm --filter @ia-tools/github-webhook test
 ## El traductor lo escribe la APP
 
 Este paquete NO decide qué `action` de GitHub importa ni cómo se llama el evento resultante —
-esa es la pieza que une este paquete con el engine que la app use (`@ia-tools/agent-pipeline` u
+esa es la pieza que une este paquete con el engine que la app use (`@ia-tools/agent-engine` u
 otro), y cada app tiene su propio vocabulario de eventos. Lo que el paquete expone son los
 primitivos para que la app escriba ese traductor como una función simple:
 
@@ -42,11 +42,11 @@ if (!verifier.verify(rawBody, req.headers['x-hub-signature-256'])) {
   res.writeHead(401).end();
 } else {
   const event = translate(req.headers['x-github-event'], JSON.parse(rawBody));
-  if (event) await bus.publish(event); // agent-pipeline lo acepta tal cual — mismo shape que DomainEvent
+  if (event) await bus.publish(event); // agent-engine lo acepta tal cual — mismo shape que DomainEvent
 }
 ```
 
-`GithubWebhookEvent` tiene la misma FORMA que `DomainEvent` de `@ia-tools/agent-pipeline`
+`GithubWebhookEvent` tiene la misma FORMA que `DomainEvent` de `@ia-tools/agent-engine`
 (`type`, `payload`, `scope?`, `occurredAt`, `depth`) sin importarlo — matching estructural.
 
 ## Lo que expone

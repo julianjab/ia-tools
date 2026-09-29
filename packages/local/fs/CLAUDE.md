@@ -12,22 +12,22 @@ src/
 │   ├── FsReadTool.ts, FsListTool.ts, FsGrepTool.ts, FsWriteTool.ts, FsEditTool.ts
 │   ├── index.ts              barrel — re-exporta las 5 clases (API pública, no dispara registro)
 │   └── tests/                un .test.ts por tool
-├── FsToolRegistry.ts         extiende ToolRegistry<[string]> de agent-pipeline + registra las 5
+├── FsToolRegistry.ts         extiende ToolRegistry<[string]> de agent-engine + registra las 5
 ├── index.ts
 └── tests/                    shared.test.ts, FsToolRegistry.test.ts, index.test.ts
 ```
 
 Mismo patrón que `@ia-tools/github-tools`: una tool por archivo, cada una una CLASE que extiende
-`FsTool<S>` (que a su vez extiende `SchemaTool<S>` de `agent-pipeline`; constructor recibe
+`FsTool<S>` (que a su vez extiende `SchemaTool<S>` de `agent-engine`; constructor recibe
 `baseDir: string`, hereda `this.resolveSafePath(...)`), y
-`FsToolRegistry` extiende `ToolRegistry<[string]>` de `@ia-tools/agent-pipeline` — la lógica de
+`FsToolRegistry` extiende `ToolRegistry<[string]>` de `@ia-tools/agent-engine` — la lógica de
 `get()`/`names()`/`all()`/`resolve()` vive ahí, compartida con `github-tools`. El registro de las
 5 clases está centralizado en `FsToolRegistry.ts` (`FsToolRegistry.register(FsReadTool)`, etc.),
 no repartido en cada archivo de tool — ver la nota completa en el `CLAUDE.md` de `github-tools`
 ("Por qué el registro no vive en cada tool file"), el motivo (un ciclo ESM/TDZ) es idéntico acá.
 Ninguna de las dos tiene un `Client` de por medio — `node:fs/promises` alcanza — así que no hay
-una versión "sin agent-pipeline" separada como `github-api`; este paquete ya depende de
-`agent-pipeline` directo (necesita `Tool`/`ToolRegistry`).
+una versión "sin agent-engine" separada como `github-api`; este paquete ya depende de
+`agent-engine` directo (necesita `Tool`/`ToolRegistry`).
 
 ## Agregar una tool nueva
 
@@ -36,7 +36,7 @@ una versión "sin agent-pipeline" separada como `github-api`; este paquete ya de
    protected async execute(input: MiToolInput) { ... } }`. El input se declara UNA vez como
    `export const MiToolInput = z.strictObject({...})` + `export type MiToolInput =
    z.infer<typeof MiToolInput>` — de ahí salen el `inputSchema` que ve el modelo y la
-   validación en runtime (`SchemaTool` de `agent-pipeline`); nunca escribas `inputSchema` a mano.
+   validación en runtime (`SchemaTool` de `agent-engine`); nunca escribas `inputSchema` a mano.
    Siempre `strictObject`: el tipo de `SchemaTool` no acepta otro.
 2. Sumala a `src/tools/index.ts` (el barrel).
 3. En `FsToolRegistry.ts`: importala del barrel y agregá `FsToolRegistry.register(MiTool);` al

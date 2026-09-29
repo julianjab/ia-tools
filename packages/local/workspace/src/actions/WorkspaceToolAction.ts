@@ -4,7 +4,7 @@ import {
   type SchemaTool,
   type SideEffects,
   type ToolInputSchema,
-} from '@ia-tools/agent-pipeline';
+} from '@ia-tools/agent-engine';
 import { FsToolRegistry } from '@ia-tools/fs-tools';
 import { type BashPolicy, BashRunTool, timeoutNote } from '@ia-tools/shell-tools';
 import type { WorkspaceSession } from './WorkspaceSession.js';

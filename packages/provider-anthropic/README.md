@@ -1,11 +1,11 @@
 # @ia-tools/provider-anthropic
 
-`Provider` de Anthropic para [`@ia-tools/agent-pipeline`](../agent-pipeline) — habla la Messages
+`Provider` de Anthropic para [`@ia-tools/agent-engine`](../agent-engine) — habla la Messages
 API real: streaming, retries con backoff, extended thinking, task budgets, MCP remoto y
 checkpointing. Portado de `ia-flow/packages/ai-providers/src/anthropic-api`, adaptado al
 contrato `Provider` (`{ id, run(ctx) }`) del harness en vez del `IAgentProvider` completo de
 ia-flow (que necesita `ToolExecutionPort`, `WorkspaceProvisionerPort` y un compilador de policy
-que `agent-pipeline` no modela).
+que `agent-engine` no modela).
 
 ## Instalar (dentro del monorepo)
 
@@ -16,12 +16,12 @@ pnpm --filter @ia-tools/provider-anthropic test
 
 `"@ia-tools/provider-anthropic": "workspace:*"` en el `package.json` de quien lo use. Fuera del
 monorepo: `npm pack` o un registry privado — su única dependencia runtime es
-`@ia-tools/agent-pipeline`.
+`@ia-tools/agent-engine`.
 
 ## Uso mínimo
 
 ```ts
-import { Agent, Pipeline, providerRegistry } from '@ia-tools/agent-pipeline';
+import { Agent, Pipeline, providerRegistry } from '@ia-tools/agent-engine';
 import { AnthropicProvider } from '@ia-tools/provider-anthropic';
 
 providerRegistry.register(new AnthropicProvider({ id: 'anthropic-api', model: 'claude-sonnet-5' }));
@@ -44,7 +44,7 @@ AnthropicClient    auth + headers + retry con backoff + reensamblado de streamin
                     loops — es lo que hablaría CUALQUIER caller (un chat, un clasificador
                     liviano, un script). Se puede usar sola.
 
-AnthropicProvider   implementa Provider (agent-pipeline). Compone un AnthropicClient y le
+AnthropicProvider   implementa Provider (agent-engine). Compone un AnthropicClient y le
                     agrega el loop de tool_use, MCP remoto, thinking/task budgets y
                     checkpointing — todo lo que sabe de "cómo correr UN Agent".
 ```
@@ -161,7 +161,7 @@ responsabilidad del caller, con el mismo mecanismo de arriba.
 
 ## Lo que NO porta de ia-flow (a propósito)
 
-- **`ToolExecutionPort`/`WorkspaceProvisionerPort`/policy compilada** — `agent-pipeline` no
+- **`ToolExecutionPort`/`WorkspaceProvisionerPort`/policy compilada** — `agent-engine` no
   modela worktrees ni un compilador de allow/deny; las `tools[]` de un `Agent` ya vienen
   resueltas.
 - **Contexto a disco (`logContext`)** — sin logger port en este harness; usá `onToolCall`/

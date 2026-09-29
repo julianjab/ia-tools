@@ -1,4 +1,4 @@
-import type { PipelineExecutionContext } from '@ia-tools/agent-pipeline';
+import type { PipelineExecutionContext } from '@ia-tools/agent-engine';
 
 export interface IssueRef {
   owner: string;

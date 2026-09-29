@@ -14,9 +14,9 @@ importers:
 
   examples:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../packages/agent-pipeline
+        version: link:../packages/agent-engine/core
       '@ia-tools/fs-tools':
         specifier: workspace:*
         version: link:../packages/local/fs
@@ -85,11 +85,11 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
 
-  packages/agent-pipeline:
+  packages/agent-engine/core:
     dependencies:
       '@ia-tools/telemetry':
         specifier: workspace:*
-        version: link:../telemetry
+        version: link:../../telemetry
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -119,14 +119,14 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
 
-  packages/agent-pipeline-sqlite:
+  packages/agent-engine/sqlite:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../agent-pipeline
+        version: link:../core
       '@ia-tools/telemetry':
         specifier: workspace:*
-        version: link:../telemetry
+        version: link:../../telemetry
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -138,14 +138,14 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.28.0)(yaml@2.9.1))
 
-  packages/agent-pipeline-yaml:
+  packages/agent-engine/yaml:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../agent-pipeline
+        version: link:../core
       '@ia-tools/telemetry':
         specifier: workspace:*
-        version: link:../telemetry
+        version: link:../../telemetry
       yaml:
         specifier: ^2.6.0
         version: 2.9.1
@@ -153,9 +153,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
-      '@ia-tools/agent-pipeline-sqlite':
+      '@ia-tools/agent-engine-sqlite':
         specifier: workspace:*
-        version: link:../agent-pipeline-sqlite
+        version: link:../sqlite
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -196,9 +196,9 @@ importers:
 
   packages/github/tools:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../../agent-pipeline
+        version: link:../../agent-engine/core
       '@ia-tools/github-api':
         specifier: workspace:*
         version: link:../api
@@ -233,9 +233,9 @@ importers:
 
   packages/local/fs:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../../agent-pipeline
+        version: link:../../agent-engine/core
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -252,9 +252,9 @@ importers:
 
   packages/local/shell:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../../agent-pipeline
+        version: link:../../agent-engine/core
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -271,9 +271,9 @@ importers:
 
   packages/local/workspace:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../../agent-pipeline
+        version: link:../../agent-engine/core
       '@ia-tools/fs-tools':
         specifier: workspace:*
         version: link:../fs
@@ -296,9 +296,9 @@ importers:
 
   packages/provider-anthropic:
     dependencies:
-      '@ia-tools/agent-pipeline':
+      '@ia-tools/agent-engine':
         specifier: workspace:*
-        version: link:../agent-pipeline
+        version: link:../agent-engine/core
       '@ia-tools/telemetry':
         specifier: workspace:*
         version: link:../telemetry

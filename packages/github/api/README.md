@@ -32,4 +32,4 @@ const res = await client.request('/repos/o/r/issues/1');
 ## Quién lo consume
 
 [`@ia-tools/github-tools`](../tools) — envuelve un `GithubClient` en `Tool[]` para
-`@ia-tools/agent-pipeline`. Este paquete no sabe qué es un `Tool` ni un `Agent`.
+`@ia-tools/agent-engine`. Este paquete no sabe qué es un `Tool` ni un `Agent`.

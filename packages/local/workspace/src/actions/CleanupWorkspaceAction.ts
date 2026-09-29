@@ -1,4 +1,4 @@
-import { Action, type PipelineExecutionContext } from '@ia-tools/agent-pipeline';
+import { Action, type PipelineExecutionContext } from '@ia-tools/agent-engine';
 import { z } from 'zod';
 import type { WorkspaceSession } from './WorkspaceSession.js';
 

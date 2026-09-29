@@ -1,8 +1,8 @@
 # @ia-tools/github-tools
 
-`Tool[]` de [`@ia-tools/agent-pipeline`](../../agent-pipeline) respaldadas por la REST API de
+`Tool[]` de [`@ia-tools/agent-engine`](../../agent-engine) respaldadas por la REST API de
 GitHub — leer un issue, comentar, agregar labels, buscar issues. Es el ÚNICO puente entre
-[`@ia-tools/github-api`](../api) (el client, no sabe qué es un `Agent`) y `agent-pipeline`
+[`@ia-tools/github-api`](../api) (el client, no sabe qué es un `Agent`) y `agent-engine`
 (el tipo `Tool`, no sabe hablar con GitHub) — ninguno de los dos se conoce entre sí.
 
 ## Instalar (dentro del monorepo)
@@ -15,7 +15,7 @@ pnpm --filter @ia-tools/github-tools test
 ## Uso
 
 ```ts
-import { Agent } from '@ia-tools/agent-pipeline';
+import { Agent } from '@ia-tools/agent-engine';
 import { GithubTokenAuth } from '@ia-tools/github-auth';
 import { GithubClient } from '@ia-tools/github-api';
 import { GithubToolRegistry } from '@ia-tools/github-tools';
@@ -62,7 +62,7 @@ convierte eso en un `tool_result` con `is_error: true` en vez de tumbar el run e
 
 ## Por qué es un paquete propio y no vive en `@ia-tools/github-api`
 
-`@ia-tools/github-api` es standalone a propósito (cero dependencia de `agent-pipeline`, usable
-por cualquier engine). El tipo `Tool` es vocabulario de `agent-pipeline`, así que envolver
+`@ia-tools/github-api` es standalone a propósito (cero dependencia de `agent-engine`, usable
+por cualquier engine). El tipo `Tool` es vocabulario de `agent-engine`, así que envolver
 `GithubClient` en `Tool[]` necesita conocer los dos — de ahí que sea un cuarto paquete, no que
 uno de los otros importe al que le falta.

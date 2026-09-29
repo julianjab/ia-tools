@@ -5,7 +5,7 @@ Ver `README.md` para el contrato de uso; esto es guía específica para trabajar
 ## Depende de `@ia-tools/github-auth`, nada más
 
 Única dependencia runtime del monorepo — necesita el tipo `GithubAuth` para no acoplarse a una
-implementación concreta. No depende de `@ia-tools/github-webhook` ni de `@ia-tools/agent-pipeline`.
+implementación concreta. No depende de `@ia-tools/github-webhook` ni de `@ia-tools/agent-engine`.
 
 ## Validación de host — no es opcional
 

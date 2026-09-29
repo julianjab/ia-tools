@@ -4,7 +4,7 @@ import type {
   ProviderRunContext,
   ProviderRunOutput,
   Tool,
-} from '@ia-tools/agent-pipeline';
+} from '@ia-tools/agent-engine';
 import { createLogger, traced } from '@ia-tools/telemetry';
 import {
   AnthropicClient,
@@ -342,7 +342,7 @@ function needsSubmit(terminalTools: Tool[]): boolean {
 }
 
 /**
- * Provider de Anthropic — implementa `Provider` (`@ia-tools/agent-pipeline`) contra la Messages
+ * Provider de Anthropic — implementa `Provider` (`@ia-tools/agent-engine`) contra la Messages
  * API real: streaming, retries, extended thinking, task budgets, MCP remoto y checkpointing,
  * portado de `ia-flow/packages/ai-providers/src/anthropic-api`. Uso mínimo:
  *
@@ -443,7 +443,7 @@ export class AnthropicProvider implements Provider {
 
       if (data.stop_reason === 'max_tokens') {
         // Se quedó sin tokens a mitad de la respuesta — NO es un resultado del agente, así que
-        // el outcome es 'truncated': `Agent.run` (agent-pipeline) trata esto como
+        // el outcome es 'truncated': `Agent.run` (agent-engine) trata esto como
         // NO_TRANSITION_OUTCOMES y no aplica ninguna transición, en vez de leer un texto
         // cortado a la mitad como 'success'.
         const text = data.content.find((block) => block.type === 'text')?.text ?? '';

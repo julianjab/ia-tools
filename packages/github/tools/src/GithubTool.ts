@@ -1,4 +1,4 @@
-import { SchemaTool, type ToolInputSchema } from '@ia-tools/agent-pipeline';
+import { SchemaTool, type ToolInputSchema } from '@ia-tools/agent-engine';
 import type { GithubClient } from '@ia-tools/github-api';
 import { type GithubIssueApiShape, issuePath, summarizeIssue } from './shared.js';
 

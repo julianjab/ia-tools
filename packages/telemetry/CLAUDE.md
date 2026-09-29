@@ -1,7 +1,7 @@
 # @ia-tools/telemetry
 
 Trazas y logs para cualquier paquete de ia-tools. No sabe nada de agentes ni pipelines: lo usan
-`agent-pipeline`, `provider-anthropic` y cualquier otro paquete (los de `github/` no necesitan
+`agent-engine`, `provider-anthropic` y cualquier otro paquete (los de `github/` no necesitan
 arrastrar el engine para loguear).
 
 ## Qué es y qué NO es
@@ -66,5 +66,5 @@ pnpm --filter @ia-tools/telemetry test
 pnpm --filter @ia-tools/telemetry build
 ```
 
-`agent-pipeline` y `provider-anthropic` compilan contra el `dist/` de este paquete: después de
+`agent-engine` y `provider-anthropic` compilan contra el `dist/` de este paquete: después de
 cambiar su API, `pnpm --filter @ia-tools/telemetry build` antes de typecheckear a los otros.

@@ -3,7 +3,7 @@
  * el loop de tools no mezcla spans con la lógica. Convenciones GenAI de OpenTelemetry (`gen_ai.*`),
  * las que Datadog/Grafana ya saben leer.
  */
-import type { Tool } from '@ia-tools/agent-pipeline';
+import type { Tool } from '@ia-tools/agent-engine';
 import { SpanKind, type TraceOptions, markError, truncate } from '@ia-tools/telemetry';
 import type {
   AnthropicContentBlock,

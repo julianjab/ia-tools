@@ -10,7 +10,7 @@ src/
 ├── layout.ts             nombres y paths (task-<n>, <base>/<repo>/.worktrees/<name>) — puro
 ├── shell.ts              ShellRunner (interfaz) + NodeShellRunner
 ├── logger.ts             WorkspaceLogger + noopLogger
-├── actions/              lo que se enchufa a agent-pipeline
+├── actions/              lo que se enchufa a agent-engine
 │   ├── WorkspaceSession.ts        worktree por corrida (clave: el evento)
 │   ├── WorkspaceToolAction.ts     fs_* / bash_run como Action + workspaceAction()
 │   └── CleanupWorkspaceAction.ts  paso cleanup_workspace
