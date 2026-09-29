@@ -11,6 +11,8 @@ export type {
   YamlCatalogs,
 } from './YamlCatalogs.js';
 export { hasTemplate, render, substituteVars, templateRoot } from './Template.js';
+export type { ActionStepProps } from './steps/ActionStep.js';
+export { ActionStep } from './steps/ActionStep.js';
 export type { EmitStepProps } from './steps/EmitStep.js';
 export { EmitStep } from './steps/EmitStep.js';
 export type { HttpStepProps } from './steps/HttpStep.js';

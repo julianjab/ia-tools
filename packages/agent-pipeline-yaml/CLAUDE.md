@@ -69,6 +69,9 @@ src/
   `query:`; un path con `?`/`#` falla.
   Sin `connection`, `http` es una URL y no lleva secretos. `graphql` hace el POST y lee `data`
   (con `errors`, falla); `select` es el dot path de lo que queda como output.
+- **Una acción con `with` en plantilla** (`{ action: x, with: { n: '{{issue.number}}' } }`) se
+  resuelve en cada corrida y la acción la valida como cualquier input (`ActionStep`); un `with`
+  fijo sigue siendo `Action.bind`, validado al cargar.
 - **Una función de catálogo con `with`** recibe esos valores como input: así es pura y sirve en
   cualquier pipeline. Sin `with`, recibe `(ctx, undefined)`.
 - **Los errores dicen dónde**: `<archivo>: <ruta del campo>: <qué>` (`located`).
